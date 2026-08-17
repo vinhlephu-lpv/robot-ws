@@ -1,0 +1,8 @@
+================================================================================
+ ROBOT SYSTEM RUN LOG | STARTED: 2026-08-08 14:46:43
+ CSV Telemetry File : logs/telemetry_2026-08-08_14-46-43.csv
+ Text System Log File: logs/system_run_2026-08-08_14-46-43.log
+================================================================================
+[14:46:43.457] [ SYSTEM_START  ] Telemetry and Logging system started cleanly.
+[14:46:46.789] [ SYSTEM_STATUS ] [STATUS] [   TRACKING    ] | Steer:  +0.00° (C) | Vel: (0.45m/s, -0.00r/s) | Pose: ( 0.00m,  0.00m) | Conf: 0.00 | GPS: (10.775667°, 106.670889° [NO_FIX])
+[14:46:47.716] [ SYSTEM_STATUS ] [STATUS] [   TRACKING    ] | Steer:  +0.00° (C) | Vel: (0.45m/s, -0.00r/s) | Pose: ( 0.36m,  0.00m) | Conf: 0.17 | GPS: (10.775671°, 106.670877° [FIX])

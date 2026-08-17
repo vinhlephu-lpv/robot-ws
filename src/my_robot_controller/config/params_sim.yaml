@@ -1,0 +1,64 @@
+# ============================================================
+# Tham số cho chế độ MÔ PHỎNG (Gazebo)
+# Dùng với: ros2 run luanvan_control cnn_driver --ros-args --params-file params_sim.yaml
+# ============================================================
+
+cnn_driver_node:
+  ros__parameters:
+    # Đường dẫn model ONNX
+    model_path: 'models/crop_row_cnn_best_test.onnx'
+
+    # Sử dụng bộ lọc màu HSV trong mô phỏng để vượt qua Domain Gap của ảnh giả lập
+    use_hsv_mask: true
+
+    # Ngưỡng mask (dùng nội bộ, dynamic threshold sẽ override)
+    mask_threshold: 0.04
+
+    # Tốc độ di chuyển (m/s) — Giảm tốc x3 (Chậm rãi, mượt mà dễ quan sát)
+    linear_speed: 0.45          # tốc độ bám hàng chậm rãi mượt mà (0.45 m/s)
+    turn_linear_speed: 0.25     # tốc độ khi quay đầu (0.25 m/s để bánh xe bám tốt, cua gắt không trượt)
+    turn_angular_speed: 1.50    # vận tốc góc quay đầu (1.50 rad/s để xoay xe linh hoạt)
+
+    # Bộ điều khiển Sliding Mode Control (SMC)
+    lambda_smc: 2.0             # hệ số bề mặt trượt S = de + lambda * e (tăng để bám sát sai số)
+    k_smc: 3.5                  # hệ số hồi tiếp bề mặt trượt S (tăng từ 2.0 -> 3.5 để đánh lái mạnh mẽ dứt khoát)
+    eta_smc: 0.6                # hệ số chuyển mạch (tăng từ 0.5 -> 0.6 để triệt tiêu sai số nhanh)
+    phi_smc: 0.5                # độ dày lớp biên (boundary layer) để tránh rung chattering
+    max_steering_angle_deg: 10.0 # giới hạn góc lái (độ) — tăng từ 3.5 lên 10.0 độ giúp xe đánh lái mạnh khi vừa vào luống
+    ema_alpha: 0.45             # độ nhạy EMA (tăng từ 0.25 -> 0.45 giúp giảm delay, phản ứng nhanh hơn)
+
+    # Ngưỡng confidence để phát hiện hết hàng (với mặt nạ HSV lọc sạch sẽ)
+    high_confidence_threshold: 0.50
+
+    # Chế độ dẫn đường: 'auto_three_lanes' (quay đầu tự động theo 3 làn Y), 'alternate' (đảo chiều rẽ liên tục), 'always_left' (luôn rẽ trái)
+    navigation_mode: 'auto_three_lanes'
+
+    # Ngưỡng phát hiện hết hàng (EOR - End of Row)
+    # Tọa độ xuất phát: x = -1.5m. Cây bắp số 10 (cây cuối cùng): x = 3.6m (cự ly = 5.1m)
+    # Bắt buộc chạy thoát hoàn toàn khỏi cây bắp số 10 (cự ly >= 5.5m, x >= 4.0m) mới được phép quay đầu.
+    min_row_length: 5.5            # m — cự ly tối thiểu bắt buộc đi qua cây 10 (40cm ra đất trống)
+    max_row_length: 6.0            # m — cự ly tối đa bắt buộc kích hoạt quay đầu ra đất trống (x = 4.5m), vừa qua cây cuối 40cm)
+    low_confidence_threshold: 0.35  # ngưỡng độ tin cậy để coi là hết hàng bắp
+    low_conf_frames_threshold: 5   # số lượng frames liên tục có confidence thấp để kích hoạt quay đầu
+
+    # Thời gian chờ sau khi bắt đầu
+    warmup_time: 1.0            # giây — bỏ qua các frame đầu tiên để hệ thống ổn định
+
+    # Tham số thoát hàng
+    drive_out_distance: 2.5        # m — quãng đường đi thẳng ra khỏi hàng trước khi bắt đầu xoay xe (đảm bảo thoát sạch)
+
+    # Tham số xoay xe quay đầu
+    min_turn_angle_deg: 140.0      # độ — góc xoay tối thiểu trước khi quét tìm hàng bắp mới
+    max_turn_angle_deg: 200.0      # độ — góc xoay tối đa an toàn phòng trường hợp mất dấu hàng bắp
+
+    # Tham số GPS & Geodetic Datum Origin (Tọa độ WGS-84 gốc)
+    datum_latitude: 10.775667       # độ (Latitude)
+    datum_longitude: 106.670889     # độ (Longitude)
+    datum_altitude: 10.0            # m (Altitude)
+    gps_topic: '/gps/fix'
+
+    # Cấu hình xuất Log & Chuẩn hóa Terminal
+    enable_file_logging: true
+    log_output_dir: 'logs'
+    terminal_log_interval: 1.0     # s — chu kỳ in thông tin trạng thái chuẩn ra terminal
+

@@ -1,0 +1,101 @@
+================================================================================
+  BÀI HỌC KINH NGHIỆM: KHẮC PHỤC LỖI ODOMETRY & SLAM TRONG MÔ PHỎNG GAZEBO SIM
+================================================================================
+
+1. LỖI KHAI BÁO BÁN KÍNH BÁNH XE TRONG GAZEBO SIM (Harmonic / Garden)
+--------------------------------------------------------------------------------
+- VẤN ĐỀ:
+  Plugin `gz-sim-diff-drive-system` chỉ nhận thẻ <wheel_radius>, HOÀN TOÀN KHÔNG
+  nhận thẻ <wheel_diameter>.
+  Nếu khai báo <wheel_diameter>${2*wheel_radius}</wheel_diameter>, Gazebo sẽ bỏ
+  qua và dùng bán kính mặc định (0.2m thay vì 0.1m).
+  
+- HẬU QUẢ:
+  Odometry bị sai tỉ lệ quãng đường/vận tốc so với chuyển động thực tế. Khi xe
+  chạy tới đâu, bản đồ SLAM bị giật lùi/kéo dãn theo xe với tốc độ chậm hơn xe.
+
+- CÁCH CẤU HÌNH ĐÚNG:
+  Bắt buộc dùng:
+    <wheel_radius>${wheel_radius}</wheel_radius>
+    <wheel_separation>0.58</wheel_separation>
+
+
+2. LỖI SAI GÓC YAW KHI QUAY ĐẦU (U-TURN) CỦA XE 4 BÁNH SKID-STEER
+--------------------------------------------------------------------------------
+- VẤN ĐỀ:
+  Xe 4 bánh cố định tiếp đất khi quay đầu tại chỗ (U-Turn) sẽ bị trượt rê ngang
+  (tire scrub). Plugin DiffDrive tính góc quay bằng tích phân số vòng quay bánh xe,
+  nên khi bánh bị trượt rê, góc quay Odometry bị lệch từ 30° - 60° so với góc thật.
+
+- HẬU QUẢ:
+  Xe đi thẳng hàng 1 thì chuẩn, nhưng khi quay đầu 180° sang hàng 2 thì Odometry
+  bị lệch góc -> LiDAR quét xòe hình cánh quạt, luống 2 bị vẽ xiên chéo và văng
+  khỏi vị trí thật.
+
+- CÁCH CẤU HÌNH ĐÚNG (Tách biệt Dẫn Động & Phát Odometry):
+  1) Dùng `gz-sim-odometry-publisher-system` để phát Odometry & TF chuẩn xác 100%:
+     <plugin
+       filename="gz-sim-odometry-publisher-system"
+       name="gz::sim::systems::OdometryPublisher">
+       <odom_frame>odom</odom_frame>
+       <robot_base_frame>base_footprint</robot_base_frame>
+       <odom_topic>odom</odom_topic>
+       <tf_topic>tf</tf_topic>
+       <odom_publish_frequency>50</odom_publish_frequency>
+     </plugin>
+
+  2) Dùng `gz-sim-diff-drive-system` làm bộ điều khiển động cơ (Motor Actuator) từ cmd_vel,
+     chuyển topic odom nội bộ sang topic phụ để tránh xung đột:
+     <odom_topic>model/my_robot/diff_odom</odom_topic>
+     <tf_topic>model/my_robot/diff_tf</tf_topic>
+
+
+3. CẤU HÌNH SLAM TOOLBOX TRONG MÔI TRƯỜNG LUỐNG BẮP (THƯA ĐIỂM / LẶP TUẦN HOÀN)
+--------------------------------------------------------------------------------
+- VẤN ĐỀ:
+  Vườn bắp chỉ gồm các thân cây trụ đơn lẻ, không có tường bao.
+  Bật Scan Matching hoặc Loop Closing sẽ làm SLAM bắt nhầm cây bắp ở góc khác
+  (false loop closure) hoặc trôi tự do dọc theo trục luống.
+
+- CÁCH CẤU HÌNH ĐÚNG (mapper_params_online_async.yaml):
+  - use_scan_matching: false  (Khóa transform map->odom cố định tại (0,0,0), dựng map theo Odometry chuẩn)
+  - do_loop_closing: false    (Triệt tiêu hoàn toàn nhận nhầm vòng lặp làm bẻ cong bản đồ)
+
+
+4. CẤU HÌNH COSTMAP INFLATION CHO LUỐNG NÔNG NGHIỆP HẸP & TỰ ĐỘNG BÁM TIM LUỐNG
+--------------------------------------------------------------------------------
+- Khoảng cách 2 hàng bắp: 1.0m | Chiều rộng thân xe: 0.53m (tính cả bánh ~0.63m).
+- Để thuật toán A* luôn tìm đường đi tự động bám vào CHÍNH GIỮA LUỐNG (thung lũng thế năng
+  cost valley), `inflation_radius` cần phủ trọn nửa khoảng cách 2 hàng bắp (0.50m - 0.55m).
+- Thiết lập chuẩn:
+  - robot_radius / inscribed_radius: 0.22m
+  - inflation_radius: 0.55m
+  - cost_scaling_factor: 4.5
+  -> Chi phí giảm dần từ gốc cây vào giữa tim luống, tạo điểm cost cực tiểu nằm chính xác ở
+     trục giữa 2 hàng bắp, hút đường đi A* luôn bám tim luống an toàn.
+
+
+5. TỐI ƯU NAV2 A* & QUAY ĐẦU (U-TURN / CORNERING) KHÔNG BỊ ĐÂM CÂY GÓC LUỐNG
+--------------------------------------------------------------------------------
+- VẤN ĐỀ ĐÂM GÓC:
+  1) Bộ điều khiển Pure Pursuit mặc định vừa tiến vừa xoay tạo bán kính quét lớn (corner cutting)
+     khiến hông xe quẹt vào cây ở đầu luống.
+  2) Bộ làm mượt SimpleSmoother cắt góc quá mạnh kéo đường đi sát gốc cây.
+  3) A* không tính phạt costmap khiến đường đi chạy ngắn nhất qua sát cây.
+
+- CÁCH CẤU HÌNH ĐÚNG (nav2_params.yaml):
+  1) Controller (Regulated Pure Pursuit):
+     - use_rotate_to_heading: true (Góc lệch > 45° xe sẽ đứng xoay tại chỗ trước khi tiến)
+     - rotate_to_heading_min_angle: 0.785
+     - rotate_to_heading_angular_vel: 0.45
+     - use_regulated_linear_velocity_scaling: true
+     - use_cost_regulated_linear_velocity_scaling: true (Tự hãm tốc độ khi rẽ gắt / gần cây)
+     - use_collision_detection: true
+     - lookahead_dist: 0.35, min_lookahead_dist: 0.20, max_lookahead_dist: 0.45
+  2) Planner Server (SmacPlanner2D / A*):
+     - plugin: "nav2_smac_planner::SmacPlanner2D"
+     - cost_travel_multiplier: 2.5 (Tăng trọng số phạt chi phí, bắt buộc A* đi theo tim luống)
+     - tolerance: 0.25
+  3) Smoother Server:
+     - w_data: 0.5, w_smooth: 0.25 (Giữ đúng độ rộng cung cua, không cắt lẹm vào gốc cây)
+================================================================================

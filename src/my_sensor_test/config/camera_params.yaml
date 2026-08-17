@@ -1,0 +1,12 @@
+# ============================================================
+# Cấu hình kiểm thử Camera (USB Camera / Webcam)
+# ============================================================
+camera_node:
+  ros__parameters:
+    video_device: "/dev/video0"
+    image_size: [640, 480]
+    camera_frame_id: "camera_link"
+    pixel_format: "YUYV"         # Hoặc "MJPG", "UYVY"
+    time_per_frame: [1, 30]      # 30 FPS
+    auto_white_balance: true
+    auto_exposure: true

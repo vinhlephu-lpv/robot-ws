@@ -1,0 +1,12 @@
+# ============================================================
+# Cấu hình kiểm thử LiDAR (RPLidar A1/A2/C1/S1/S2/S3 / SLLidar)
+# ============================================================
+sllidar_node:
+  ros__parameters:
+    channel_type: "serial"
+    serial_port: "/dev/ttyUSB0"      # Đổi thành /dev/ttyACM0 nếu cắm qua mạch chuyển khác
+    serial_baudrate: 115200          # A1/A2: 115200 | A3/C1/S1: 256000 | S2: 1000000
+    frame_id: "laser"
+    inverted: false
+    angle_compensate: true
+    scan_mode: "Standard"            # Standard, Express, Boost, Sensitivity, DenseBoost

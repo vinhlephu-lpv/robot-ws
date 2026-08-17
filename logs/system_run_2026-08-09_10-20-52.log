@@ -1,0 +1,41 @@
+================================================================================
+ ROBOT SYSTEM RUN LOG | STARTED: 2026-08-09 10:20:52
+ CSV Telemetry File : logs/telemetry_2026-08-09_10-20-52.csv
+ Text System Log File: logs/system_run_2026-08-09_10-20-52.log
+================================================================================
+[10:20:52.536] [ SYSTEM_START  ] Telemetry and Logging system started cleanly.
+[10:20:55.326] [ SYSTEM_STATUS ] [STATUS] [   TRACKING    ] | Steer:  +0.00° (C) | Vel: (0.45m/s, -0.00r/s) | Pose: ( 0.00m,  0.00m) | Conf: 0.00 | GPS: (10.775667°, 106.670889° [NO_FIX])
+[10:20:56.565] [ SYSTEM_STATUS ] [STATUS] [   TRACKING    ] | Steer:  +0.00° (C) | Vel: (0.45m/s, -0.00r/s) | Pose: ( 0.44m,  0.00m) | Conf: 0.33 | GPS: (10.775671°, 106.670877° [FIX])
+[10:20:57.821] [ SYSTEM_STATUS ] [STATUS] [   TRACKING    ] | Steer:  +0.00° (C) | Vel: (0.45m/s, -0.00r/s) | Pose: ( 0.89m,  0.00m) | Conf: 1.00 | GPS: (10.775671°, 106.670879° [FIX])
+[10:20:59.069] [ SYSTEM_STATUS ] [STATUS] [   TRACKING    ] | Steer:  -0.02° (L) | Vel: (0.45m/s, -0.01r/s) | Pose: ( 1.37m, -0.00m) | Conf: 0.62 | GPS: (10.775671°, 106.670881° [FIX])
+[10:21:00.336] [ SYSTEM_STATUS ] [STATUS] [   TRACKING    ] | Steer:  -0.00° (C) | Vel: (0.45m/s, -0.00r/s) | Pose: ( 1.83m,  0.00m) | Conf: 1.00 | GPS: (10.775671°, 106.670884° [FIX])
+[10:21:01.577] [ SYSTEM_STATUS ] [STATUS] [   TRACKING    ] | Steer:  +0.03° (R) | Vel: (0.45m/s, -0.05r/s) | Pose: ( 2.31m,  0.00m) | Conf: 1.00 | GPS: (10.775671°, 106.670886° [FIX])
+[10:21:02.892] [ SYSTEM_STATUS ] [STATUS] [   TRACKING    ] | Steer:  +0.00° (C) | Vel: (0.45m/s, +0.00r/s) | Pose: ( 2.79m, -0.00m) | Conf: 1.00 | GPS: (10.775671°, 106.670888° [FIX])
+[10:21:04.143] [ SYSTEM_STATUS ] [STATUS] [   TRACKING    ] | Steer:  +0.01° (R) | Vel: (0.45m/s, -0.05r/s) | Pose: ( 3.27m, -0.00m) | Conf: 1.00 | GPS: (10.775671°, 106.670890° [FIX])
+[10:21:05.336] [ SYSTEM_STATUS ] [STATUS] [   TRACKING    ] | Steer:  +0.00° (C) | Vel: (0.45m/s, +0.00r/s) | Pose: ( 3.74m, -0.00m) | Conf: 0.56 | GPS: (10.775671°, 106.670892° [FIX])
+[10:21:06.572] [ SYSTEM_STATUS ] [STATUS] [   TRACKING    ] | Steer:  -0.01° (L) | Vel: (0.45m/s, +0.06r/s) | Pose: ( 4.21m, -0.00m) | Conf: 1.00 | GPS: (10.775671°, 106.670894° [FIX])
+[10:21:07.829] [ SYSTEM_STATUS ] [STATUS] [   TRACKING    ] | Steer:  +0.00° (C) | Vel: (0.45m/s, +0.00r/s) | Pose: ( 4.69m, -0.00m) | Conf: 0.94 | GPS: (10.775671°, 106.670896° [FIX])
+[10:21:08.967] [ SYSTEM_STATUS ] [STATUS] [   TRACKING    ] | Steer:  +0.00° (C) | Vel: (0.45m/s, +0.00r/s) | Pose: ( 5.14m, -0.01m) | Conf: 1.00 | GPS: (10.775671°, 106.670898° [FIX])
+[10:21:10.129] [ SYSTEM_STATUS ] [STATUS] [   TRACKING    ] | Steer:  -0.01° (L) | Vel: (0.45m/s, -0.00r/s) | Pose: ( 5.61m, -0.00m) | Conf: 1.00 | GPS: (10.775671°, 106.670901° [FIX])
+[10:21:11.305] [ SYSTEM_STATUS ] [STATUS] [   TRACKING    ] | Steer:  +0.01° (R) | Vel: (0.45m/s, +0.01r/s) | Pose: ( 6.08m,  0.00m) | Conf: 1.00 | GPS: (10.775671°, 106.670903° [FIX])
+[10:21:12.520] [ SYSTEM_STATUS ] [STATUS] [   TRACKING    ] | Steer:  +0.00° (C) | Vel: (0.45m/s, +0.00r/s) | Pose: ( 6.56m,  0.00m) | Conf: 1.00 | GPS: (10.775671°, 106.670905° [FIX])
+[10:21:13.630] [ SYSTEM_STATUS ] [STATUS] [   TRACKING    ] | Steer:  +0.03° (R) | Vel: (0.45m/s, -0.04r/s) | Pose: ( 7.01m,  0.00m) | Conf: 0.75 | GPS: (10.775671°, 106.670907° [FIX])
+[10:21:14.823] [ SYSTEM_STATUS ] [STATUS] [   TRACKING    ] | Steer:  -0.01° (L) | Vel: (0.45m/s, +0.06r/s) | Pose: ( 7.48m,  0.00m) | Conf: 1.00 | GPS: (10.775671°, 106.670909° [FIX])
+[10:21:16.095] [ SYSTEM_STATUS ] [STATUS] [   TRACKING    ] | Steer:  -0.00° (C) | Vel: (0.45m/s, -0.00r/s) | Pose: ( 7.95m,  0.01m) | Conf: 1.00 | GPS: (10.775671°, 106.670912° [FIX])
+[10:21:17.226] [ SYSTEM_STATUS ] [STATUS] [   TRACKING    ] | Steer:  +0.00° (C) | Vel: (0.45m/s, +0.00r/s) | Pose: ( 8.40m,  0.01m) | Conf: 1.00 | GPS: (10.775671°, 106.670914° [FIX])
+[10:21:20.061] [FSM_TRANSITION ] TRACKING -> UTURN_PLANNING
+[10:21:20.128] [FSM_TRANSITION ] UTURN_PLANNING -> PATH_FOLLOWING
+[10:21:20.130] [ SYSTEM_STATUS ] [STATUS] [UTURN_PLANNING ] | Steer:  +0.00° (C) | Vel: (0.00m/s, +0.00r/s) | Pose: ( 9.54m,  0.03m) | Conf: 0.00 | GPS: (10.775671°, 106.670919° [FIX])
+[10:21:21.327] [ SYSTEM_STATUS ] [STATUS] [PATH_FOLLOWING ] | Steer:  -3.38° (L) | Vel: (0.60m/s, +0.06r/s) | Pose: ( 9.94m,  0.32m) | Conf: 0.00 | GPS: (10.775669°, 106.670921° [FIX])
+[10:21:21.493] [FSM_TRANSITION ] PATH_FOLLOWING -> UTURN_EXECUTION
+[10:21:22.540] [ SYSTEM_STATUS ] [STATUS] [UTURN_EXECUTION] | Steer: +44.47° (R) | Vel: (0.60m/s, -1.02r/s) | Pose: (10.49m,  0.44m) | Conf: 0.00 | GPS: (10.775670°, 106.670921° [FIX])
+[10:21:23.794] [ SYSTEM_STATUS ] [STATUS] [UTURN_EXECUTION] | Steer:  -0.00° (C) | Vel: (0.60m/s, +0.00r/s) | Pose: (10.91m, -0.01m) | Conf: 0.00 | GPS: (10.775672°, 106.670920° [FIX])
+[10:21:24.991] [ SYSTEM_STATUS ] [STATUS] [UTURN_EXECUTION] | Steer:  -0.00° (C) | Vel: (0.60m/s, +0.00r/s) | Pose: (11.03m, -0.63m) | Conf: 0.00 | GPS: (10.775672°, 106.670922° [FIX])
+[10:21:26.187] [ SYSTEM_STATUS ] [STATUS] [UTURN_EXECUTION] | Steer:  -0.00° (C) | Vel: (0.60m/s, +0.00r/s) | Pose: (11.14m, -1.21m) | Conf: 0.00 | GPS: (10.775672°, 106.670924° [FIX])
+[10:21:27.446] [ SYSTEM_STATUS ] [STATUS] [UTURN_EXECUTION] | Steer:  -0.00° (C) | Vel: (0.60m/s, +0.00r/s) | Pose: (11.25m, -1.84m) | Conf: 0.00 | GPS: (10.775672°, 106.670927° [FIX])
+[10:21:28.645] [ SYSTEM_STATUS ] [STATUS] [UTURN_EXECUTION] | Steer:  -0.00° (C) | Vel: (0.60m/s, +0.00r/s) | Pose: (11.37m, -2.45m) | Conf: 0.00 | GPS: (10.775672°, 106.670929° [FIX])
+[10:21:29.885] [ SYSTEM_STATUS ] [STATUS] [UTURN_EXECUTION] | Steer:  -0.00° (C) | Vel: (0.60m/s, +0.00r/s) | Pose: (11.49m, -3.09m) | Conf: 0.00 | GPS: (10.775672°, 106.670931° [FIX])
+[10:21:31.124] [ SYSTEM_STATUS ] [STATUS] [UTURN_EXECUTION] | Steer:  -0.00° (C) | Vel: (0.60m/s, +0.00r/s) | Pose: (11.60m, -3.70m) | Conf: 0.00 | GPS: (10.775672°, 106.670934° [FIX])
+[10:21:32.323] [ SYSTEM_STATUS ] [STATUS] [UTURN_EXECUTION] | Steer:  -0.00° (C) | Vel: (0.60m/s, +0.00r/s) | Pose: (11.71m, -4.29m) | Conf: 0.00 | GPS: (10.775672°, 106.670936° [FIX])
+[10:21:33.593] [ SYSTEM_STATUS ] [STATUS] [UTURN_EXECUTION] | Steer:  -0.00° (C) | Vel: (0.60m/s, +0.00r/s) | Pose: (11.83m, -4.91m) | Conf: 0.00 | GPS: (10.775672°, 106.670938° [FIX])
+[10:21:34.906] [ SYSTEM_STATUS ] [STATUS] [UTURN_EXECUTION] | Steer:  -0.00° (C) | Vel: (0.60m/s, +0.00r/s) | Pose: (11.94m, -5.50m) | Conf: 0.00 | GPS: (10.775672°, 106.670940° [FIX])

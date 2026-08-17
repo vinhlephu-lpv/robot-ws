@@ -1,0 +1,68 @@
+# ============================================================
+# Tham số cho XE THẬT (Raspberry Pi + Camera + BTS7960)
+# Dùng với: ros2 launch luanvan_control real_robot.launch.py
+# ============================================================
+
+cnn_driver_node:
+  ros__parameters:
+    # Đường dẫn model ONNX (copy file này sang Pi)
+    model_path: 'models/crop_row_cnn_best_test.onnx'
+
+    # Không sử dụng mặt nạ HSV trên xe thật (dùng model ONNX)
+    use_hsv_mask: false
+
+    mask_threshold: 0.35        # cao hơn sim vì model nhận diện ảnh thật tốt hơn
+
+    # Tốc độ di chuyển (m/s) — nên chạy chậm hơn lần đầu, tăng dần sau khi test OK
+    linear_speed: 0.12
+    turn_linear_speed: 0.10
+    turn_angular_speed: 0.30
+
+    kp: 1.5                     # có thể cần giảm xuống nếu xe dao động
+    max_steering_angle_deg: 3.5
+    ema_alpha: 0.30             # có thể tăng lên để nhạy hơn với ảnh thật rõ
+
+    # Ngưỡng confidence — CAO hơn sim vì ảnh thật cho mask rõ ràng hơn
+    low_confidence_threshold: 0.30
+    high_confidence_threshold: 0.55
+
+    # Trigger U-turn: dùng cả distance + confidence
+    use_distance_trigger: true
+    row_length: 15.0            # m — đo thực tế chiều dài luống bắp
+    low_conf_frames_threshold: 8  # xe thật: cũng dùng confidence trigger
+
+    warmup_time: 3.0
+    drive_out_time: 2.0
+    min_turn_time: 8.0
+
+    # Tham số GPS & Geodetic Datum Origin (Tọa độ WGS-84 gốc)
+    datum_latitude: 10.775667       # độ (Latitude)
+    datum_longitude: 106.670889     # độ (Longitude)
+    datum_altitude: 10.0            # m (Altitude)
+    gps_topic: '/gps/fix'
+
+    # Cấu hình xuất Log & Chuẩn hóa Terminal
+    enable_file_logging: true
+    log_output_dir: 'logs'
+    terminal_log_interval: 1.0     # s — chu kỳ in thông tin trạng thái chuẩn ra terminal
+
+gps_driver_node:
+  ros__parameters:
+    serial_port: '/dev/ttyUSB0'
+    baudrate: 9600
+    frame_id: 'gps_link'
+    publish_topic: '/gps/fix'
+
+bts7960_driver_node:
+  ros__parameters:
+    wheel_base: 0.58            # m (đo thực tế khoảng cách tâm 2 bánh)
+    max_linear_speed: 0.3       # m/s tương ứng 100% PWM
+    pwm_frequency: 1000         # Hz
+
+    # GPIO BCM pin numbers — chỉnh theo sơ đồ nối dây thực tế
+    left_rpwm_pin:  17
+    left_lpwm_pin:  27
+    left_en_pin:    22
+    right_rpwm_pin: 23
+    right_lpwm_pin: 24
+    right_en_pin:   25

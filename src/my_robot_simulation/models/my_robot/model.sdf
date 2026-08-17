@@ -1,0 +1,287 @@
+<?xml version="1.0"?>
+
+<sdf version="1.9">
+  <model name="my_robot">
+
+    <static>false</static>
+
+    <link name="base_link">
+
+      <pose>0 0 0.3 0 0 0</pose>
+
+      <inertial>
+
+        <mass>15.0</mass>
+
+        <inertia>
+
+          <ixx>0.5</ixx>
+          <iyy>0.5</iyy>
+          <izz>0.5</izz>
+
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyz>0</iyz>
+
+        </inertia>
+
+      </inertial>
+
+      <collision name="collision">
+
+        <geometry>
+
+          <box>
+            <size>0.6 0.53 0.4</size>
+          </box>
+
+        </geometry>
+
+      </collision>
+
+      <visual name="visual">
+
+        <geometry>
+
+          <box>
+            <size>0.6 0.53 0.4</size>
+          </box>
+
+        </geometry>
+
+        <material>
+
+          <ambient>0.5 0.5 0.5 1</ambient>
+
+          <diffuse>0.5 0.5 0.5 1</diffuse>
+
+        </material>
+
+      </visual>
+
+    </link>
+    <!-- ================= WHEELS ================= -->
+
+<link name="front_left_wheel">
+  <pose>0.29 0.285 0.1 1.5708 0 0</pose>
+
+  <inertial>
+    <mass>0.8</mass>
+    <inertia>
+      <ixx>0.01</ixx>
+      <iyy>0.01</iyy>
+      <izz>0.01</izz>
+      <ixy>0</ixy>
+      <ixz>0</ixz>
+      <iyz>0</iyz>
+    </inertia>
+  </inertial>
+
+  <collision name="collision">
+    <geometry>
+      <cylinder>
+        <radius>0.1</radius>
+        <length>0.05</length>
+      </cylinder>
+    </geometry>
+  </collision>
+
+  <visual name="visual">
+    <geometry>
+      <cylinder>
+        <radius>0.1</radius>
+        <length>0.05</length>
+      </cylinder>
+    </geometry>
+  </visual>
+</link>
+
+<link name="front_right_wheel">
+  <pose>0.29 -0.285 0.1 1.5708 0 0</pose>
+
+  <inertial>
+    <mass>0.8</mass>
+    <inertia>
+      <ixx>0.01</ixx>
+      <iyy>0.01</iyy>
+      <izz>0.01</izz>
+      <ixy>0</ixy>
+      <ixz>0</ixz>
+      <iyz>0</iyz>
+    </inertia>
+  </inertial>
+
+  <collision name="collision">
+    <geometry>
+      <cylinder>
+        <radius>0.1</radius>
+        <length>0.05</length>
+      </cylinder>
+    </geometry>
+  </collision>
+
+  <visual name="visual">
+    <geometry>
+      <cylinder>
+        <radius>0.1</radius>
+        <length>0.05</length>
+      </cylinder>
+    </geometry>
+  </visual>
+</link>
+
+<link name="rear_left_wheel">
+  <pose>-0.29 0.285 0.1 1.5708 0 0</pose>
+
+  <inertial>
+    <mass>0.8</mass>
+    <inertia>
+      <ixx>0.01</ixx>
+      <iyy>0.01</iyy>
+      <izz>0.01</izz>
+      <ixy>0</ixy>
+      <ixz>0</ixz>
+      <iyz>0</iyz>
+    </inertia>
+  </inertial>
+
+  <collision name="collision">
+    <geometry>
+      <cylinder>
+        <radius>0.1</radius>
+        <length>0.05</length>
+      </cylinder>
+    </geometry>
+  </collision>
+
+  <visual name="visual">
+    <geometry>
+      <cylinder>
+        <radius>0.1</radius>
+        <length>0.05</length>
+      </cylinder>
+    </geometry>
+  </visual>
+</link>
+
+<link name="rear_right_wheel">
+  <pose>-0.29 -0.285 0.1 1.5708 0 0</pose>
+
+  <inertial>
+    <mass>0.8</mass>
+    <inertia>
+      <ixx>0.01</ixx>
+      <iyy>0.01</iyy>
+      <izz>0.01</izz>
+      <ixy>0</ixy>
+      <ixz>0</ixz>
+      <iyz>0</iyz>
+    </inertia>
+  </inertial>
+
+  <collision name="collision">
+    <geometry>
+      <cylinder>
+        <radius>0.1</radius>
+        <length>0.05</length>
+      </cylinder>
+    </geometry>
+  </collision>
+
+  <visual name="visual">
+    <geometry>
+      <cylinder>
+        <radius>0.1</radius>
+        <length>0.05</length>
+      </cylinder>
+    </geometry>
+  </visual>
+</link>
+      <!-- ================= JOINTS ================= -->
+
+  <joint name="front_left_wheel_joint" type="revolute">
+
+    <parent>base_link</parent>
+
+    <child>front_left_wheel</child>
+
+    <pose>0 0 0 0 0 0</pose>
+
+    <axis>
+
+      <xyz>0 1 0</xyz>
+
+      <limit>
+        <lower>-1000000</lower>
+        <upper>1000000</upper>
+      </limit>
+
+    </axis>
+
+  </joint>
+
+  <joint name="front_right_wheel_joint" type="revolute">
+
+    <parent>base_link</parent>
+
+    <child>front_right_wheel</child>
+
+    <pose>0 0 0 0 0 0</pose>
+
+    <axis>
+
+      <xyz>0 1 0</xyz>
+
+      <limit>
+        <lower>-1000000</lower>
+        <upper>1000000</upper>
+      </limit>
+
+    </axis>
+
+  </joint>
+
+  <joint name="rear_left_wheel_joint" type="revolute">
+
+    <parent>base_link</parent>
+
+    <child>rear_left_wheel</child>
+
+    <pose>0 0 0 0 0 0</pose>
+
+    <axis>
+
+      <xyz>0 1 0</xyz>
+
+      <limit>
+        <lower>-1000000</lower>
+        <upper>1000000</upper>
+      </limit>
+
+    </axis>
+
+  </joint>
+
+  <joint name="rear_right_wheel_joint" type="revolute">
+
+    <parent>base_link</parent>
+
+    <child>rear_right_wheel</child>
+
+    <pose>0 0 0 0 0 0</pose>
+
+    <axis>
+
+      <xyz>0 1 0</xyz>
+
+      <limit>
+        <lower>-1000000</lower>
+        <upper>1000000</upper>
+      </limit>
+
+    </axis>
+
+  </joint>
+  </model>
+
+</sdf>

@@ -1,0 +1,31 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>my_robot_bringup</name>
+  <version>1.0.0</version>
+  <description>Bringup package for real robot hardware (RPLIDAR C1, Astra Mini S, ESP32 Encoder, BTS7960)</description>
+  <maintainer email="vinh@todo.todo">vinh</maintainer>
+  <license>Apache-2.0</license>
+
+  <exec_depend>robot_state_publisher</exec_depend>
+  <exec_depend>joint_state_publisher</exec_depend>
+  <exec_depend>tf2_ros</exec_depend>
+  <exec_depend>sllidar_ros2</exec_depend>
+  <exec_depend>astra_camera</exec_depend>
+  <exec_depend>slam_toolbox</exec_depend>
+  <exec_depend>nav2_bringup</exec_depend>
+  <exec_depend>rviz2</exec_depend>
+  <exec_depend>my_robot_description</exec_depend>
+  <exec_depend>my_robot_controller</exec_depend>
+  <exec_depend>my_robot_slam</exec_depend>
+  <exec_depend>my_robot_navigation</exec_depend>
+
+  <test_depend>ament_copyright</test_depend>
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

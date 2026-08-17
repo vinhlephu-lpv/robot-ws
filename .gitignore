@@ -1,0 +1,21 @@
+# ROS 2 Build directories
+build/
+install/
+log/
+
+# Python bytecode & caches
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+
+# IDE & OS files
+.vscode/
+.idea/
+.DS_Store
+*.swp
+*.bak
+
+# Temporary zip files
+*.zip

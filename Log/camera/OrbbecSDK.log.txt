@@ -1,0 +1,92 @@
+[08/17 14:34:37.783015][error][13979][UsbEnumeratorLibusb.cpp:159] Invalid descriptor index: 0
+[08/17 14:34:37.783062][error][13979][UsbEnumeratorLibusb.cpp:420] Failed to query USB device serial number
+[08/17 14:34:37.783511][info][13979][LinuxUsbPal.cpp:335] Create PollingDeviceWatcher!
+[08/17 14:34:37.783528][info][13979][DeviceManager.cpp:25] Current found device(s): (0)
+[08/17 14:34:37.783532][info][13979][DeviceManager.cpp:339] Enable net device enumeration: true
+[08/17 14:34:39.792502][info][13979][DeviceManager.cpp:25] Current device(s) list: (0)
+[08/17 14:34:39.792551][info][13979][DeviceManager.cpp:339] Enable net device enumeration: false
+[08/17 14:36:32.567382][debug][14424][FrameMemoryPool.cpp:29] FrameMemoryPool created!
+[08/17 14:36:32.575734][debug][14424][PrivFilterLoader.cpp:168] Private filter creator created: DisparityTransform
+[08/17 14:36:32.575754][debug][14424][PrivFilterLoader.cpp:168] Private filter creator created: HoleFillingFilter
+[08/17 14:36:32.575758][debug][14424][PrivFilterLoader.cpp:168] Private filter creator created: NoiseRemovalFilter
+[08/17 14:36:32.575760][debug][14424][PrivFilterLoader.cpp:168] Private filter creator created: SpatialAdvancedFilter
+[08/17 14:36:32.575763][debug][14424][PrivFilterLoader.cpp:168] Private filter creator created: TemporalFilter
+[08/17 14:36:32.575765][debug][14424][PrivFilterLoader.cpp:168] Private filter creator created: DepthResize
+[08/17 14:36:32.575767][debug][14424][PrivFilterLoader.cpp:168] Private filter creator created: EdgeNoiseRemovalFilter
+[08/17 14:36:32.575770][debug][14424][PrivFilterLoader.cpp:168] Private filter creator created: HardwareD2DCorrectionFilter
+[08/17 14:36:32.575772][debug][14424][PrivFilterLoader.cpp:168] Private filter creator created: OpenNIDisparityTransform
+[08/17 14:36:32.575775][debug][14424][PrivFilterLoader.cpp:168] Private filter creator created: SpatialFastFilter
+[08/17 14:36:32.575777][debug][14424][PrivFilterLoader.cpp:168] Private filter creator created: SpatialModerateFilter
+[08/17 14:36:32.575780][debug][14424][PrivFilterLoader.cpp:168] Private filter creator created: FalsePositiveFilter
+[08/17 14:36:32.576021][debug][14424][PrivFilterLoader.cpp:168] Private filter creator created: G2XLDecompress
+[08/17 14:36:32.576027][debug][14424][PrivFilterLoader.cpp:168] Private filter creator created: FrameUnpacker
+[08/17 14:36:32.576031][debug][14424][PrivFilterLoader.cpp:168] Private filter creator created: G2PixelOffsetFix
+[08/17 14:36:32.576034][debug][14424][PrivFilterLoader.cpp:168] Private filter creator created: ConfidenceEstimator
+[08/17 14:36:32.576036][debug][14424][PrivFilterLoader.cpp:168] Private filter creator created: G330FrameUnpacker
+[08/17 14:36:32.576055][debug][14424][FilterFactory.cpp:32] Registered 33 filter creators
+[08/17 14:36:32.576059][debug][14424][FilterFactory.cpp:34]  - Align
+[08/17 14:36:32.576061][debug][14424][FilterFactory.cpp:34]  - ConfidenceEstimator
+[08/17 14:36:32.576063][debug][14424][FilterFactory.cpp:34]  - DecimationFilter
+[08/17 14:36:32.576066][debug][14424][FilterFactory.cpp:34]  - DepthResize
+[08/17 14:36:32.576068][debug][14424][FilterFactory.cpp:34]  - DisparityTransform
+[08/17 14:36:32.576071][debug][14424][FilterFactory.cpp:34]  - EdgeNoiseRemovalFilter
+[08/17 14:36:32.576073][debug][14424][FilterFactory.cpp:34]  - FalsePositiveFilter
+[08/17 14:36:32.576076][debug][14424][FilterFactory.cpp:34]  - FormatConverter
+[08/17 14:36:32.576078][debug][14424][FilterFactory.cpp:34]  - FrameFlip
+[08/17 14:36:32.576080][debug][14424][FilterFactory.cpp:34]  - FrameMirror
+[08/17 14:36:32.576082][debug][14424][FilterFactory.cpp:34]  - FrameRotate
+[08/17 14:36:32.576084][debug][14424][FilterFactory.cpp:34]  - FrameUnpacker
+[08/17 14:36:32.576086][debug][14424][FilterFactory.cpp:34]  - G2PixelOffsetFix
+[08/17 14:36:32.576088][debug][14424][FilterFactory.cpp:34]  - G2XLDecompress
+[08/17 14:36:32.576090][debug][14424][FilterFactory.cpp:34]  - G330FrameUnpacker
+[08/17 14:36:32.576092][debug][14424][FilterFactory.cpp:34]  - HDRMerge
+[08/17 14:36:32.576094][debug][14424][FilterFactory.cpp:34]  - HardwareD2DCorrectionFilter
+[08/17 14:36:32.576104][debug][14424][FilterFactory.cpp:34]  - HoleFillingFilter
+[08/17 14:36:32.576107][debug][14424][FilterFactory.cpp:34]  - IMUCorrector
+[08/17 14:36:32.576108][debug][14424][FilterFactory.cpp:34]  - IMUFrameReversion
+[08/17 14:36:32.576110][debug][14424][FilterFactory.cpp:34]  - LiDARFormatConverter
+[08/17 14:36:32.576112][debug][14424][FilterFactory.cpp:34]  - LiDARPointFilter
+[08/17 14:36:32.576114][debug][14424][FilterFactory.cpp:34]  - NoiseRemovalFilter
+[08/17 14:36:32.576116][debug][14424][FilterFactory.cpp:34]  - OpenNIDisparityTransform
+[08/17 14:36:32.576117][debug][14424][FilterFactory.cpp:34]  - PixelValueOffset
+[08/17 14:36:32.576119][debug][14424][FilterFactory.cpp:34]  - PixelValueScaler
+[08/17 14:36:32.576121][debug][14424][FilterFactory.cpp:34]  - PointCloudFilter
+[08/17 14:36:32.576122][debug][14424][FilterFactory.cpp:34]  - SequenceIdFilter
+[08/17 14:36:32.576124][debug][14424][FilterFactory.cpp:34]  - SpatialAdvancedFilter
+[08/17 14:36:32.576126][debug][14424][FilterFactory.cpp:34]  - SpatialFastFilter
+[08/17 14:36:32.576128][debug][14424][FilterFactory.cpp:34]  - SpatialModerateFilter
+[08/17 14:36:32.576129][debug][14424][FilterFactory.cpp:34]  - TemporalFilter
+[08/17 14:36:32.576131][debug][14424][FilterFactory.cpp:34]  - ThresholdFilter
+[08/17 14:36:32.576444][debug][14424][UsbEnumeratorLibusb.cpp:471] UsbEnumeratorLibusb::startEventHandler()
+[08/17 14:36:32.576476][debug][14424][UsbEnumeratorLibusb.cpp:341] UsbEnumeratorLibusb created
+[08/17 14:36:32.576489][debug][14424][LinuxUsbPal.cpp:406] Uvc backend have been set to 0
+[08/17 14:36:32.576695][debug][14424][DeviceSeriesInfo.cpp:84] Ignore error: External config file doesn't exist: /opt/ros/jazzy/lib/DeviceInfoConfigOEM.xml
+[08/17 14:36:32.576710][debug][14424][DynamicLibraryManager.cpp:31] Current working directory: /opt/ros/jazzy/lib
+[08/17 14:36:32.577282][debug][14424][Context.cpp:51] Context created! Library version: v2.7.6, config file path: /opt/ros/jazzy/share/orbbec_camera/config/OrbbecSDKConfig_v2.0.xml
+[08/17 14:36:32.577307][debug][14424][Context.cpp:100] Current working directory: /opt/ros/jazzy/lib
+[08/17 14:36:32.577316][debug][14424][Context.cpp:110]  - Successfully retrieved commit hash for library 'firmwareupdater' (commit: b6df232)
+[08/17 14:36:32.577325][debug][14424][Context.cpp:110]  - Successfully retrieved commit hash for library 'privfilter' (commit: 968f706)
+[08/17 14:36:32.577338][debug][14424][Context.cpp:110]  - Successfully retrieved commit hash for library 'filterprocessor' (commit: f54b8d3)
+[08/17 14:36:32.577346][debug][14424][Context.cpp:110]  - Successfully retrieved commit hash for library 'frameprocessor' (commit: a4e10e8)
+[08/17 14:36:32.578241][debug][14424][DeviceManager.cpp:52] DeviceManager init ...
+[08/17 14:36:32.578293][debug][14424][DeviceManager.cpp:58] Enable USB Device Enumerator ...
+[08/17 14:36:32.578342][error][14424][UsbEnumeratorLibusb.cpp:159] Invalid descriptor index: 0
+[08/17 14:36:32.578346][error][14424][UsbEnumeratorLibusb.cpp:420] Failed to query USB device serial number
+[08/17 14:36:32.578598][debug][14424][UsbEnumeratorLibusb.cpp:447] queryUsbInterfaces done!
+[08/17 14:36:32.578747][debug][14424][ObV4lGmslDevicePort.cpp:2009] video queryDevicesInfo devInfoList.size():0
+[08/17 14:36:32.578754][debug][14424][ObV4lGmslDevicePort.cpp:2010] queryDevicesInfo done!
+[08/17 14:36:32.578757][debug][14424][UsbDeviceEnumerator.cpp:151] Current usb device port list:
+[08/17 14:36:32.578760][debug][14424][UsbDeviceEnumerator.cpp:154]  - 3-5-10.0 | ORBBEC Depth Sensor
+[08/17 14:36:32.578805][info][14424][LinuxUsbPal.cpp:335] Create PollingDeviceWatcher!
+[08/17 14:36:32.578810][debug][14424][UsbDeviceEnumerator.cpp:55] No matched usb device found!
+[08/17 14:36:32.578815][info][14424][DeviceManager.cpp:25] Current found device(s): (0)
+[08/17 14:36:32.578818][debug][14424][DeviceManager.cpp:78] DeviceManager construct done!
+[08/17 14:36:32.578822][info][14424][DeviceManager.cpp:339] Enable net device enumeration: true
+[08/17 14:36:32.578994][debug][14424][GVCPClient.cpp:421] bind 10.10.160.34:0
+[08/17 14:36:32.579064][debug][14424][GVCPClient.cpp:302] getnameinfo-name: wlp0s20f3
+[08/17 14:36:32.579130][debug][14424][GVCPClient.cpp:335] local mac address: 70:a8:d3:1e:14:23,local ip address:10.10.160.34, interfaceName:wlp0s20f3
+[08/17 14:36:34.584604][debug][14424][NetDeviceEnumerator.cpp:52] No net source port found!
+[08/17 14:36:34.584644][debug][14424][NetDeviceEnumerator.cpp:37] No net device found!
+[08/17 14:36:34.584753][info][14424][DeviceManager.cpp:25] Current device(s) list: (0)
+[08/17 14:36:34.584761][info][14424][DeviceManager.cpp:339] Enable net device enumeration: false
+[08/17 14:36:34.584876][debug][14424][DeviceManager.cpp:248] Add device changed callback, callback id = 1
