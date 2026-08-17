@@ -9,7 +9,8 @@ Panels:
         - /RobotModel1
         - /LaserScan1
         - /TF1
-        - /Map1
+        - /SLAM Map1
+        - /Costmap1
       split_ratio: 0.5
     Tree Height: 550
   - Class: rviz_common/Views
@@ -70,15 +71,15 @@ Visualization Manager:
       Value: true
     - Autoscale Value: true
       Class: rviz_default_plugins/LaserScan
-      Color: 255; 30; 30
+      Color: 0; 255; 50
       Color Transformer: FlatColor
       Decay Time: 0
       Enabled: true
-      Name: LaserScan
+      Name: LaserScan (LiDAR 360)
       Queue Size: 20
       Selectable: true
       Size (Pixels): 3
-      Size (m): 0.015
+      Size (m): 0.03
       Style: Points
       Topic:
         Depth: 5
@@ -111,22 +112,22 @@ Visualization Manager:
       Class: rviz_default_plugins/Map
       Color Scheme: costmap
       Draw Behind: false
-      Enabled: false
-      Name: Costmap (Nav2)
+      Enabled: true
+      Name: Costmap
       Topic:
         Depth: 5
         Durability Policy: Transient Local
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /global_costmap/costmap
+        Value: /costmap
       Update Topic:
         Depth: 5
         Durability Policy: Transient Local
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /global_costmap/costmap_updates
+        Value: /costmap_updates
       Use Timestamp: false
-      Value: false
+      Value: true
     - Class: rviz_default_plugins/Path
       Color: 25; 255; 0
       Enabled: true
@@ -172,7 +173,7 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
-      Distance: 8.0
+      Distance: 6.0
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.06
         Stereo Focal Distance: 1
