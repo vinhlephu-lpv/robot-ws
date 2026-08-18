@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+
+# Tự động lấy thư mục gốc của Workspace (chạy đúng trên cả PC và Raspberry Pi)
+WS_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+
+# Hàm nạp môi trường ROS 2 và Workspace
+load_ws() {
+    source /opt/ros/jazzy/setup.bash
+    if [ -f "$WS_DIR/install/setup.bash" ]; then
+        source "$WS_DIR/install/setup.bash"
+    fi
+}
+
+# 1. Biên dịch Workspace
+alias build="cd \"$WS_DIR\" && source /opt/ros/jazzy/setup.bash && colcon build --symlink-install && source install/setup.bash"
+alias rb-build="build"
+
+# 2. Các lệnh chạy Mô phỏng (PC)
+alias sim="load_ws && ros2 launch my_robot_simulation sim.launch.py"
+alias ai="load_ws && ros2 launch my_robot_controller control.launch.py"
+alias slam="load_ws && ros2 launch my_robot_slam slam.launch.py"
+alias nav="load_ws && ros2 launch my_robot_navigation nav.launch.py"
+alias teleop="source /opt/ros/jazzy/setup.bash && ros2 run teleop_twist_keyboard teleop_twist_keyboard"
+alias rviz="load_ws && rviz2 -d \"$WS_DIR/src/my_robot_description/rviz/display.rviz\""
+alias cancel="load_ws && ros2 run my_robot_navigation cancel_nav"
+
+# Hàm lưu bản đồ nhanh
+savemap() {
+    load_ws
+    local map_name="${1:-my_farm_map}"
+    mkdir -p "$WS_DIR/maps"
+    cd "$WS_DIR/maps" && ros2 run my_robot_slam map_saver -f "$map_name"
+    echo "Đã lưu bản đồ '$map_name' vào thư mục: $WS_DIR/maps/"
+}
+
+# 3. Các lệnh chạy trên Robot Thật (Raspberry Pi)
+alias test-lidar="load_ws && ros2 launch my_sensor_test test_lidar.launch.py"
+alias test-cam="load_ws && ros2 launch my_sensor_test test_camera.launch.py"
+alias test-all="load_ws && ros2 launch my_sensor_test test_all_sensors.launch.py"
+alias real-robot="load_ws && ros2 launch my_robot_bringup real_robot.launch.py"
+alias real-slam="load_ws && ros2 launch my_robot_bringup real_slam.launch.py"
+alias real-nav="load_ws && ros2 launch my_robot_bringup real_nav.launch.py"
+
+# Trợ giúp
+alias robot-help="cat << 'EOF'
+=====================================================
+ Danh Sách Lệnh Tắt Nhanh Xe Tự Hành (1-3 Chữ)
+=====================================================
+[Lệnh Chung]
+  build          : Biên dịch toàn bộ workspace
+  teleop         : Lái xe bằng bàn phím (U, I, O, J, K, L)
+  rviz           : Mở RViz 2 hiển thị đồ họa
+
+[Mô Phỏng - Chạy trên PC]
+  sim            : Bật thế giới Gazebo + RViz + Xe ảo
+  ai             : Bật AI CNN nhận diện luống bắp tự lái
+  slam           : Bật SLAM vẽ bản đồ
+  nav            : Bật Nav2 dẫn đường tự động
+  savemap <tên>  : Lưu bản đồ vào thư mục maps/
+  cancel         : Hủy mục tiêu dẫn đường
+
+[Robot Thật - Chạy trên Raspberry Pi]
+  test-lidar     : Kiểm tra cảm biến RPLIDAR C1
+  test-cam       : Kiểm tra Camera Astra
+  test-all       : Kiểm tra toàn bộ cảm biến thật
+  real-robot     : Bật toàn bộ phần cứng robot thật
+  real-slam      : Bật Robot thật + SLAM vẽ bản đồ
+  real-nav       : Bật Robot thật + Nav2 dẫn đường
+=====================================================
+EOF
+"
