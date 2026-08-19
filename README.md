@@ -34,7 +34,7 @@ source ~/.bashrc
 | :--- | :--- |
 | **`build`** | Tự động `colcon build` và nạp môi trường workspace |
 | **`sim`** | Mở thế giới 3D Gazebo + RViz 2 + Xuất hiện xe tự hành |
-| **`teleop`** | Lái xe bằng bàn phím (Phím `I`, `J`, `K`, `L`, `U`, `O`, `M`) |
+| **`teleop`** / **`wasd`** | Lái xe bằng bàn phím chuẩn game (**W, A, S, D, Space**) |
 | **`ai`** | Bật AI CNN nhận diện hàng bắp & bám luống tự động |
 | **`slam`** | Bật SLAM Toolbox vẽ bản đồ thời gian thực |
 | **`savemap <tên>`** | Lưu bản đồ (ví dụ: `savemap map_vuon_bap`) vào thư mục `maps/` |
