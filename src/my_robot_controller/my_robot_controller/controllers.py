@@ -42,17 +42,17 @@ class TrackingControllerSMC(ControllerInterface):
     Sliding Mode Controller for Lane Tracking.
     """
     def __init__(self):
-        self.lambda_smc = 1.5
-        self.k_smc = 2.0
-        self.eta_smc = 0.5
+        self.lambda_smc = 2.0
+        self.k_smc = 3.5
+        self.eta_smc = 0.6
         self.phi_smc = 0.5
-        self.linear_speed = 0.90
-        self.turn_angular_speed = 2.10
+        self.linear_speed = 0.20
+        self.turn_angular_speed = 0.50
         self.prev_error = 0.0
         self.enabled = False
 
-    def initialize(self, lambda_smc=1.5, k_smc=2.0, eta_smc=0.5, phi_smc=0.5, 
-                   linear_speed=0.90, turn_angular_speed=2.10):
+    def initialize(self, lambda_smc=2.0, k_smc=3.5, eta_smc=0.6, phi_smc=0.5, 
+                   linear_speed=0.20, turn_angular_speed=0.50):
         self.lambda_smc = lambda_smc
         self.k_smc = k_smc
         self.eta_smc = eta_smc
@@ -119,7 +119,7 @@ class PurePursuitController(ControllerInterface):
         self.path_index = 0
         self.enabled = False
 
-    def initialize(self, turn_linear_speed=0.72, turn_angular_speed=2.10):
+    def initialize(self, turn_linear_speed=0.18, turn_angular_speed=0.50):
         self.turn_linear_speed = turn_linear_speed
         self.turn_angular_speed = turn_angular_speed
         self.path = []
@@ -137,8 +137,14 @@ class PurePursuitController(ControllerInterface):
         self.path_index = 0
 
     def set_path(self, path):
-        self.path = path
+        if hasattr(path, 'waypoints'):
+            self.path = path.waypoints
+        elif isinstance(path, list):
+            self.path = path
+        else:
+            self.path = []
         self.path_index = 0
+        self.enabled = True
 
     def compute_command(self, current_x, current_y, current_yaw):
         if not self.enabled or not self.path:
@@ -159,23 +165,36 @@ class PurePursuitController(ControllerInterface):
                 "timestamp": time.time()
             }
 
-        # Slide lookahead window (L_d = 0.35m) for tight precision tracking of U-turn arcs
-        L_d = 0.35
-        target_idx = self.path_index
-        while target_idx < len(self.path) - 1:
-            tx, ty = self.path[target_idx]
-            d = math.sqrt((tx - current_x)**2 + (ty - current_y)**2)
+        # 1. Find closest waypoint forward on path
+        closest_idx = self.path_index
+        min_d = float('inf')
+        search_limit = min(len(self.path), self.path_index + 40)
+        for i in range(self.path_index, search_limit):
+            px, py = self.path[i]
+            d = math.sqrt((px - current_x)**2 + (py - current_y)**2)
+            if d < min_d:
+                min_d = d
+                closest_idx = i
+        self.path_index = closest_idx
+
+        # 2. Project lookahead point forward from closest waypoint (L_d = 0.35m)
+        L_d = max(0.35, getattr(self, 'lookahead_dist', 0.35))
+        target_idx = closest_idx
+        for i in range(closest_idx, len(self.path)):
+            px, py = self.path[i]
+            d = math.sqrt((px - current_x)**2 + (py - current_y)**2)
             if d >= L_d:
+                target_idx = i
                 break
-            target_idx += 1
-            
-        self.path_index = target_idx
-        target = self.path[self.path_index]
+        else:
+            target_idx = len(self.path) - 1
+
+        target = self.path[target_idx]
         dx = target[0] - current_x
         dy = target[1] - current_y
         dist = math.sqrt(dx*dx + dy*dy)
             
-        if self.path_index == len(self.path) - 1 and dist < 0.20:
+        if self.path_index >= len(self.path) - 2 and dist < 0.15:
             return {
                 "linear_velocity": 0.0,
                 "angular_velocity": 0.0,
@@ -187,15 +206,11 @@ class PurePursuitController(ControllerInterface):
         target_yaw = math.atan2(dy, dx)
         yaw_error = target_yaw - current_yaw
         yaw_error = math.atan2(math.sin(yaw_error), math.cos(yaw_error))
-        
-        # Adaptive speed control: scale down linear velocity when heading error is large
-        # so the vehicle turns its heading FIRST rather than driving straight into open space
-        heading_factor = max(0.0, math.cos(yaw_error))**2
-        linear_vel = self.turn_linear_speed * heading_factor
-        if abs(yaw_error) > math.radians(35.0):
-            linear_vel = max(0.02, linear_vel)
 
-        angular_vel = 3.5 * yaw_error
+        # Standard curvature: kappa = 2 * sin(alpha) / L_d
+        # Angular velocity: w = v * kappa
+        linear_vel = max(0.12, self.turn_linear_speed * math.cos(yaw_error * 0.5))
+        angular_vel = 2.0 * linear_vel * math.sin(yaw_error) / max(0.20, dist)
         angular_vel = np.clip(angular_vel, -self.turn_angular_speed, self.turn_angular_speed)
         
         return {

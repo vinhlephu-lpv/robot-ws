@@ -15,9 +15,9 @@ cnn_driver_node:
     mask_threshold: 0.04
 
     # Tốc độ di chuyển (m/s) — Giảm tốc x3 (Chậm rãi, mượt mà dễ quan sát)
-    linear_speed: 0.45          # tốc độ bám hàng chậm rãi mượt mà (0.45 m/s)
-    turn_linear_speed: 0.25     # tốc độ khi quay đầu (0.25 m/s để bánh xe bám tốt, cua gắt không trượt)
-    turn_angular_speed: 1.50    # vận tốc góc quay đầu (1.50 rad/s để xoay xe linh hoạt)
+    linear_speed: 0.20          # tốc độ bám hàng chậm rãi mượt mà (0.20 m/s)
+    turn_linear_speed: 0.18     # tốc độ tiến liên tục khi ôm cua chữ U (0.18 m/s, chống trượt bánh)
+    turn_angular_speed: 0.50    # vận tốc góc quay đầu chậm rãi êm ái (0.50 rad/s, chống trượt bánh thực tế trên nền đất)
 
     # Bộ điều khiển Sliding Mode Control (SMC)
     lambda_smc: 2.0             # hệ số bề mặt trượt S = de + lambda * e (tăng để bám sát sai số)
@@ -36,8 +36,8 @@ cnn_driver_node:
     # Ngưỡng phát hiện hết hàng (EOR - End of Row)
     # Tọa độ xuất phát: x = -1.5m. Cây bắp số 10 (cây cuối cùng): x = 3.6m (cự ly = 5.1m)
     # Bắt buộc chạy thoát hoàn toàn khỏi cây bắp số 10 (cự ly >= 5.5m, x >= 4.0m) mới được phép quay đầu.
-    min_row_length: 5.5            # m — cự ly tối thiểu bắt buộc đi qua cây 10 (40cm ra đất trống)
-    max_row_length: 6.0            # m — cự ly tối đa bắt buộc kích hoạt quay đầu ra đất trống (x = 4.5m), vừa qua cây cuối 40cm)
+    min_row_length: 5.8            # m — cự ly tối thiểu bắt buộc đi qua cây 10 ra hẳn bãi đất trống
+    max_row_length: 6.5            # m — cự ly tối đa bắt buộc kích hoạt quay đầu ra đất trống (x >= 4.7m)
     low_confidence_threshold: 0.35  # ngưỡng độ tin cậy để coi là hết hàng bắp
     low_conf_frames_threshold: 5   # số lượng frames liên tục có confidence thấp để kích hoạt quay đầu
 
@@ -45,7 +45,7 @@ cnn_driver_node:
     warmup_time: 1.0            # giây — bỏ qua các frame đầu tiên để hệ thống ổn định
 
     # Tham số thoát hàng
-    drive_out_distance: 2.5        # m — quãng đường đi thẳng ra khỏi hàng trước khi bắt đầu xoay xe (đảm bảo thoát sạch)
+    drive_out_distance: 0.70       # m — quãng đường đi thẳng ra bãi đất trống (X >= 5.4m) thoát hẳn ruộng bắp trước khi ôm cua U-turn
 
     # Tham số xoay xe quay đầu
     min_turn_angle_deg: 140.0      # độ — góc xoay tối thiểu trước khi quét tìm hàng bắp mới

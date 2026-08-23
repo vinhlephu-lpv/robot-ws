@@ -9,7 +9,7 @@ class LocalizationManager:
     """
     EARTH_RADIUS = 6378137.0  # WGS-84 equatorial radius in meters
 
-    def __init__(self, timeout_limit=1.0, drift_yaw_threshold=0.35, 
+    def __init__(self, timeout_limit=5.0, drift_yaw_threshold=0.35, 
                  datum_lat=10.775667, datum_lon=106.670889, datum_alt=10.0):
         self.current_x = 0.0
         self.current_y = 0.0
@@ -111,8 +111,8 @@ class LocalizationManager:
             self.current_alt = self.datum_alt + msg.pose.pose.position.z
             self.gps_status = "ODOM_ESTIMATED"
         
-        # Simple diagnostic range check
-        if abs(self.linear_velocity) > 5.0 or abs(self.angular_velocity) > 6.0:
+        # Diagnostic check for invalid float / NaN
+        if math.isnan(self.linear_velocity) or math.isnan(self.angular_velocity) or math.isinf(self.linear_velocity) or math.isinf(self.angular_velocity):
             self.encoder_failed = True
         else:
             self.encoder_failed = False

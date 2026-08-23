@@ -45,23 +45,23 @@ class CnnDriverNode(Node):
         # ── Parameters ────────────────────────────────────────────────
         self.declare_parameter('model_path', '')
         self.declare_parameter('mask_threshold', 0.04)
-        self.declare_parameter('linear_speed', 0.90)
-        self.declare_parameter('turn_linear_speed', 0.72)
-        self.declare_parameter('turn_angular_speed', 2.10)
-        self.declare_parameter('low_confidence_threshold', 0.15)
-        self.declare_parameter('high_confidence_threshold', 0.08)
-        self.declare_parameter('lambda_smc', 1.5)
-        self.declare_parameter('k_smc', 2.0)
-        self.declare_parameter('eta_smc', 0.5)
+        self.declare_parameter('linear_speed', 0.20)
+        self.declare_parameter('turn_linear_speed', 0.18)
+        self.declare_parameter('turn_angular_speed', 0.50)
+        self.declare_parameter('low_confidence_threshold', 0.35)
+        self.declare_parameter('high_confidence_threshold', 0.50)
+        self.declare_parameter('lambda_smc', 2.0)
+        self.declare_parameter('k_smc', 3.5)
+        self.declare_parameter('eta_smc', 0.6)
         self.declare_parameter('phi_smc', 0.5)
-        self.declare_parameter('max_steering_angle_deg', 3.5)
-        self.declare_parameter('ema_alpha', 0.25)
+        self.declare_parameter('max_steering_angle_deg', 10.0)
+        self.declare_parameter('ema_alpha', 0.45)
         self.declare_parameter('warmup_time', 1.0)
         self.declare_parameter('navigation_mode', 'auto_three_lanes')
         self.declare_parameter('min_row_length', 5.0)
         self.declare_parameter('max_row_length', 30.0)
         self.declare_parameter('low_conf_frames_threshold', 15)
-        self.declare_parameter('drive_out_distance', 2.0)
+        self.declare_parameter('drive_out_distance', 0.70)
         self.declare_parameter('min_turn_angle_deg', 140.0)
         self.declare_parameter('max_turn_angle_deg', 200.0)
         self.declare_parameter('reactive_avoid_wait_time', 3.0)  # seconds to wait before planning bypass
@@ -248,7 +248,7 @@ class CnnDriverNode(Node):
         # Navigation tracking
         self.last_visited_lane  = None  # can be 'lane1', 'lane2', 'lane3'
         self.latest_scan        = None
-        self.last_path_completion_time = 0.0
+        self.last_path_completion_time = -100.0
         self.row_start_x        = None
         self.row_completed      = False
         self.uturn_goal_x       = None
@@ -270,13 +270,13 @@ class CnnDriverNode(Node):
             Odometry, 'odom', self.odom_callback, 10)
 
         self.scan_sub = self.create_subscription(
-            LaserScan, 'scan', self.scan_callback, 10)
+            LaserScan, '/scan', self.scan_callback, 10)
 
         self.gps_sub = self.create_subscription(
             NavSatFix, self.gps_topic, self.gps_callback, 10)
 
         self.imu_sub = self.create_subscription(
-            Imu, 'imu', self.imu_callback, 10)
+            Imu, '/imu', self.imu_callback, 10)
 
         self.get_logger().info(
             f"cnn_driver_node ready | navigation_mode={self.navigation_mode} | "
@@ -392,12 +392,8 @@ class CnnDriverNode(Node):
         self.publish_gps()
 
         # Check diagnostics status
-        if pose["status"] in ["TIMEOUT", "SENSOR_FAILED"]:
-            self.get_logger().error(f"Localization failure detected: {pose['status']}! Sending LocalizationLost.")
-            self.fsm.handle_event(FSMEvent.LocalizationLost)
-            self.transition_to_state(FSMState.RECOVERY, self.get_clock().now())
-            self.StopRobot()
-            return
+        if pose["status"] == "SENSOR_FAILED":
+            self.get_logger().warn(f"Localization warning: {pose['status']}.")
 
         x = pose["x"]
         y = pose["y"]
@@ -452,8 +448,8 @@ class CnnDriverNode(Node):
                 self.recovery_start_x = self.current_x
                 self.recovery_start_y = self.current_y
             
-            # Reset inside_row flag if transitioning out of TRACKING
-            if old_state == FSMState.TRACKING and new_state != FSMState.TRACKING:
+            # Reset inside_row flag ONLY when transitioning out of row (UTURN / IDLE)
+            if old_state == FSMState.TRACKING and new_state in [FSMState.UTURN_PLANNING, FSMState.UTURN_EXECUTION, FSMState.IDLE]:
                 self.inside_row = False
                 self.high_confidence_counter = 0
                 
@@ -552,17 +548,15 @@ class CnnDriverNode(Node):
             except Exception as save_err:
                 self.get_logger().error(f"Failed to save diagnostic frame: {save_err}")
 
-        # Check if we have entered the row dynamically (require stable high confidence)
+        # Check if we have entered the row dynamically (arm when settled inside the lane)
         if current_state == FSMState.TRACKING and not self.inside_row:
-            entry_threshold = 0.20 if ('sim' in str(self.model_path) or not self.use_hsv_mask) else 0.40
-            if confidence >= entry_threshold:
-                self.high_confidence_counter += 1
-            else:
-                self.high_confidence_counter = 0
+            dir_fwd = (math.cos(self.current_yaw) >= 0)
+            in_row_zone = (self.current_x >= 0.50) if dir_fwd else (self.current_x <= 4.30)
             
-            if self.high_confidence_counter >= 15:
+            if in_row_zone and confidence >= 0.15:
                 self.inside_row = True
-                self.row_start_x = self.current_x
+                if self.row_start_x is None:
+                    self.row_start_x = self.current_x
                 self.row_completed = False
                 self.get_logger().info(f"--- Robot dynamically entered crop row at x={self.row_start_x:.2f}m (confidence={confidence:.2f}) ---")
 
@@ -575,6 +569,15 @@ class CnnDriverNode(Node):
 
         # ── TRACKING ──────────────────────────────────────────────────
         elif current_state == FSMState.TRACKING:
+            # 1. Obstacle avoidance check (ONLY active when inside the crop row)
+            post_path_cooldown = (now_sec - self.last_path_completion_time) < 0.6
+            if self.inside_row and obstacle_detected and not post_path_cooldown:
+                self.get_logger().warn("Confirmed obstacle in front corridor! Starting smooth avoidance maneuver...")
+                self.transition_to_state(FSMState.AVOID_PLANNING, now)
+                self.StopRobot()
+                return
+
+            # 2. End-of-Row exit distance handling
             if getattr(self, 'eor_detected', False):
                 dx = self.current_x - self.eor_trigger_x
                 if abs(dx) >= self.drive_out_distance:
@@ -587,6 +590,9 @@ class CnnDriverNode(Node):
                     self.smoothed_angle_deg  = 0.0
                     self.distance_traveled   = 0.0
                     self.inside_row          = False
+                    self.row_start_x         = None
+                    self.row_completed       = False
+                    self.accumulated_turn_angle = 0.0
                     self.StopRobot()
                     return
                 else:
@@ -594,14 +600,6 @@ class CnnDriverNode(Node):
                     twist.angular.z = 0.0
                     self.cmd_vel_pub.publish(twist)
                     return
-
-            # 1. Obstacle avoidance check (with 4.0s immunity post U-turn path completion)
-            post_path_immunity = (now_sec - self.last_path_completion_time) < 4.0
-            if warmup_done and obstacle_detected and not post_path_immunity:
-                self.get_logger().warn("Obstacle detected in front! Transitioning to REACTIVE_AVOID...")
-                self.transition_to_state(FSMState.REACTIVE_AVOID, now)
-                self.StopRobot()
-                return
 
             # Skip-zero: ignore steering commands if confidence is low, and decay to straight driving
             failed = (confidence < self.low_confidence_threshold)
@@ -639,20 +637,17 @@ class CnnDriverNode(Node):
                 # 2. Safety distance backup (safety net if vision/LiDAR is degraded)
                 trigger_safety_distance = (self.distance_traveled >= self.max_row_length)
 
-                # Use purely perception-based U-turn triggers (no distance limits)
-                # Require that the robot has dynamically entered the crop row first
-                if self.inside_row and (trigger_confidence or end_of_row):
-                    # Coordinate-based Row Completion Verification
-                    # Forward pass (Row 1): starts at x < 2.0m, must reach x >= 3.5m
-                    # Backward pass (Row 2): starts at x > 1.5m, must reach x <= 0.1m
-                    is_forward_completed = (self.row_start_x is not None and self.row_start_x < 2.0 and self.current_x >= 3.5)
-                    is_backward_completed = (self.row_start_x is not None and self.row_start_x > 1.5 and self.current_x <= 0.1)
+                # Use purely perception-based U-turn triggers
+                # Require that the robot has entered the crop row first
+                if self.inside_row and (trigger_confidence or end_of_row or trigger_safety_distance):
+                    is_forward_completed = (self.row_start_x is not None and self.row_start_x < 2.0 and self.current_x >= 3.0)
+                    is_backward_completed = (self.row_start_x is not None and self.row_start_x > 1.5 and self.current_x <= 0.5)
                     
-                    if is_forward_completed or is_backward_completed:
+                    if is_forward_completed or is_backward_completed or trigger_safety_distance or self.distance_traveled >= self.min_row_length:
                         self.row_completed = True
-                        reason = "LiDAR End of Row" if end_of_row else "Vision Confidence Drop"
+                        reason = "LiDAR End of Row" if end_of_row else ("Safety Distance" if trigger_safety_distance else "Vision Confidence Drop")
                         self.get_logger().info(
-                            f"--- Row fully traversed and completed! (start_x={self.row_start_x:.2f}m, end_x={self.current_x:.2f}m) via {reason}. ---"
+                            f"--- Row fully traversed and completed! (start_x={self.row_start_x if self.row_start_x is not None else 0.0:.2f}m, end_x={self.current_x:.2f}m) via {reason}. ---"
                         )
                         self.eor_detected = True
                         self.eor_trigger_x = self.current_x
@@ -682,26 +677,17 @@ class CnnDriverNode(Node):
         # ── AVOID_PLANNING ────────────────────────────────────────────
         elif current_state == FSMState.AVOID_PLANNING:
             dir_x = 1.0 if math.cos(self.current_yaw) >= 0 else -1.0
-            goal_x = self.current_x + dir_x * 3.5
+            goal_x = self.current_x + dir_x * 4.0
             goal_y = self.current_y
 
-            # Use decoupled RRTStarPlanner wrapper (Task 7)
-            plan_res = self.PlanPath(goal_x, goal_y)
-            path = plan_res["path"] if plan_res else None
-            waypoints = path.waypoints if hasattr(path, 'waypoints') else path
-            
+            # Generate smooth lane-constrained polynomial avoidance trajectory
+            waypoints = self.generate_backup_avoidance_path(goal_x, goal_y)
             if waypoints:
                 self.pure_pursuit_controller.set_path(waypoints)
                 self.transition_to_state(FSMState.PATH_FOLLOWING, now)
             else:
-                self.get_logger().warn("Obstacle planning failed. Generating backup avoidance path...")
-                waypoints = self.generate_backup_avoidance_path(goal_x, goal_y)
-                if waypoints:
-                    self.pure_pursuit_controller.set_path(waypoints)
-                    self.transition_to_state(FSMState.PATH_FOLLOWING, now)
-                else:
-                    self.get_logger().error("Backup avoidance path generation failed! Transitioning to RECOVERY...")
-                    self.transition_to_state(FSMState.RECOVERY, now)
+                self.get_logger().error("Avoidance path generation failed! Transitioning to RECOVERY...")
+                self.transition_to_state(FSMState.RECOVERY, now)
 
         # ── UTURN_PLANNING ────────────────────────────────────────────
         elif current_state == FSMState.UTURN_PLANNING:
@@ -759,56 +745,57 @@ class CnnDriverNode(Node):
             
             if is_uturn:
                 turn_angle_deg = np.rad2deg(self.accumulated_turn_angle)
+                is_turned_around = (turn_angle_deg >= 160.0)
+                caught_row = (confidence >= self.high_confidence_threshold) and is_turned_around and finished
                 
-                # Requirement: Robot MUST have physically turned (>= 90 degrees) to ensure it doesn't see the old row.
-                # Once past 90 degrees, if CNN catches the new row, we handover to TRACKING so SMC can smoothly steer it in!
-                is_turned_around = (turn_angle_deg >= 90.0)
-                caught_row = (confidence >= self.high_confidence_threshold) and is_turned_around
-            else:
-                caught_row = (confidence >= self.high_confidence_threshold) and finished
-
-            if caught_row:
-                self.get_logger().info(
-                    f"CNN successfully caught the new crop row (conf={confidence:.2f})! Transitioning to TRACKING..."
-                )
-                self.StopRobot()
-                self.transition_after_path(now)
-            elif finished:
-                if is_uturn:
+                if caught_row:
+                    self.get_logger().info(
+                        f"U-turn alignment completed and new row verified (conf={confidence:.2f}, turn={turn_angle_deg:.1f}°) -> TRACKING..."
+                    )
+                    self.StopRobot()
+                    self.transition_after_path(now)
+                elif finished:
                     self.get_logger().warn(
-                        "U-turn RRT* path finished but new row not caught yet. Transitioning to UTURN_EXECUTION to spin infinitely..."
+                        "U-turn path finished but new row not caught yet. Transitioning to UTURN_EXECUTION to sweep..."
                     )
                     self.transition_to_state(FSMState.UTURN_EXECUTION, now)
                 else:
-                    self.get_logger().info("Path following completed. Returning to TRACKING...")
-                    self.transition_after_path(now)
+                    twist.linear.x = lin_vel
+                    twist.angular.z = ang_vel
             else:
-                twist.linear.x = lin_vel
-                twist.angular.z = ang_vel
+                lane_center = round(self.current_y - 0.5) + 0.5
+                returned_to_center = (abs(self.current_y - lane_center) < 0.04) and (path_idx >= 12)
+                
+                # Proactive chained avoidance: if already back in center corridor and sees next obstacle ahead:
+                if returned_to_center and obstacle_detected:
+                    self.get_logger().warn("Returned to center and detected next obstacle! Planning next avoidance...")
+                    self.transition_to_state(FSMState.AVOID_PLANNING, now)
+                    self.StopRobot()
+                    return
+                elif finished or (returned_to_center and confidence >= self.high_confidence_threshold):
+                    self.get_logger().info("Avoidance maneuver completely finished! Returning to TRACKING...")
+                    self.transition_after_path(now)
+                else:
+                    twist.linear.x = lin_vel
+                    twist.angular.z = ang_vel
 
         # ── UTURN_EXECUTION ───────────────────────────────────────────
         elif current_state == FSMState.UTURN_EXECUTION:
-            # Pivot/rotate continuously in place ("xoay mãi / quay vô hạn") until CNN detects the new row
-            # Use larger linear velocity so it traces a smooth wider arc ("ôm luống") into the row
-            twist.linear.x  = 0.25
+            # Pivot/rotate continuously in place until CNN detects the new row
+            # Use forward velocity so it traces a smooth wider arc into the row
+            twist.linear.x  = 0.18
             twist.angular.z = self.turn_direction * self.turn_angular_speed
             
             turn_angle_deg = np.rad2deg(self.accumulated_turn_angle)
             
-            # ONLY transition to TRACKING if CNN catches the new row AND we have turned sufficiently (>= 90 degrees)!
-            # This allows SMC to take over early enough to smoothly enter the row.
-            if turn_angle_deg >= 90.0:
+            # ONLY transition to TRACKING if CNN catches the new row AND we have turned sufficiently (>= 140 degrees)!
+            if turn_angle_deg >= self.min_turn_angle_deg:
                 if confidence >= self.high_confidence_threshold:
                     self.get_logger().info(
-                        f"--- New crop row caught in UTURN_EXECUTION (conf={confidence:.2f}) → TRACKING ---"
+                        f"--- New crop row caught in UTURN_EXECUTION (conf={confidence:.2f}, turn={turn_angle_deg:.1f}°) → TRACKING ---"
                     )
                     self.StopRobot()
-                    self.transition_to_state(FSMState.TRACKING, now)
-                    self.low_confidence_counter = 0
-                    self.high_confidence_counter = 0
-                    self.smoothed_angle_deg  = 0.0
-                    self.distance_traveled   = 0.0
-                    self.inside_row          = False
+                    self.transition_after_path(now)
 
         # ── RECOVERY ──────────────────────────────────────────────────
         elif current_state == FSMState.RECOVERY:
@@ -881,12 +868,12 @@ class CnnDriverNode(Node):
         dir_x = 1.0 if math.cos(ryaw) >= 0 else -1.0
         
         shift = goal_y - ry
-        clearance = 0.40  # Small clearance distance since robot already drove out past EOR
+        clearance = 0.15  # Tight clearance since robot already drove out past EOR
         
         waypoints = []
         
-        # 1. Drive out slightly for smooth arc entry (0.4m)
-        for d in np.linspace(0.05, clearance, 4):
+        # 1. Drive out slightly for smooth arc entry (0.15m)
+        for d in np.linspace(0.05, clearance, 3):
             waypoints.append([rx + dir_x * d, ry])
             
         # 2. Perfect mathematical circular arc U-turn (180 degree turn to target_y)
@@ -907,32 +894,84 @@ class CnnDriverNode(Node):
             
         return Path(waypoints, planner_type="DynamicUTurn")
 
-    # ── Fallback Avoidance path generator ───────────────────────────
+    # ── Safe Row Avoidance path generator ───────────────────────────
     def generate_backup_avoidance_path(self, goal_x, goal_y):
-        self.get_logger().warn("Generating fallback/backup obstacle avoidance path...")
+        self.get_logger().warn("Generating smooth Quintic Polynomial avoidance trajectory with wide safety buffer...")
         rx = self.current_x
         ry = self.current_y
         ryaw = self.current_yaw
         dir_x = 1.0 if math.cos(ryaw) >= 0 else -1.0
-        side = -0.5 if ry > 0 else 0.5
         
-        wp1 = [rx + dir_x * 0.5, ry + side]
-        wp2 = [rx + dir_x * 1.5, ry + side]
-        wp3 = [rx + dir_x * 2.0, goal_y]
-        wp4 = [goal_x, goal_y]
+        # Extract full geometric obstacle info from LiDAR in global frame
+        obs_info = self.lidar_processor.get_front_obstacle_info(rx, ry, ryaw, max_dist=1.80)
+        lane_center = obs_info["lane_center"]
+        x_obs = obs_info["x_obs"]
+        side = obs_info["side"]
         
-        return Path([wp1, wp2, wp3, wp4], planner_type="BackupAvoidance")
+        # Target lateral shift: 0.12m from center (13cm clearance on both sides)
+        if side == "LEFT":
+            nudge_y = lane_center - (0.12 if dir_x > 0 else -0.12)
+            self.get_logger().info(f"Obstacle on LEFT at x={x_obs:.2f}m, y={obs_info['y_obs']:.2f}m -> Weaving to y={nudge_y:.2f}m")
+        else:
+            nudge_y = lane_center + (0.12 if dir_x > 0 else -0.12)
+            self.get_logger().info(f"Obstacle on RIGHT at x={x_obs:.2f}m, y={obs_info['y_obs']:.2f}m -> Weaving to y={nudge_y:.2f}m")
+
+        # Hard clamp nudge_y to remain strictly within the safe 1.0m crop lane
+        nudge_y = float(np.clip(nudge_y, lane_center - 0.14, lane_center + 0.14))
+
+        waypoints = []
+        
+        # ── Stage 1: Weave Out (Reaches nudge_y at 0.25m before x_obs)
+        x_weave_end = x_obs - dir_x * 0.25
+        weave_length = max(0.35, dir_x * (x_weave_end - rx))
+        for t in np.linspace(0.05, 1.0, 8):
+            s = 10.0 * (t**3) - 15.0 * (t**4) + 6.0 * (t**5)
+            wp_x = rx + dir_x * (t * weave_length)
+            wp_y = ry + s * (nudge_y - ry)
+            waypoints.append([wp_x, wp_y])
+            
+        # ── Stage 2: Parallel Clearance Corridor (Past x_obs by 0.60m)
+        # Guarantees the entire 0.65m chassis & rear wheels are 100% past before returning
+        x_clear_end = x_obs + dir_x * 0.60
+        clear_length = max(0.60, dir_x * (x_clear_end - (rx + dir_x * weave_length)))
+        for d in np.linspace(0.08, clear_length, 8):
+            wp_x = rx + dir_x * (weave_length + d)
+            wp_y = nudge_y
+            waypoints.append([wp_x, wp_y])
+            
+        # ── Stage 3: Smooth Quintic Polynomial Return (over 0.45m to lane_center)
+        x_return_start = rx + dir_x * (weave_length + clear_length)
+        return_length = 0.45
+        for t in np.linspace(0.05, 1.0, 6):
+            s = 10.0 * (t**3) - 15.0 * (t**4) + 6.0 * (t**5)
+            wp_x = x_return_start + dir_x * (t * return_length)
+            wp_y = nudge_y + s * (lane_center - nudge_y)
+            waypoints.append([wp_x, wp_y])
+            
+        return Path(waypoints, planner_type="SafeCropAvoidance")
 
     # ── Transition after path completed ─────────────────────────────
     def transition_after_path(self, now=None):
         if now is None:
             now = self.get_clock().now()
-        self.get_logger().info("U-turn/Path following completed. Transitioning directly to TRACKING new row...")
+            
+        is_uturn = (self.fsm.state_before_planning == FSMState.UTURN_PLANNING)
+        
+        self.get_logger().info("Path following completed. Returning to TRACKING...")
         self.last_path_completion_time = now.nanoseconds / 1e9
         self.transition_to_state(FSMState.TRACKING, now)
         self.low_confidence_counter = 0
         self.smoothed_angle_deg = 0.0
         self.distance_traveled = 0.0
+        
+        if is_uturn:
+            self.inside_row = False
+            self.row_start_x = None
+            self.row_completed = False
+            self.eor_detected = False
+            self.accumulated_turn_angle = 0.0
+        else:
+            self.inside_row = True
 
 
 def main(args=None):

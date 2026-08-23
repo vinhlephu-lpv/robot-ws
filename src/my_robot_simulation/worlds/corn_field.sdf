@@ -921,10 +921,14 @@
         </visual>
       </link>
     </model>
-    <!-- Vật cản nhỏ trong luống bắp (Small Obstacle for Nav2 A* Avoidance) -->
-    <model name="small_obstacle">
+    <!-- ================================================================ -->
+    <!-- ZIGZAG OBSTACLES (Vật cản xếp zic-zac xa nhau dọc luống bắp)      -->
+    <!-- ================================================================ -->
+
+    <!-- Obstacle 1 (Hàng 1 - Lệch Trái: Robot né sang phải) -->
+    <model name="obstacle_zigzag_1">
       <static>true</static>
-      <pose>1.800 0.120 0.300 0 0 0</pose>
+      <pose>1.800 0.800 0.300 0 0 0</pose>
       <link name="link">
         <collision name="collision">
           <geometry>
@@ -942,9 +946,96 @@
             </cylinder>
           </geometry>
           <material>
-            <ambient>0.95 0.25 0.1 1</ambient>
-            <diffuse>0.95 0.25 0.1 1</diffuse>
-            <specular>0.3 0.3 0.3 1</specular>
+            <ambient>0.95 0.35 0.05 1</ambient>
+            <diffuse>0.95 0.35 0.05 1</diffuse>
+            <specular>0.4 0.4 0.4 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Obstacle 2 (Hàng 1 - Lệch Phải: Robot né sang trái) -->
+    <model name="obstacle_zigzag_2">
+      <static>true</static>
+      <pose>3.300 0.200 0.300 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <cylinder>
+              <radius>0.04</radius>
+              <length>0.60</length>
+            </cylinder>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <cylinder>
+              <radius>0.04</radius>
+              <length>0.60</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>0.95 0.75 0.05 1</ambient>
+            <diffuse>0.95 0.75 0.05 1</diffuse>
+            <specular>0.4 0.4 0.4 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Obstacle 3 (Hàng 2 - Lệch Trái theo chiều đi: Robot né sang phải) -->
+    <model name="obstacle_zigzag_3">
+      <static>true</static>
+      <pose>3.000 -0.200 0.300 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <cylinder>
+              <radius>0.04</radius>
+              <length>0.60</length>
+            </cylinder>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <cylinder>
+              <radius>0.04</radius>
+              <length>0.60</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>0.95 0.35 0.05 1</ambient>
+            <diffuse>0.95 0.35 0.05 1</diffuse>
+            <specular>0.4 0.4 0.4 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Obstacle 4 (Hàng 2 - Lệch Phải theo chiều đi: Robot né sang trái) -->
+    <model name="obstacle_zigzag_4">
+      <static>true</static>
+      <pose>1.500 -0.800 0.300 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <cylinder>
+              <radius>0.04</radius>
+              <length>0.60</length>
+            </cylinder>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <cylinder>
+              <radius>0.04</radius>
+              <length>0.60</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>0.95 0.75 0.05 1</ambient>
+            <diffuse>0.95 0.75 0.05 1</diffuse>
+            <specular>0.4 0.4 0.4 1</specular>
           </material>
         </visual>
       </link>

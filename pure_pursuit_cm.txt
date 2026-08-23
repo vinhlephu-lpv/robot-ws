@@ -1,0 +1,86 @@
+========================================================================================
+ BÁO CÁO PHÂN TÍCH VÀ DIỄN THUYẾT ĐÁP ỨNG BỘ ĐIỀU KHIỂN PURE PURSUIT (PURE_PURSUIT_CM)
+========================================================================================
+
+A. BỐI CẢNH VÀ THIẾT LẬP THỬ NGHIỆM:
+----------------------------------------------------------------------------------------
+- Kịch bản kiểm nghiệm: Đáp ứng bước nhảy ngang (Lateral Step Response).
+- Tình huống ban đầu: Robot được CỐ Ý ĐẶT LỆCH HẲN QUA BÊN TRÁI một khoảng -0.50m (tức -50cm so với tim luống cây). Thân xe lúc t = 0s đang nhìn thẳng song song với luống cây (Góc hướng ban đầu psi = 0 độ).
+- Vận tốc dài làm việc: v = 0.18 m/s (vận tốc tiêu chuẩn của robot nông nghiệp).
+- Khoảng cách nhìn trước (Lookahead Distance): L_d = 0.40 m.
+- Quy ước dấu hiển thị chuẩn mực:
+  + Dấu (+) : Bên Phải / Rẽ sang Phải / Quay sang Phải.
+  + Dấu (-) : Bên Trái / Rẽ sang Trái / Quay sang Trái.
+
+========================================================================================
+B. NỘI DUNG DIỄN THUYẾT CHI TIẾT 4 BIỂU ĐỒ TRƯỚC THẦY HƯỚNG DẪN:
+========================================================================================
+
+1. BIỂU ĐỒ TRÊN - TRÁI: "Quỹ đạo 2D bám đường của Pure Pursuit"
+----------------------------------------------------------------------------------------
+* Tên biểu đồ: Quỹ đạo mặt bằng không gian 2D (X - Y) của robot di chuyển.
+* Đơn vị đo: Cả trục X và trục Y đều tính bằng MÉT (m).
+* Diễn thuyết & Cách robot đi:
+  - Điểm xuất phát của robot nằm tại tọa độ (X = 0m, Y = -0.5m) — tức lệch 50cm ở mép trái.
+  - Đường màu xanh thể hiện robot tự động lượn một đường cong chuyển tiếp cực kỳ êm ái, kéo dần về tim đường tham chiếu màu đỏ (Y = 0.0m).
+  - Xe nhập hoàn toàn vào tim đường tại vị trí X ≈ 1.5m - 1.7m, và chạy thẳng tắp trên vạch đỏ suốt quãng đường còn lại từ X = 1.7m đến 8.0m.
+* Giải thích thắc mắc về thời gian đáp ứng (Vì sao là 9.4s chứ không phải 1s?):
+  - Ở biểu đồ này, trục hoành là KHOẢNG CÁCH DI CHUYỂN X (mét), không phải giây!
+  - Xe chạy tới vị trí mét thứ 1.7m thì nhập làn hoàn tất. Với tốc độ làm việc chậm v = 0.18 m/s, thời gian để xe lăn bánh hết 1.7m này chính là: t = S / v = 1.70m / 0.18m/s ≈ 9.46 giây.
+
+----------------------------------------------------------------------------------------
+2. BIỂU ĐỒ TRÊN - PHẢI: "Sai số lệch khoảng cách ngang e_cte(t)" (Cross-Track Error)
+----------------------------------------------------------------------------------------
+* Tên biểu đồ: Sai số khoảng cách lệch làn ngang theo trục Thời gian (giây).
+* Diễn thuyết & Cách sai số giảm dần:
+  - Tại giây t = 0s: Sai số lệch đang ở mức -0.50m (-50cm về bên trái).
+  - Trong 5.5 giây đầu: Sai số giảm nhanh và trơn tru về 0m khi xe tiến sát tim đường.
+  - Từ giây thứ 10 trở đi: Sai số triệt tiêu hoàn toàn về 0.0000m.
+* Các chỉ tiêu chất lượng đạt được (Trong khung vàng):
+  - Thời gian xác lập (Settling Time t_s): 9.46 giây (thời gian để xe kéo về và ổn định trong dải sai số 2% quanh tim đường, tương đương 1.7m hành trình).
+  - Độ vọt lố (Max Overshoot %OS): 5.46% (xe chỉ chớm nhẹ sang mép phải 2.7cm rồi tự cân bằng ngay, cực kỳ an toàn, không va quẹt vào cây trồng hai bên).
+  - Sai số xác lập (Steady-State Error e_ss): 0.0000 m (xe bám trúng 100% tâm luống).
+  - Tích phân sai số: IAE = 1.420, ISE = 0.496.
+
+----------------------------------------------------------------------------------------
+3. BIỂU ĐỒ DƯỚI - TRÁI: "Góc hướng chuyển động thân xe psi(t)"
+----------------------------------------------------------------------------------------
+* Tên biểu đồ: Góc xoay của thân xe (tính bằng độ) theo trục Thời gian (giây).
+* Quy ước dấu: (+) là lệch/rẽ sang Phải, (-) là lệch/rẽ sang Trái.
+* Diễn thuyết & Cách thân xe xoay hướng:
+  - Tại t = 0s (psi = 0 độ): Thân xe ban đầu được đặt nhìn thẳng song song với luống cây nên góc ban đầu bằng đúng 0 độ.
+  - Từ t = 0s đến 2.2s: Thuật toán phát hiện xe đang lệch bên trái (-0.5m) -> lập tức bẻ mũi xe sang PHẢI, góc hướng tăng vọt từ 0 độ lên đỉnh +51.5 độ (dấu Dương = Phải) để chĩa đầu xe vào tim đường.
+  - Từ t = 2.2s đến 6s: Khi xe đã tiến gần tim đường, bộ điều khiển tự động trả lái ngược lại -> góc hướng giảm dần từ +51.5 độ về lại gần 0 độ.
+  - Từ t = 7s đến 10s: Góc hướng nhúng nhẹ sang số âm (-2.0 độ) để triệt tiêu độ vọt lố, sau đó trở về thẳng tắp đúng 0.0 độ suốt hành trình còn lại (thân xe song song tuyệt đối với tim đường).
+
+----------------------------------------------------------------------------------------
+4. BIỂU ĐỒ DƯỚI - PHẢI: "Tín hiệu điều khiển bẻ lái omega(t)" (Vận tốc góc)
+----------------------------------------------------------------------------------------
+* Tên biểu đồ: Vận tốc góc điều khiển omega(t) (rad/s) phát ra từ bộ điều khiển cấp cho động cơ.
+* Ý nghĩa & Tác dụng bảo vệ cơ khí:
+  - Biểu đồ này chứng minh tính êm thuận của thuật toán Pure Pursuit (tính theo độ cong kappa = 2*sin(alpha)/L_d).
+  - Giúp đánh giá xem hệ thống lái có bị hiện tượng đóng ngắt giật cục (Chattering) hay không, bảo đảm bánh xe không bị trượt lết cày nát nền đất nông nghiệp.
+* Diễn thuyết & Cách vô-lăng đánh lái:
+  - Lúc xuất phát (t = 0 -> 1.8s): Xe lệch nhiều -> phát lệnh bẻ lái tối đa sang PHẢI omega = +0.50 rad/s (Dương = Phải).
+  - Giai đoạn trả lái (t = 2.0 -> 6s): Tín hiệu điều khiển đảo chiều mượt mà sang giá trị âm omega = -0.28 rad/s (Âm = Trái) để trả lái nắn thẳng xe.
+  - Sau t = 10s: Vận tốc góc duy trì phẳng lì ở mức 0.0 rad/s (vô-lăng giữ thẳng, xe chạy thẳng êm dịu).
+
+========================================================================================
+C. ĐOẠN VĂN MẪU VIẾT VÀO LUẬN VĂN / BÁO CÁO:
+========================================================================================
+
+"Để kiểm chứng chất lượng động học của thuật toán Pure Pursuit, hệ thống được thử nghiệm trong kịch bản đáp ứng bước nhảy ngang (Lateral Step Response) với độ lệch làn ban đầu y(0) = -0.50 m (bên trái tim đường), góc hướng ban đầu psi(0) = 0 độ, vận tốc dài v = 0.18 m/s và khoảng nhìn trước L_d = 0.40 m.
+
+Kết quả mô phỏng cho thấy:
+- Robot nhanh chóng điều chỉnh hướng lái và nhập làn vào tim đường chuẩn (Y = 0.0 m) sau quãng đường di chuyển dọc trục X ≈ 1.70 m, duy trì bám thẳng tắp suốt hành trình.
+- Sai số lệch ngang e_cte(t) giảm nhanh với thời gian xác lập t_s = 9.46 s (tiêu chuẩn 2%), độ vọt lố cực nhỏ %OS = 5.46% (tương đương 2.73 cm) và sai số xác lập triệt tiêu hoàn toàn e_ss = 0.0000 m.
+- Tín hiệu điều khiển bẻ lái omega(t) biến thiên liên tục, êm thuận từ +0.50 rad/s (bẻ phải) sang -0.28 rad/s (trả lái trái) và xác lập tại 0.0 rad/s, đảm bảo điều kiện bám đường chống trượt bánh trên nền đất mềm."
+
+========================================================================================
+ BẢNG TỔNG HỢP CHỈ TIÊU CHẤT LƯỢNG:
+ + Thời gian xác lập (t_s 2%): 9.46 s (Quãng đường S ≈ 1.70 m)
+ + Độ vọt lố (%OS)           : 5.46% (Chỉ 2.73 cm)
+ + Sai số xác lập (e_ss)     : 0.0000 m (Tuyệt đối chính xác)
+ + Tích phân sai số (IAE)    : 1.420
+ + Tích phân bình phương(ISE): 0.496
+========================================================================================

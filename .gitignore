@@ -20,3 +20,6 @@ __pycache__/
 
 # Temporary zip files
 *.zip
+
+# Run logs
+logs/

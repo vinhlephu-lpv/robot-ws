@@ -87,7 +87,7 @@ class PerceptionManager:
         obstacles = []
         
         if self.lidar is not None:
-            obstacle_detected = self.lidar.check_obstacle_in_front()
+            obstacle_detected = self.lidar.check_obstacle_in_front(rx, ry, ryaw, inside_row=inside_row)
             front_min_dist = self.lidar.get_min_range_in_sector(-25.0, 25.0)
             left_side_dist = self.lidar.get_min_range_in_sector(40.0, 90.0)
             right_side_dist = self.lidar.get_min_range_in_sector(-90.0, -40.0)
@@ -95,8 +95,17 @@ class PerceptionManager:
             rear_right_dist = self.lidar.get_min_range_in_sector(-135.0, -70.0)
             obstacles = self.lidar.get_obstacles_global(rx, ry, ryaw)
 
-        # 3. Dynamic Sensor Priority & EOR Consensus
+        # 3. Dynamic Sensor Priority & Active LiDAR Corridor Centering Guard
         active_sensor = self.sensor_priority.select_active_tracking_sensor(confidence, lidar_available=(self.lidar is not None))
+
+        # Active LiDAR Safety Guard: Smooth side collision prevention (only when within 3cm of stalk)
+        if self.lidar is not None:
+            if left_side_dist < 0.28:
+                wall_bias = (0.28 - left_side_dist) * 15.0
+                heading_error += wall_bias
+            elif right_side_dist < 0.28:
+                wall_bias = (0.28 - right_side_dist) * 15.0
+                heading_error -= wall_bias
 
         end_of_row = self.eor_detector.detect(
             confidence=confidence,

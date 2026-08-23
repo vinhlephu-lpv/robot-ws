@@ -9,10 +9,11 @@ Launch file chạy hệ thống mô phỏng (Bước 1):
 import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import IncludeLaunchDescription, TimerAction
+from launch.actions import IncludeLaunchDescription, DeclareLaunchArgument
+from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch_ros.actions import Node
-from launch.substitutions import Command
+from launch.substitutions import Command, LaunchConfiguration
 
 def generate_launch_description():
     pkg_robot  = get_package_share_directory('my_robot_description')
@@ -21,6 +22,21 @@ def generate_launch_description():
     xacro_file   = os.path.join(pkg_robot, 'urdf', 'robot.urdf.xacro')
     world_file   = os.path.join(pkg_sim,   'worlds', 'corn_field.sdf')
     rviz_file    = os.path.join(pkg_robot, 'rviz', 'display.rviz')
+
+    use_rviz_arg = DeclareLaunchArgument(
+        'use_rviz',
+        default_value='true',
+        description='Whether to start RViz 2'
+    )
+    use_rviz = LaunchConfiguration('use_rviz')
+
+    spawn_x_arg = DeclareLaunchArgument('spawn_x', default_value='-1.5', description='Spawn X position')
+    spawn_y_arg = DeclareLaunchArgument('spawn_y', default_value='0.75', description='Spawn Y position (lane center is 0.5, 0.75 is offset by 0.25m)')
+    spawn_yaw_arg = DeclareLaunchArgument('spawn_yaw', default_value='-0.20', description='Spawn Yaw orientation in radians (-0.20 is ~-11.5 deg offset)')
+
+    spawn_x = LaunchConfiguration('spawn_x')
+    spawn_y = LaunchConfiguration('spawn_y')
+    spawn_yaw = LaunchConfiguration('spawn_yaw')
 
     robot_description = Command(['xacro "', xacro_file, '"'])
 
@@ -47,7 +63,8 @@ def generate_launch_description():
         name='rviz2',
         output='screen',
         arguments=['-d', rviz_file],
-        parameters=[{'use_sim_time': True}]
+        parameters=[{'use_sim_time': True}],
+        condition=IfCondition(use_rviz)
     )
 
     # ── Spawn robot ───────────────────────────────────────────────────
@@ -59,7 +76,10 @@ def generate_launch_description():
             '-name',  'my_robot',
             '-topic', 'robot_description',
             '-world', 'corn_field',
-            '-x', '-1.5', '-y', '0.5', '-z', '0.2', '-Y', '0.0'
+            '-x', spawn_x,
+            '-y', spawn_y,
+            '-z', '0.2',
+            '-Y', spawn_yaw
         ]
     )
 
@@ -82,4 +102,4 @@ def generate_launch_description():
         ]
     )
 
-    return LaunchDescription([gz_sim, rsp, rviz2, spawn, bridge])
+    return LaunchDescription([use_rviz_arg, spawn_x_arg, spawn_y_arg, spawn_yaw_arg, gz_sim, rsp, rviz2, spawn, bridge])

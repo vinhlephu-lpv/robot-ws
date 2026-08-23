@@ -17,11 +17,14 @@ alias rb-build="build"
 
 # 2. Các lệnh chạy Mô phỏng (PC)
 alias sim="load_ws && ros2 launch my_robot_simulation sim.launch.py"
+alias gazebo="load_ws && ros2 launch my_robot_simulation sim.launch.py use_rviz:=false"
+alias sim-only="gazebo"
 alias ai="load_ws && ros2 launch my_robot_controller control.launch.py"
 alias slam="load_ws && ros2 launch my_robot_slam slam.launch.py"
 alias teleop="load_ws && ros2 run my_robot_controller teleop_wasd"
 alias wasd="teleop"
 alias rviz="load_ws && rviz2 -d \"$WS_DIR/src/my_robot_description/rviz/display.rviz\""
+alias plot="load_ws && ros2 run my_robot_controller plot_response --mode telemetry"
 alias cancel="load_ws && ros2 run my_robot_navigation cancel_nav"
 
 # Hàm lưu bản đồ nhanh

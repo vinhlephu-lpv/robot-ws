@@ -48,6 +48,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
+            'spawn_zigzag_obstacles = my_robot_simulation.spawn_zigzag_obstacles:main',
         ],
     },
 )
