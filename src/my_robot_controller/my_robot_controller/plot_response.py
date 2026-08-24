@@ -124,11 +124,12 @@ def plot_telemetry_csv(csv_path: str, save_path: str = None, show_plot: bool = T
     has_heading = False
     if len(data['Yaw_rad']) > 0:
         # Quy ước hiển thị: (+) = Góc quay phải, (-) = Góc quay trái
-        yaw_display = -np.rad2deg(data['Yaw_rad'])
+        # Dùng np.unwrap để góc quay liền mạch liên tục, không bị nhảy giật giữa +180 và -180
+        yaw_display = -np.rad2deg(np.unwrap(data['Yaw_rad']))
         ax4.plot(time_col, yaw_display, 'c-', lw=1.8, label='Góc hướng thực tế Yaw (Odometry)')
         has_heading = True
     if len(data['IMU_Yaw_rad']) > 0 and np.any(np.abs(data['IMU_Yaw_rad']) > 1e-4):
-        imu_yaw_display = -np.rad2deg(data['IMU_Yaw_rad'])
+        imu_yaw_display = -np.rad2deg(np.unwrap(data['IMU_Yaw_rad']))
         ax4.plot(time_col, imu_yaw_display, 'm--', lw=1.5, label='Góc hướng IMU (Sensor)')
         has_heading = True
     ax4.axhline(0, color='black', linestyle='--', alpha=0.5)

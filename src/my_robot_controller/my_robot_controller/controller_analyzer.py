@@ -553,7 +553,7 @@ def plot_pure_pursuit_response_figure(
     ax1.set_ylabel("Vị trí Y (m) [+ Phải / - Trái]")
     ax1.grid(True, linestyle='--', alpha=0.6)
     ax1.axis('equal')
-    ax1.legend(fontsize=8)
+    ax1.legend(loc='upper right', fontsize=8)
 
     # Subplot 2: Cross-Track Error (y vs reference 0)
     ax2 = plt.subplot(2, 2, 2)
@@ -573,7 +573,7 @@ def plot_pure_pursuit_response_figure(
     )
     ax2.text(0.55, 0.45, metrics_str, transform=ax2.transAxes, fontsize=8,
              verticalalignment='top', bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
-    ax2.legend(fontsize=8)
+    ax2.legend(loc='upper right', fontsize=8)
 
     # Subplot 3: Heading Angle (+ = Rẽ Phải, - = Rẽ Trái)
     ax3 = plt.subplot(2, 2, 3)
@@ -583,7 +583,7 @@ def plot_pure_pursuit_response_figure(
     ax3.set_xlabel("Thời gian $t$ (giây)")
     ax3.set_ylabel("Góc hướng (độ) [+ Phải / - Trái]")
     ax3.grid(True, linestyle='--', alpha=0.6)
-    ax3.legend(fontsize=8)
+    ax3.legend(loc='upper right', fontsize=8)
 
     # Subplot 4: Angular Velocity Output (+ = Quay Phải, - = Quay Trái)
     ax4 = plt.subplot(2, 2, 4)
@@ -593,7 +593,7 @@ def plot_pure_pursuit_response_figure(
     ax4.set_xlabel("Thời gian $t$ (giây)")
     ax4.set_ylabel("Tốc độ góc (rad/s) [+ Phải / - Trái]")
     ax4.grid(True, linestyle='--', alpha=0.6)
-    ax4.legend(fontsize=8)
+    ax4.legend(loc='upper right', fontsize=8)
 
     plt.tight_layout()
 

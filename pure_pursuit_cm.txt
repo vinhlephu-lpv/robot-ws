@@ -24,23 +24,21 @@ B. NỘI DUNG DIỄN THUYẾT CHI TIẾT 4 BIỂU ĐỒ TRƯỚC THẦY HƯỚNG
   - Điểm xuất phát của robot nằm tại tọa độ (X = 0m, Y = -0.5m) — tức lệch 50cm ở mép trái.
   - Đường màu xanh thể hiện robot tự động lượn một đường cong chuyển tiếp cực kỳ êm ái, kéo dần về tim đường tham chiếu màu đỏ (Y = 0.0m).
   - Xe nhập hoàn toàn vào tim đường tại vị trí X ≈ 1.5m - 1.7m, và chạy thẳng tắp trên vạch đỏ suốt quãng đường còn lại từ X = 1.7m đến 8.0m.
-* Giải thích thắc mắc về thời gian đáp ứng (Vì sao là 9.4s chứ không phải 1s?):
-  - Ở biểu đồ này, trục hoành là KHOẢNG CÁCH DI CHUYỂN X (mét), không phải giây!
-  - Xe chạy tới vị trí mét thứ 1.7m thì nhập làn hoàn tất. Với tốc độ làm việc chậm v = 0.18 m/s, thời gian để xe lăn bánh hết 1.7m này chính là: t = S / v = 1.70m / 0.18m/s ≈ 9.46 giây.
+* Lưu ý giải thích: Trục hoành là Khoảng cách X (mét), xe đi hết 1.7m ở tốc độ 0.18m/s tương ứng thời gian t = 1.70m / 0.18m/s ≈ 9.46 giây.
 
 ----------------------------------------------------------------------------------------
 2. BIỂU ĐỒ TRÊN - PHẢI: "Sai số lệch khoảng cách ngang e_cte(t)" (Cross-Track Error)
 ----------------------------------------------------------------------------------------
 * Tên biểu đồ: Sai số khoảng cách lệch làn ngang theo trục Thời gian (giây).
-* Diễn thuyết & Cách sai số giảm dần:
+* Bảng chỉ tiêu chất lượng (Khung vàng ở góc biểu đồ này):
+  + Thời gian xác lập (Settling Time t_s): 9.46 giây (thời gian để xe kéo về và ổn định trong dải sai số 2% quanh tim đường, tương đương 1.7m hành trình).
+  + Độ vọt lố cực đại (Max Overshoot %OS): 5.46% (xe chỉ chớm nhẹ sang mép phải 2.73cm rồi tự cân bằng ngay, an toàn tuyệt đối, không va quẹt vào cây trồng hai bên).
+  + Sai số xác lập (Steady-State Error e_ss): 0.0000 m (xe bám trúng 100% tâm luống).
+  + Tích phân sai số: IAE = 1.420, ISE = 0.496.
+* Diễn thuyết:
   - Tại giây t = 0s: Sai số lệch đang ở mức -0.50m (-50cm về bên trái).
   - Trong 5.5 giây đầu: Sai số giảm nhanh và trơn tru về 0m khi xe tiến sát tim đường.
   - Từ giây thứ 10 trở đi: Sai số triệt tiêu hoàn toàn về 0.0000m.
-* Các chỉ tiêu chất lượng đạt được (Trong khung vàng):
-  - Thời gian xác lập (Settling Time t_s): 9.46 giây (thời gian để xe kéo về và ổn định trong dải sai số 2% quanh tim đường, tương đương 1.7m hành trình).
-  - Độ vọt lố (Max Overshoot %OS): 5.46% (xe chỉ chớm nhẹ sang mép phải 2.7cm rồi tự cân bằng ngay, cực kỳ an toàn, không va quẹt vào cây trồng hai bên).
-  - Sai số xác lập (Steady-State Error e_ss): 0.0000 m (xe bám trúng 100% tâm luống).
-  - Tích phân sai số: IAE = 1.420, ISE = 0.496.
 
 ----------------------------------------------------------------------------------------
 3. BIỂU ĐỒ DƯỚI - TRÁI: "Góc hướng chuyển động thân xe psi(t)"
@@ -57,13 +55,11 @@ B. NỘI DUNG DIỄN THUYẾT CHI TIẾT 4 BIỂU ĐỒ TRƯỚC THẦY HƯỚNG
 4. BIỂU ĐỒ DƯỚI - PHẢI: "Tín hiệu điều khiển bẻ lái omega(t)" (Vận tốc góc)
 ----------------------------------------------------------------------------------------
 * Tên biểu đồ: Vận tốc góc điều khiển omega(t) (rad/s) phát ra từ bộ điều khiển cấp cho động cơ.
-* Ý nghĩa & Tác dụng bảo vệ cơ khí:
-  - Biểu đồ này chứng minh tính êm thuận của thuật toán Pure Pursuit (tính theo độ cong kappa = 2*sin(alpha)/L_d).
-  - Giúp đánh giá xem hệ thống lái có bị hiện tượng đóng ngắt giật cục (Chattering) hay không, bảo đảm bánh xe không bị trượt lết cày nát nền đất nông nghiệp.
-* Diễn thuyết & Cách vô-lăng đánh lái:
-  - Lúc xuất phát (t = 0 -> 1.8s): Xe lệch nhiều -> phát lệnh bẻ lái tối đa sang PHẢI omega = +0.50 rad/s (Dương = Phải).
-  - Giai đoạn trả lái (t = 2.0 -> 6s): Tín hiệu điều khiển đảo chiều mượt mà sang giá trị âm omega = -0.28 rad/s (Âm = Trái) để trả lái nắn thẳng xe.
+* Diễn thuyết & Cách bẻ lái:
+  - Lúc xuất phát (t = 0 -> 1.8s): Do sai số lớn ban đầu dạng hàm nấc, tín hiệu bão hòa ở mức tối đa +0.50 rad/s sang PHẢI (Dương = Phải) để bẻ góc thân xe nhanh.
+  - Giai đoạn trả lái (t = 2.0 -> 6s): Tín hiệu điều khiển đảo chiều mượt mà sang giá trị âm omega = -0.28 rad/s (Âm = Trái) để thực hiện thao tác trả lái nắn thẳng đầu xe.
   - Sau t = 10s: Vận tốc góc duy trì phẳng lì ở mức 0.0 rad/s (vô-lăng giữ thẳng, xe chạy thẳng êm dịu).
+  - Tín hiệu trơn tru, không có gai nhọn Chattering, bảo vệ độ bền cho động cơ và chống cày trượt bánh trên đất mềm.
 
 ========================================================================================
 C. ĐOẠN VĂN MẪU VIẾT VÀO LUẬN VĂN / BÁO CÁO:
@@ -77,7 +73,7 @@ Kết quả mô phỏng cho thấy:
 - Tín hiệu điều khiển bẻ lái omega(t) biến thiên liên tục, êm thuận từ +0.50 rad/s (bẻ phải) sang -0.28 rad/s (trả lái trái) và xác lập tại 0.0 rad/s, đảm bảo điều kiện bám đường chống trượt bánh trên nền đất mềm."
 
 ========================================================================================
- BẢNG TỔNG HỢP CHỈ TIÊU CHẤT LƯỢNG:
+ BẢNG TỔNG HỢP CHỈ TIÊU CHẤT LƯỢNG (TÍNH TỪ ĐỒ THỊ SAI SỐ TRÊN - PHẢI):
  + Thời gian xác lập (t_s 2%): 9.46 s (Quãng đường S ≈ 1.70 m)
  + Độ vọt lố (%OS)           : 5.46% (Chỉ 2.73 cm)
  + Sai số xác lập (e_ss)     : 0.0000 m (Tuyệt đối chính xác)

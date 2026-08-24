@@ -23,6 +23,7 @@ Sau khi vừa clone code về Raspberry Pi (ví dụ thư mục `~/robot-ws` ho�
 ```bash
 sudo apt update
 sudo apt install -y python3-pip python3-colcon-common-extensions \
+    libuvc-dev libgoogle-glog-dev libgflags-dev libusb-1.0-0-dev \
     ros-jazzy-robot-localization ros-jazzy-slam-toolbox ros-jazzy-navigation2 \
     ros-jazzy-nav2-bringup ros-jazzy-tf2-ros ros-jazzy-joint-state-publisher \
     ros-jazzy-robot-state-publisher ros-jazzy-xacro ros-jazzy-teleop-twist-keyboard \
