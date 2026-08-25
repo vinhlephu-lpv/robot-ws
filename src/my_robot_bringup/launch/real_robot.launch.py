@@ -110,25 +110,26 @@ def generate_launch_description():
     )
 
     # ── Camera Driver (Orbbec Astra Mini S 3D Camera via OpenNI2) ───
+    camera_env = dict(os.environ)
     try:
         from ament_index_python.packages import get_package_prefix
         pkg_astra_prefix = get_package_prefix('astra_camera')
         openni2_drivers_dir = os.path.join(pkg_astra_prefix, 'lib', 'OpenNI2', 'Drivers')
         openni2_lib_dir = os.path.join(pkg_astra_prefix, 'lib')
+        if os.path.exists(openni2_drivers_dir):
+            camera_env['OPENNI2_REDIST'] = openni2_drivers_dir
+            camera_env['OPENNI2_DRIVERS_PATH'] = openni2_drivers_dir
+        if os.path.exists(openni2_lib_dir):
+            camera_env['LD_LIBRARY_PATH'] = f"{openni2_lib_dir}:{camera_env.get('LD_LIBRARY_PATH', '')}"
     except Exception:
-        openni2_drivers_dir = ''
-        openni2_lib_dir = ''
+        pass
 
     camera_node = Node(
         package='astra_camera',
         executable='astra_camera_node',
         name='astra_camera',
         output='screen',
-        env={
-            'OPENNI2_REDIST': openni2_drivers_dir,
-            'OPENNI2_DRIVERS_PATH': openni2_drivers_dir,
-            'LD_LIBRARY_PATH': (openni2_lib_dir + ':' + os.environ.get('LD_LIBRARY_PATH', '')) if openni2_lib_dir else os.environ.get('LD_LIBRARY_PATH', ''),
-        },
+        env=camera_env,
         parameters=[{
             'camera_name': 'camera',
             'vendor_id': '0x2bc5',

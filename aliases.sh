@@ -9,6 +9,13 @@ load_ws() {
     if [ -f "$WS_DIR/install/setup.bash" ]; then
         source "$WS_DIR/install/setup.bash"
     fi
+    if [ -d "$WS_DIR/install/astra_camera/lib/OpenNI2/Drivers" ]; then
+        export OPENNI2_REDIST="$WS_DIR/install/astra_camera/lib/OpenNI2/Drivers"
+        export OPENNI2_DRIVERS_PATH="$WS_DIR/install/astra_camera/lib/OpenNI2/Drivers"
+    elif [ -d "$WS_DIR/src/astra_camera/openni2_redist/arm64/OpenNI2/Drivers" ]; then
+        export OPENNI2_REDIST="$WS_DIR/src/astra_camera/openni2_redist/arm64/OpenNI2/Drivers"
+        export OPENNI2_DRIVERS_PATH="$WS_DIR/src/astra_camera/openni2_redist/arm64/OpenNI2/Drivers"
+    fi
 }
 
 # 1. Biên dịch Workspace
@@ -41,7 +48,7 @@ savemap() {
 
 # 3. Các lệnh chạy trên Robot Thật (Raspberry Pi)
 alias test-lidar="load_ws && ros2 launch my_sensor_test test_lidar.launch.py"
-alias test-cam="load_ws && ros2 launch my_sensor_test test_camera.launch.py"
+alias test-cam="load_ws && ros2 launch astra_camera astra.launch.xml"
 alias test-all="load_ws && ros2 launch my_sensor_test test_all_sensors.launch.py"
 alias real-robot="load_ws && ros2 launch my_robot_bringup real_robot.launch.py"
 alias real-slam="load_ws && ros2 launch my_robot_bringup real_slam.launch.py"
