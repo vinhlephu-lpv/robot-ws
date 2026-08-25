@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<dds xmlns="http://www.eprosima.com/XMLSchemas/fastRTPS_Profiles">
+    <profiles>
+        <participant profile_name="default_participant" is_default_profile="true">
+            <rtps>
+                <builtin>
+                    <initialPeersList>
+                        <locator>
+                            <udpv4>
+                                <address>10.10.178.200</address>
+                            </udpv4>
+                        </locator>
+                        <locator>
+                            <udpv4>
+                                <address>10.10.177.141</address>
+                            </udpv4>
+                        </locator>
+                    </initialPeersList>
+                    <metatrafficUnicastLocatorList>
+                        <locator>
+                            <udpv4>
+                                <address>0.0.0.0</address>
+                            </udpv4>
+                        </locator>
+                    </metatrafficUnicastLocatorList>
+                </builtin>
+                <useBuiltinTransports>true</useBuiltinTransports>
+            </rtps>
+        </participant>
+    </profiles>
+</dds>
