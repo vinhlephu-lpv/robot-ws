@@ -63,6 +63,10 @@ def generate_launch_description():
         'enable_rviz', default_value='false',
         description='Enable RViz2 visualization')
 
+    camera_driver_arg = DeclareLaunchArgument(
+        'camera_driver', default_value='v4l2',
+        description='Camera driver: v4l2 (robust UVC /dev/video0) or astra (OpenNI 3D)')
+
     # ── Robot State Publisher (URDF + TF) ────────────────────────────
     robot_state_pub = Node(
         package='robot_state_publisher',
@@ -105,28 +109,20 @@ def generate_launch_description():
         }]
     )
 
-    # ── Astra Mini S Camera ──────────────────────────────────────────
-    camera_node = Node(
-        package='astra_camera',
-        executable='astra_camera_node',
-        name='astra_camera',
+    # ── Camera Driver (V4L2 UVC Webcam: /dev/video0 -> /camera/image_raw) ─
+    v4l2_camera_node = Node(
+        package='v4l2_camera',
+        executable='v4l2_camera_node',
+        name='v4l2_camera_node',
         output='screen',
         parameters=[{
-            'vendor_id': '0x2bc5',
-            'product_id': '0x0407',
-            'color_width': 640,
-            'color_height': 480,
-            'color_fps': 30,
-            'depth_width': 640,
-            'depth_height': 480,
-            'depth_fps': 30,
-            'enable_color': True,
-            'enable_depth': True,
-            'enable_pointcloud': False,
-            'camera_link_frame_id': 'camera_link',
+            'video_device': LaunchConfiguration('camera_device'),
+            'image_size': [640, 480],
+            'camera_frame_id': 'camera_link',
+            'pixel_format': 'YUYV',
         }],
         remappings=[
-            ('/camera/color/image_raw', '/camera/image_raw'),
+            ('image_raw', '/camera/image_raw'),
         ],
         condition=IfCondition(LaunchConfiguration('enable_camera'))
     )
@@ -180,7 +176,7 @@ def generate_launch_description():
         joint_state_pub,
         static_odom_tf,
         lidar_node,
-        camera_node,
+        v4l2_camera_node,
         esp32_bridge,
         cnn_driver,
         rviz2_node,

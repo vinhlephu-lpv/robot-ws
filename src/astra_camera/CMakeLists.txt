@@ -221,11 +221,21 @@ install(TARGETS ${PROJECT_NAME}
 
 
 install(FILES openni2_redist/${HOST_PLATFORM}/libOpenNI2.so
+  openni2_redist/${HOST_PLATFORM}/OpenNI.ini
   DESTINATION lib/
+  )
+
+install(FILES openni2_redist/${HOST_PLATFORM}/libOpenNI2.so
+  openni2_redist/${HOST_PLATFORM}/OpenNI.ini
+  DESTINATION lib/${PROJECT_NAME}/
   )
 
 install(DIRECTORY openni2_redist/${HOST_PLATFORM}/OpenNI2
   DESTINATION lib/
+  )
+
+install(DIRECTORY openni2_redist/${HOST_PLATFORM}/OpenNI2
+  DESTINATION lib/${PROJECT_NAME}/
   )
 
 install(TARGETS list_devices_node
