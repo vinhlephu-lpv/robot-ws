@@ -46,9 +46,6 @@ newgrp dialout
 ```bash
 # Nếu thư mục là robot-ws:
 echo "source '$HOME/robot-ws/aliases.sh'" >> ~/.bashrc
-# Nếu thư mục là robot_ws:
-echo "source '$HOME/robot_ws/aliases.sh'" >> ~/.bashrc
-
 source ~/.bashrc
 ```
 
@@ -75,11 +72,12 @@ Khi cắm đồng thời LiDAR, ESP32, GPS và IMU qua cổng USB, hệ điều 
    ```
 3. Dán nội dung sau (chỉnh lại `idVendor`/`idProduct` tương ứng nếu có thay đổi):
    ```bash
-   # RPLIDAR C1 / A1
-   KERNEL=="ttyUSB*", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", MODE:="0666", SYMLINK+="rplidar"
+    # RPLIDAR C1 / A1
+    SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", MODE:="0666", SYMLINK+="rplidar"
 
-   # ESP32 Motor Controller
-   KERNEL=="ttyUSB*", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", MODE:="0666", SYMLINK+="esp32"
+    # ESP32 Motor Controller (Hỗ trợ chip QinHeng CH343/CH9102/CH340)
+    SUBSYSTEM=="tty", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="55d3", MODE:="0666", SYMLINK+="esp32"
+    SUBSYSTEM=="tty", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", MODE:="0666", SYMLINK+="esp32"
 
    # GPS Module (u-blox / USB-TTL)
    KERNEL=="ttyUSB*", ATTRS{idVendor}=="1546", ATTRS{idProduct}=="01a7", MODE:="0666", SYMLINK+="gps"

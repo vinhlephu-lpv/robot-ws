@@ -27,7 +27,7 @@ def generate_launch_description():
 
     # ── Launch Arguments ─────────────────────────────────────────────
     serial_port_arg = DeclareLaunchArgument(
-        'serial_port', default_value='/dev/ttyUSB0',
+        'serial_port', default_value='/dev/rplidar',
         description='RPLIDAR C1 serial port')
 
     map_arg = DeclareLaunchArgument(

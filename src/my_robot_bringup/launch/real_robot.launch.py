@@ -36,7 +36,7 @@ def generate_launch_description():
 
     # ── Launch Arguments ─────────────────────────────────────────────
     serial_port_arg = DeclareLaunchArgument(
-        'serial_port', default_value='/dev/ttyUSB0',
+        'serial_port', default_value='/dev/rplidar',
         description='RPLIDAR C1 serial port')
 
     camera_device_arg = DeclareLaunchArgument(
@@ -44,7 +44,7 @@ def generate_launch_description():
         description='Astra Mini S / USB camera device')
 
     esp32_port_arg = DeclareLaunchArgument(
-        'esp32_port', default_value='/dev/ttyUSB1',
+        'esp32_port', default_value='/dev/esp32',
         description='ESP32 serial port')
 
     enable_esp32_arg = DeclareLaunchArgument(
