@@ -60,7 +60,7 @@ def generate_launch_description():
         description='Enable CNN row-following driver')
 
     enable_rviz_arg = DeclareLaunchArgument(
-        'enable_rviz', default_value='true',
+        'enable_rviz', default_value='false',
         description='Enable RViz2 visualization')
 
     # ── Robot State Publisher (URDF + TF) ────────────────────────────
