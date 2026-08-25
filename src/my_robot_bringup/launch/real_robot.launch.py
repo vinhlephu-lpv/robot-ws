@@ -109,20 +109,44 @@ def generate_launch_description():
         }]
     )
 
-    # ── Camera Driver (V4L2 UVC Webcam: /dev/video0 -> /camera/image_raw) ─
-    v4l2_camera_node = Node(
-        package='v4l2_camera',
-        executable='v4l2_camera_node',
-        name='v4l2_camera_node',
+    # ── Camera Driver (Orbbec Astra Mini S 3D Camera via OpenNI2) ───
+    try:
+        from ament_index_python.packages import get_package_prefix
+        pkg_astra_prefix = get_package_prefix('astra_camera')
+        openni2_drivers_dir = os.path.join(pkg_astra_prefix, 'lib', 'OpenNI2', 'Drivers')
+        openni2_lib_dir = os.path.join(pkg_astra_prefix, 'lib')
+    except Exception:
+        openni2_drivers_dir = ''
+        openni2_lib_dir = ''
+
+    camera_node = Node(
+        package='astra_camera',
+        executable='astra_camera_node',
+        name='astra_camera',
         output='screen',
+        env={
+            'OPENNI2_REDIST': openni2_drivers_dir,
+            'OPENNI2_DRIVERS_PATH': openni2_drivers_dir,
+            'LD_LIBRARY_PATH': (openni2_lib_dir + ':' + os.environ.get('LD_LIBRARY_PATH', '')) if openni2_lib_dir else os.environ.get('LD_LIBRARY_PATH', ''),
+        },
         parameters=[{
-            'video_device': LaunchConfiguration('camera_device'),
-            'image_size': [640, 480],
-            'camera_frame_id': 'camera_link',
-            'pixel_format': 'YUYV',
+            'camera_name': 'camera',
+            'vendor_id': '0x2bc5',
+            'product_id': '0x0407',
+            'color_width': 640,
+            'color_height': 480,
+            'color_fps': 30,
+            'depth_width': 640,
+            'depth_height': 480,
+            'depth_fps': 30,
+            'enable_color': True,
+            'enable_depth': True,
+            'enable_pointcloud': False,
+            'use_uvc_camera': False,
+            'camera_link_frame_id': 'camera_link',
         }],
         remappings=[
-            ('image_raw', '/camera/image_raw'),
+            ('/camera/color/image_raw', '/camera/image_raw'),
         ],
         condition=IfCondition(LaunchConfiguration('enable_camera'))
     )
@@ -176,7 +200,7 @@ def generate_launch_description():
         joint_state_pub,
         static_odom_tf,
         lidar_node,
-        v4l2_camera_node,
+        camera_node,
         esp32_bridge,
         cnn_driver,
         rviz2_node,
