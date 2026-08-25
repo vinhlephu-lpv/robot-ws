@@ -25,14 +25,20 @@ def generate_launch_description():
 
     serial_port_arg = DeclareLaunchArgument(
         'serial_port',
-        default_value='/dev/ttyUSB0',
-        description='LiDAR USB serial port'
+        default_value='/dev/rplidar',
+        description='LiDAR USB serial port (/dev/rplidar or /dev/ttyUSB0)'
     )
 
     serial_baudrate_arg = DeclareLaunchArgument(
         'serial_baudrate',
         default_value='460800',
-        description='LiDAR baudrate (C1: 460800)'
+        description='LiDAR baudrate (C1: 460800, A1/A2: 115200)'
+    )
+
+    use_rviz_arg = DeclareLaunchArgument(
+        'use_rviz',
+        default_value='false',
+        description='Whether to launch RViz2 directly on this machine'
     )
 
     # Robot State Publisher (publishes 3D robot model & TF)
@@ -60,7 +66,7 @@ def generate_launch_description():
         parameters=[{
             'channel_type': 'serial',
             'serial_port': LaunchConfiguration('serial_port'),
-            'serial_baudrate': 460800,
+            'serial_baudrate': LaunchConfiguration('serial_baudrate'),
             'frame_id': 'laser_frame',
             'inverted': False,
             'angle_compensate': True,
@@ -76,21 +82,25 @@ def generate_launch_description():
         output='screen'
     )
 
-    # RViz2 Node
+    # RViz2 Node (Only launched if use_rviz:=true)
+    from launch.conditions import IfCondition
     rviz2_node = Node(
         package='rviz2',
         executable='rviz2',
         name='rviz2',
         output='screen',
-        arguments=['-d', rviz_config]
+        arguments=['-d', rviz_config],
+        condition=IfCondition(LaunchConfiguration('use_rviz'))
     )
 
     return LaunchDescription([
         serial_port_arg,
         serial_baudrate_arg,
+        use_rviz_arg,
         robot_state_pub,
         joint_state_pub,
         lidar_node,
         visualizer_node,
         rviz2_node,
     ])
+
