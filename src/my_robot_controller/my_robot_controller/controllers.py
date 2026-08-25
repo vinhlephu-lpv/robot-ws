@@ -177,8 +177,8 @@ class PurePursuitController(ControllerInterface):
                 closest_idx = i
         self.path_index = closest_idx
 
-        # 2. Project lookahead point forward from closest waypoint (L_d = 0.35m)
-        L_d = max(0.35, getattr(self, 'lookahead_dist', 0.35))
+        # 2. Project lookahead point forward from closest waypoint (L_d = 0.28m)
+        L_d = getattr(self, 'lookahead_dist', 0.28)
         target_idx = closest_idx
         for i in range(closest_idx, len(self.path)):
             px, py = self.path[i]

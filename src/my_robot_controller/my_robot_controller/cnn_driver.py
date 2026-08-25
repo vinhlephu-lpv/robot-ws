@@ -596,8 +596,13 @@ class CnnDriverNode(Node):
                     self.StopRobot()
                     return
                 else:
+                    lane_center = round(self.current_y - 0.5) + 0.5
+                    dir_x = 1.0 if math.cos(self.current_yaw) >= 0 else -1.0
+                    target_yaw = 0.0 if dir_x > 0 else (math.pi if self.current_yaw >= 0 else -math.pi)
+                    yaw_err = math.atan2(math.sin(target_yaw - self.current_yaw), math.cos(target_yaw - self.current_yaw))
+                    lat_correction = -1.5 * (self.current_y - lane_center) * dir_x
                     twist.linear.x = self.linear_speed
-                    twist.angular.z = 0.0
+                    twist.angular.z = float(np.clip(lat_correction + 0.8 * yaw_err, -0.30, 0.30))
                     self.cmd_vel_pub.publish(twist)
                     return
 
@@ -640,8 +645,8 @@ class CnnDriverNode(Node):
                 # Use purely perception-based U-turn triggers
                 # Require that the robot has entered the crop row first
                 if self.inside_row and (trigger_confidence or end_of_row or trigger_safety_distance):
-                    is_forward_completed = (self.row_start_x is not None and self.row_start_x < 2.0 and self.current_x >= 3.0)
-                    is_backward_completed = (self.row_start_x is not None and self.row_start_x > 1.5 and self.current_x <= 0.5)
+                    is_forward_completed = (self.row_start_x is not None and self.row_start_x < 2.0 and self.current_x >= 3.65)
+                    is_backward_completed = (self.row_start_x is not None and self.row_start_x > 1.5 and self.current_x <= -0.05)
                     
                     if is_forward_completed or is_backward_completed or trigger_safety_distance or self.distance_traveled >= self.min_row_length:
                         self.row_completed = True
@@ -718,15 +723,13 @@ class CnnDriverNode(Node):
             self.accumulated_turn_angle = 0.0
             self._prev_yaw_for_turn = self.current_yaw
 
-            # 1. Try RRT* PlanPath first (as requested by user)
-            plan_res = self.PlanPath(goal_x, goal_y)
-            path = plan_res["path"] if plan_res else None
-            waypoints = path.waypoints if hasattr(path, 'waypoints') else path
-            
-            # 2. Fallback to semicircular path if RRT* fails
+            # 1. Generate smooth, mathematical semicircular U-turn trajectory (180 deg arc)
+            waypoints = self.generate_backup_uturn_path(goal_x, goal_y)
             if not waypoints:
-                self.get_logger().warn("RRT* UTurn path generation failed! Using backup semicircular path...")
-                waypoints = self.generate_backup_uturn_path(goal_x, goal_y)
+                self.get_logger().warn("Semicircular U-turn failed! Attempting RRT* path planner...")
+                plan_res = self.PlanPath(goal_x, goal_y)
+                path = plan_res["path"] if plan_res else None
+                waypoints = path.waypoints if hasattr(path, 'waypoints') else path
 
             if waypoints:
                 self.pure_pursuit_controller.set_path(waypoints)
@@ -745,8 +748,8 @@ class CnnDriverNode(Node):
             
             if is_uturn:
                 turn_angle_deg = np.rad2deg(self.accumulated_turn_angle)
-                is_turned_around = (turn_angle_deg >= 160.0)
-                caught_row = (confidence >= self.high_confidence_threshold) and is_turned_around and finished
+                is_turned_around = (turn_angle_deg >= 135.0)
+                caught_row = (confidence >= self.high_confidence_threshold and is_turned_around) or (finished and is_turned_around)
                 
                 if caught_row:
                     self.get_logger().info(
@@ -888,8 +891,8 @@ class CnnDriverNode(Node):
             wp_y = y_mid + R * math.cos(theta) * y_sign
             waypoints.append([wp_x, wp_y])
             
-        # 3. Alignment section heading back down into the new row (3.5m length)
-        for d in np.linspace(0.10, 3.50, 10):
+        # 3. Short entry alignment section into the new row (0.40m length)
+        for d in np.linspace(0.10, 0.40, 4):
             waypoints.append([x_exit - dir_x * d, goal_y])
             
         return Path(waypoints, planner_type="DynamicUTurn")
@@ -908,16 +911,16 @@ class CnnDriverNode(Node):
         x_obs = obs_info["x_obs"]
         side = obs_info["side"]
         
-        # Target lateral shift: 0.12m from center (13cm clearance on both sides)
+        # Target lateral shift: 0.09m from center (balanced ~16cm clearance to stalks, ~12cm to obstacle)
         if side == "LEFT":
-            nudge_y = lane_center - (0.12 if dir_x > 0 else -0.12)
+            nudge_y = lane_center - (0.09 if dir_x > 0 else -0.09)
             self.get_logger().info(f"Obstacle on LEFT at x={x_obs:.2f}m, y={obs_info['y_obs']:.2f}m -> Weaving to y={nudge_y:.2f}m")
         else:
-            nudge_y = lane_center + (0.12 if dir_x > 0 else -0.12)
+            nudge_y = lane_center + (0.09 if dir_x > 0 else -0.09)
             self.get_logger().info(f"Obstacle on RIGHT at x={x_obs:.2f}m, y={obs_info['y_obs']:.2f}m -> Weaving to y={nudge_y:.2f}m")
 
         # Hard clamp nudge_y to remain strictly within the safe 1.0m crop lane
-        nudge_y = float(np.clip(nudge_y, lane_center - 0.14, lane_center + 0.14))
+        nudge_y = float(np.clip(nudge_y, lane_center - 0.10, lane_center + 0.10))
 
         waypoints = []
         
@@ -930,18 +933,17 @@ class CnnDriverNode(Node):
             wp_y = ry + s * (nudge_y - ry)
             waypoints.append([wp_x, wp_y])
             
-        # ── Stage 2: Parallel Clearance Corridor (Past x_obs by 0.60m)
-        # Guarantees the entire 0.65m chassis & rear wheels are 100% past before returning
-        x_clear_end = x_obs + dir_x * 0.60
-        clear_length = max(0.60, dir_x * (x_clear_end - (rx + dir_x * weave_length)))
-        for d in np.linspace(0.08, clear_length, 8):
+        # ── Stage 2: Parallel Clearance Corridor (Past x_obs by 0.30m)
+        x_clear_end = x_obs + dir_x * 0.30
+        clear_length = max(0.30, dir_x * (x_clear_end - (rx + dir_x * weave_length)))
+        for d in np.linspace(0.06, clear_length, 6):
             wp_x = rx + dir_x * (weave_length + d)
             wp_y = nudge_y
             waypoints.append([wp_x, wp_y])
             
-        # ── Stage 3: Smooth Quintic Polynomial Return (over 0.45m to lane_center)
+        # ── Stage 3: Smooth Quintic Polynomial Return (over 0.35m to lane_center)
         x_return_start = rx + dir_x * (weave_length + clear_length)
-        return_length = 0.45
+        return_length = 0.35
         for t in np.linspace(0.05, 1.0, 6):
             s = 10.0 * (t**3) - 15.0 * (t**4) + 6.0 * (t**5)
             wp_x = x_return_start + dir_x * (t * return_length)
@@ -965,8 +967,8 @@ class CnnDriverNode(Node):
         self.distance_traveled = 0.0
         
         if is_uturn:
-            self.inside_row = False
-            self.row_start_x = None
+            self.inside_row = True  # Arm inside_row immediately so obstacle avoidance is active in Row 2!
+            self.row_start_x = self.current_x
             self.row_completed = False
             self.eor_detected = False
             self.accumulated_turn_angle = 0.0

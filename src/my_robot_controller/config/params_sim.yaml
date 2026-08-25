@@ -45,7 +45,7 @@ cnn_driver_node:
     warmup_time: 1.0            # giây — bỏ qua các frame đầu tiên để hệ thống ổn định
 
     # Tham số thoát hàng
-    drive_out_distance: 0.70       # m — quãng đường đi thẳng ra bãi đất trống (X >= 5.4m) thoát hẳn ruộng bắp trước khi ôm cua U-turn
+    drive_out_distance: 0.35       # m — quãng đường đi thẳng ra bãi đất trống vừa đủ thoát hàng bắp (x >= 4.0m) trước khi ôm cua U-turn
 
     # Tham số xoay xe quay đầu
     min_turn_angle_deg: 140.0      # độ — góc xoay tối thiểu trước khi quét tìm hàng bắp mới

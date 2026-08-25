@@ -25,6 +25,9 @@ alias teleop="load_ws && ros2 run my_robot_controller teleop_wasd"
 alias wasd="teleop"
 alias rviz="load_ws && rviz2 -d \"$WS_DIR/src/my_robot_description/rviz/display.rviz\""
 alias plot="load_ws && ros2 run my_robot_controller plot_response --mode telemetry"
+alias plot-pp="load_ws && ros2 run my_robot_controller plot_response --mode pure_pursuit"
+alias plot-smc="load_ws && ros2 run my_robot_controller plot_response --mode smc"
+alias plot-gui="load_ws && ros2 run my_robot_controller plot_response --gui"
 alias cancel="load_ws && ros2 run my_robot_navigation cancel_nav"
 
 # Hàm lưu bản đồ nhanh
@@ -54,13 +57,17 @@ alias robot-help="cat << 'EOF'
   teleop         : Lái xe bằng bàn phím (U, I, O, J, K, L)
   rviz           : Mở RViz 2 hiển thị đồ họa
 
-[Mô Phỏng - Chạy trên PC]
+[Mô Phỏng & Phân Tích Đồ Thị]
   sim            : Bật thế giới Gazebo + RViz + Xe ảo
   ai             : Bật AI CNN nhận diện luống bắp tự lái
   slam           : Bật SLAM vẽ bản đồ
   nav            : Bật Nav2 dẫn đường tự động
   savemap <tên>  : Lưu bản đồ vào thư mục maps/
   cancel         : Hủy mục tiêu dẫn đường
+  plot           : Vẽ dữ liệu quỹ đạo & cảm biến xe vừa chạy (Telemetry)
+  plot-pp        : Vẽ 4 biểu đồ phân tích đáp ứng Pure Pursuit
+  plot-smc       : Vẽ đáp ứng bước bộ điều khiển trượt SMC
+  plot-gui       : Mở giao diện tương tác Live Tuning GUI (thanh trượt)
 
 [Robot Thật - Chạy trên Raspberry Pi]
   test-lidar     : Kiểm tra cảm biến RPLIDAR C1
