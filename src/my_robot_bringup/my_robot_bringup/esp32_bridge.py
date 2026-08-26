@@ -33,7 +33,7 @@ class ESP32Bridge(Node):
         self.declare_parameter('serial_port', '/dev/ttyUSB1')
         self.declare_parameter('baudrate', 115200)
         self.declare_parameter('esp32_ip', '192.168.1.100')
-        self.declare_parameter('wheel_diameter', 0.20)  # meters (from codepid178.ino)
+        self.declare_parameter('wheel_diameter', 0.20)  # meters (from codepid2608.ino)
         self.declare_parameter('wheel_base', 0.58)      # meters (track width)
         self.declare_parameter('publish_tf', True)
         self.declare_parameter('odom_frame', 'odom')

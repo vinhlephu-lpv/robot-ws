@@ -5,7 +5,7 @@
 > *Workspace:* `robot_ws`  
 > *Các file nguồn chính:*
 > - Node cầu nối ROS 2: [`esp32_bridge.py`](file:///home/vinh/Màn hình nền/robot_ws/src/my_robot_bringup/my_robot_bringup/esp32_bridge.py)
-> - Firmware điều khiển ESP32: [`codepid178.ino`](file:///home/vinh/Màn hình nền/robot_ws/src/esp32_source/codepid178.ino)
+> - Firmware điều khiển ESP32: [`codepid2608.ino`](file:///home/vinh/Màn hình nền/robot_ws/src/esp32_source/codepid2608.ino)
 > - Launch khởi động xe thật: [`real_robot.launch.py`](file:///home/vinh/Màn hình nền/robot_ws/src/my_robot_bringup/launch/real_robot.launch.py)
 
 ---
