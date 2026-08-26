@@ -49,7 +49,18 @@ echo "source '$HOME/robot-ws/aliases.sh'" >> ~/.bashrc
 source ~/.bashrc
 ```
 
-### 5. Biên dịch Workspace lần đầu:
+### 5. Cấu hình phần cứng trên Raspberry Pi 5 (Bắt buộc):
+- **Mở khóa nguồn USB 1.6A (Tránh sụt áp/ngắt thiết bị khi cắm Camera + LiDAR + ESP32):**
+  ```bash
+  echo "usb_max_current_enable=1" | sudo tee -a /boot/firmware/config.txt
+  ```
+- **Bật cổng Serial GPIO cho GPS (`/dev/ttyAMA0`):**
+  Chạy `sudo raspi-config` -> **Interface Options** -> **Serial Port**:
+  - *Login shell over serial:* Chọn **NO**
+  - *Serial port hardware enabled:* Chọn **YES**
+  - Khởi động lại: `sudo reboot`
+
+### 6. Biên dịch Workspace:
 ```bash
 cd ~/robot-ws   # hoặc cd ~/robot_ws
 build
@@ -58,38 +69,41 @@ build
 
 ---
 
-## 🔌 GIAI ĐOẠN 2: CỐ ĐỊNH CỔNG USB (UDEV RULES) CHO CẢM BIẾN
+## 🔌 GIAI ĐOẠN 2: SƠ ĐỒ KẾT NỐI CỔNG & CỐ ĐỊNH USB (UDEV RULES)
 
-Khi cắm đồng thời LiDAR, ESP32, GPS và IMU qua cổng USB, hệ điều hành Linux sẽ dễ bị đảo cổng ngẫu nhiên (`/dev/ttyUSB0`, `/dev/ttyUSB1`, `/dev/ttyUSB2`). Để cố định tên thiết bị:
+### 1. Sơ đồ cắm cổng tối ưu trên Raspberry Pi 5:
+* **Camera Astra Mini S:** Cắm vào **Cổng USB 3.0 (Màu xanh dương)** (Băng thông cao & nguồn ổn định).
+* **LiDAR RPLIDAR C1:** Cắm vào **Cổng USB 3.0 (Màu xanh dương)**.
+* **ESP32 Controller:** Cắm vào **Cổng USB 2.0 (Màu đen)** (`/dev/ttyUSB0` hoặc `/dev/ttyACM0`).
+* **Module GPS (Dây nhảy GPIO):**
+  - `VCC` $\to$ Chân 2 hoặc 4 (5V)
+  - `GND` $\to$ Chân 6 (GND)
+  - `TX (GPS)` $\to$ **Chân 10 (GPIO 15 / RXD)**
+  - `RX (GPS)` $\to$ **Chân 8 (GPIO 14 / TXD)**
+  - Cổng đọc: **`/dev/ttyAMA0`** (Tốc độ: **`38400 baud`**).
+* **Module IMU ICM-20948 (Dây nhảy GPIO I2C):**
+  - `VCC` $\to$ Chân 1 (3.3V), `GND` $\to$ Chân 6 (GND)
+  - `SDA` $\to$ Chân 3 (GPIO 2), `SCL` $\to$ Chân 5 (GPIO 3)
+  - `CS` $\to$ **Nối lên 3.3V** (Bắt buộc để chọn I2C), `AD0` $\to$ **Nối xuống GND** (Địa chỉ `0x68`).
 
-1. Chạy lệnh kiểm tra mã phần cứng `idVendor` và `idProduct`:
-   ```bash
-   lsusb
-   ```
-2. Tạo file udev rule:
+### 2. Cố định cổng USB (Udev Rules):
+1. Tạo file udev rule:
    ```bash
    sudo nano /etc/udev/rules.d/99-robot-serial.rules
    ```
-3. Dán nội dung sau (chỉnh lại `idVendor`/`idProduct` tương ứng nếu có thay đổi):
+2. Dán nội dung:
    ```bash
-    # RPLIDAR C1 / A1
-    SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", MODE:="0666", SYMLINK+="rplidar"
+   # RPLIDAR C1 / A1
+   SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", MODE:="0666", SYMLINK+="rplidar"
 
-    # ESP32 Motor Controller (Hỗ trợ chip QinHeng CH343/CH9102/CH340)
-    SUBSYSTEM=="tty", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="55d3", MODE:="0666", SYMLINK+="esp32"
-    SUBSYSTEM=="tty", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", MODE:="0666", SYMLINK+="esp32"
-
-   # GPS Module (u-blox / USB-TTL)
-   KERNEL=="ttyUSB*", ATTRS{idVendor}=="1546", ATTRS{idProduct}=="01a7", MODE:="0666", SYMLINK+="gps"
-
-   # IMU Sensor (USB-to-TTL)
-   KERNEL=="ttyUSB*", ATTRS{idVendor}=="0403", ATTRS{idProduct}=="6001", MODE:="0666", SYMLINK+="imu"
+   # ESP32 Motor Controller (CH343 / CH340 / CP2102)
+   SUBSYSTEM=="tty", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="55d3", MODE:="0666", SYMLINK+="esp32"
+   SUBSYSTEM=="tty", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", MODE:="0666", SYMLINK+="esp32"
    ```
-4. Áp dụng rule mới:
+3. Áp dụng rule:
    ```bash
    sudo udevadm control --reload-rules && sudo udevadm trigger
    ```
-> **Kết quả:** Các cổng USB sẽ luôn cố định tại `/dev/rplidar`, `/dev/esp32`, `/dev/gps`, `/dev/imu`.
 
 ---
 
@@ -99,19 +113,13 @@ Khi cắm đồng thời LiDAR, ESP32, GPS và IMU qua cổng USB, hệ điều 
 $$\text{map} \xrightarrow{\text{EKF Global (Có GPS)}} \text{odom} \xrightarrow{\text{EKF Local (Wheel + IMU)}} \text{base\_footprint} \xrightarrow{\text{URDF}} \text{base\_link} \rightarrow \{\text{imu\_link}, \text{gps\_link}, \text{laser\_frame}\}$$
 
 ### 2. Các Topic chuẩn trong ROS 2:
-| Cảm biến | Topic ROS 2 | Loại tin nhắn (Message Type) | Frame ID |
+| Cảm biến | Topic ROS 2 | Loại tin nhắn (Message Type) | Cổng & Tốc độ |
 | :--- | :--- | :--- | :--- |
-| **Bánh xe (ESP32)** | `/wheel/odom` | `nav_msgs/msg/Odometry` | `odom` $\to$ `base_footprint` |
-| **IMU** | `/imu/data` | `sensor_msgs/msg/Imu` | `imu_link` |
-| **GPS** | `/gps/fix` | `sensor_msgs/msg/NavSatFix` | `gps_link` |
-| **GPS Chuyển đổi** | `/odometry/gps` | `nav_msgs/msg/Odometry` | `odom` |
-| **Vị trí lọc EKF** | `/odometry/filtered` | `nav_msgs/msg/Odometry` | `odom` |
-
-### 3. Nguyên tắc vận hành Sensor Fusion:
-- **Local EKF:** Hợp nhất `Wheel Odometry` + `IMU` $\to$ Xuất ra tọa độ di chuyển cục bộ mượt mà, không bao giờ bị nhảy toạ độ, phát TF `odom -> base_footprint`.
-- **NavSat Transform:** Chuyển đổi toạ độ GPS Vĩ độ/Kinh độ (WGS-84) sang toạ độ Đề-các (UTM/ENU) $\to$ Xuất ra `/odometry/gps`.
-- **Global EKF:** Hợp nhất thêm `/odometry/gps` $\to$ Xuất ra vị trí toàn cầu trên bản đồ thế giới, phát TF `map -> odom`.
-- **Lưu ý:** Node `esp32_bridge` phải đặt `publish_tf: false` để EKF là nguồn duy nhất phát TF `odom`, tránh xung đột rung giật màn hình.
+| **Bánh xe (ESP32)** | `/wheel/odom` | `nav_msgs/msg/Odometry` | `/dev/esp32` @ 115200 |
+| **IMU (ICM-20948)** | `/imu/data` | `sensor_msgs/msg/Imu` | I2C `0x68` (Pin 3, 5) |
+| **GPS Module** | `/gps/fix` | `sensor_msgs/msg/NavSatFix` | `/dev/ttyAMA0` @ 38400 |
+| **GPS Chuyển đổi** | `/odometry/gps` | `nav_msgs/msg/Odometry` | NavSat Transform |
+| **Vị trí lọc EKF** | `/odometry/filtered` | `nav_msgs/msg/Odometry` | `odom` frame |
 
 ---
 
@@ -129,21 +137,43 @@ ros2 run my_robot_bringup esp32_bridge --ros-args -p serial_port:=/dev/esp32
 ```bash
 test-lidar
 ```
-*(LiDAR quay tròn và xuất hiện chùm tia laser 360°).*
+*(LiDAR quay tròn và xuất hiện chùm tia laser 360° trên RViz).*
 
-### 3. Kiểm tra Mắt Camera Astra Mini S:
+### 3. Kiểm tra Camera Astra Mini S (Full 30 FPS Depth + Color):
 ```bash
 test-cam
 ```
-*(Hiển thị luồng hình ảnh màu RGB và dữ liệu độ sâu Depth).*
+*Hoặc lệnh chi tiết:*
+```bash
+ros2 launch astra_camera astra.launch.xml \
+    enable_color:=true enable_depth:=true \
+    color_width:=640 color_height:=480 \
+    depth_width:=640 depth_height:=480 \
+    enable_point_cloud:=false
+```
+*(Kiểm tra: `ros2 topic hz /camera/color/image_raw` và `ros2 topic hz /camera/depth/image_raw` đều đạt ~30 FPS).*
 
 ### 4. Kiểm tra Định vị GPS:
-```bash
-ros2 run my_robot_controller gps_driver --ros-args -p serial_port:=/dev/gps
-```
-*(Kiểm tra: `ros2 topic echo /gps/fix` xuất hiện dữ liệu Latitude, Longitude).*
+- **Cách 1: Xem dữ liệu NMEA gốc từ cổng UART GPIO:**
+  ```bash
+  stty -F /dev/ttyAMA0 38400 raw -echo && cat /dev/ttyAMA0
+  ```
+  *(Màn hình in các câu `$GNGGA...`, `$GNRMC...` liên tục).*
+- **Cách 2: Khởi chạy ROS 2 GPS Driver:**
+  ```bash
+  test-gps
+  # hoặc:
+  ros2 run my_robot_controller gps_driver --ros-args -p serial_port:=/dev/ttyAMA0 -p baudrate:=38400
+  ```
+  *(Mở tab mới kiểm tra tọa độ: `ros2 topic echo /gps/fix`).*
 
-### 5. Kiểm tra tổng quát 1-Click:
+### 5. Kiểm tra Cảm biến IMU ICM-20948:
+```bash
+sudo i2cdetect -y 1
+```
+*(Thấy địa chỉ `68` xuất hiện trên bảng I2C).*
+
+### 6. Kiểm tra tổng quát 1-Click:
 ```bash
 test-all
 ```

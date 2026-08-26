@@ -48,7 +48,8 @@ savemap() {
 
 # 3. Các lệnh chạy trên Robot Thật (Raspberry Pi)
 alias test-lidar="load_ws && ros2 launch my_sensor_test test_lidar.launch.py"
-alias test-cam="load_ws && ros2 launch astra_camera astra.launch.xml"
+alias test-cam="load_ws && ros2 launch astra_camera astra.launch.xml enable_color:=true enable_depth:=true color_width:=640 color_height:=480 depth_width:=640 depth_height:=480 enable_point_cloud:=false"
+alias test-gps="load_ws && ros2 run my_robot_controller gps_driver --ros-args -p serial_port:=/dev/ttyAMA0 -p baudrate:=38400"
 alias test-all="load_ws && ros2 launch my_sensor_test test_all_sensors.launch.py"
 alias real-robot="load_ws && ros2 launch my_robot_bringup real_robot.launch.py"
 alias real-slam="load_ws && ros2 launch my_robot_bringup real_slam.launch.py"
