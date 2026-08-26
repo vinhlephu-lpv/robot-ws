@@ -4,14 +4,22 @@
             xsi:schemaLocation="https://cdds.io/config https://raw.githubusercontent.com/eclipse-cyclonedds/cyclonedds/master/etc/cyclonedds.xsd">
   <Domain>
     <General>
-      <AllowMulticast>false</AllowMulticast>
+      <AllowMulticast>true</AllowMulticast>
+      <MaxMessageSize>65500B</MaxMessageSize>
     </General>
     <Discovery>
       <Peers>
         <Peer address="10.10.178.200"/>
         <Peer address="10.10.177.141"/>
+        <Peer address="10.10.191.255"/>
       </Peers>
       <ParticipantIndex>auto</ParticipantIndex>
+      <MaxAutoParticipantIndex>30</MaxAutoParticipantIndex>
     </Discovery>
+    <Internal>
+      <Watermarks>
+        <WhcHigh>10MB</WhcHigh>
+      </Watermarks>
+    </Internal>
   </Domain>
 </CycloneDDS>
