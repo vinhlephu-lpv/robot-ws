@@ -37,6 +37,7 @@ alias gazebo="load_ws && ros2 launch my_robot_simulation sim.launch.py use_rviz:
 alias sim-only="gazebo"
 alias ai="load_ws && ros2 launch my_robot_controller control.launch.py"
 alias slam="load_ws && ros2 launch my_robot_slam slam.launch.py"
+alias nav="load_ws && ros2 launch my_robot_navigation nav.launch.py"
 alias teleop="load_ws && ros2 run my_robot_controller teleop_wasd"
 alias wasd="teleop"
 alias rviz="load_ws && rviz2 -d \"$WS_DIR/src/my_robot_description/rviz/display.rviz\""
