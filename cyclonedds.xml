@@ -5,8 +5,7 @@
   <Domain>
     <General>
       <AllowMulticast>true</AllowMulticast>
-      <MaxMessageSize>65500B</MaxMessageSize>
-      <FragmentSize>4000B</FragmentSize>
+      <FragmentSize>1344B</FragmentSize>
     </General>
     <Discovery>
       <Peers>
@@ -19,8 +18,9 @@
     </Discovery>
     <Internal>
       <SocketReceiveBufferSize min="10MB"/>
+      <SocketSendBufferSize min="10MB"/>
       <Watermarks>
-        <WhcHigh>10MB</WhcHigh>
+        <WhcHigh>2MB</WhcHigh>
       </Watermarks>
     </Internal>
   </Domain>
