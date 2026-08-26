@@ -52,7 +52,7 @@ def generate_launch_description():
         description='Enable ESP32 motor/odom bridge (if false, publishes static odom TF)')
 
     enable_camera_arg = DeclareLaunchArgument(
-        'enable_camera', default_value='false',
+        'enable_camera', default_value='true',
         description='Enable Astra camera node')
 
     enable_cnn_arg = DeclareLaunchArgument(
@@ -134,15 +134,15 @@ def generate_launch_description():
             'camera_name': 'camera',
             'vendor_id': '0x2bc5',
             'product_id': '0x0407',
-            'color_width': 320,
-            'color_height': 240,
-            'color_fps': 15,
-            'depth_width': 320,
-            'depth_height': 240,
-            'depth_fps': 15,
+            'color_width': 640,
+            'color_height': 480,
+            'color_fps': 30,
+            'depth_width': 640,
+            'depth_height': 480,
+            'depth_fps': 30,
             'enable_color': True,
-            'enable_depth': False,
-            'enable_pointcloud': False,
+            'enable_depth': True,
+            'enable_point_cloud': False,
             'use_uvc_camera': False,
             'camera_link_frame_id': 'camera_link',
         }],
