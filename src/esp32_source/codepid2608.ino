@@ -44,14 +44,14 @@
 #define DRV2_LPWM   18
 #define DRV3_RPWM   13   // Bánh 2: Phải trước
 #define DRV3_LPWM   15
-#define DRV4_RPWM   20   // Bánh 3: Phải sau
-#define DRV4_LPWM   21
+#define DRV4_RPWM   7   // Bánh 3: Phải sau
+#define DRV4_LPWM   8
 
 // Cờ đảo chiều driver (+1: bình thường, -1: đảo chiều nếu đấu ngược dây)
-#define INV_DRV1    1
-#define INV_DRV2    1
-#define INV_DRV3    1
-#define INV_DRV4    1
+#define INV_DRV1     1
+#define INV_DRV2     1
+#define INV_DRV3     1
+#define INV_DRV4    -1
 
 #define RGB_LED_PIN 48   // Chân LED RGB tích hợp ESP32-S3
 
@@ -86,10 +86,10 @@ struct EncoderData {
 
 // Sơ đồ 4 Encoder: Trái trước (16,17), Trái sau (38,39), Phải trước (10,11), Phải sau (40,41)
 EncoderData enc[4] = {
-  {16, 17, 1, 0, 0, 0, 0, 0, {0}, 0}, // enc[0]: Bánh trái trước
-  {38, 39, 1, 0, 0, 0, 0, 0, {0}, 0}, // enc[1]: Bánh trái sau
-  {10, 11, 1, 0, 0, 0, 0, 0, {0}, 0}, // enc[2]: Bánh phải trước
-  {40, 41, 1, 0, 0, 0, 0, 0, {0}, 0}  // enc[3]: Bánh phải sau
+  {16, 17,  1, 0, 0, 0, 0, 0, {0}, 0}, // enc[0]: Bánh trái trước
+  {38, 39,  1, 0, 0, 0, 0, 0, {0}, 0}, // enc[1]: Bánh trái sau
+  {10, 11, -1, 0, 0, 0, 0, 0, {0}, 0}, // enc[2]: Bánh phải trước
+  {40, 41, -1, 0, 0, 0, 0, 0, {0}, 0}  // enc[3]: Bánh phải sau
 };
 
 struct WheelPID {
