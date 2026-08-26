@@ -40,7 +40,16 @@ alias slam="load_ws && ros2 launch my_robot_slam slam.launch.py"
 alias teleop="load_ws && ros2 run my_robot_controller teleop_wasd"
 alias wasd="teleop"
 alias rviz="load_ws && rviz2 -d \"$WS_DIR/src/my_robot_description/rviz/display.rviz\""
-alias laptop-view="load_ws && ros2 run my_robot_bringup wifi_cam_receiver & sleep 1 && rviz2 -d \"$WS_DIR/src/my_robot_description/rviz/display.rviz\""
+laptop_view_func() {
+    load_ws
+    killall -q wifi_cam_receiver 2>/dev/null || true
+    ros2 run my_robot_bringup wifi_cam_receiver &
+    local receiver_pid=$!
+    sleep 1
+    rviz2 -d "$WS_DIR/src/my_robot_description/rviz/display.rviz"
+    kill $receiver_pid 2>/dev/null || true
+}
+alias laptop-view="laptop_view_func"
 alias plot="load_ws && ros2 run my_robot_controller plot_response --mode telemetry"
 alias plot-pp="load_ws && ros2 run my_robot_controller plot_response --mode pure_pursuit"
 alias plot-smc="load_ws && ros2 run my_robot_controller plot_response --mode smc"

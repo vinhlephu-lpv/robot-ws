@@ -105,7 +105,7 @@ Visualization Manager:
         Depth: 1
         Durability Policy: Volatile
         History Policy: Keep Last
-        Reliability Policy: Best Effort
+        Reliability Policy: Reliable
         Value: /camera/wifi_image
       Value: true
     - Alpha: 0.85
