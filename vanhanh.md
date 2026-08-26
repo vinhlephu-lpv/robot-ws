@@ -5,7 +5,55 @@
 
 ---
 
+## ⚡ QUY TRÌNH KHỞI ĐỘNG HÀNG NGÀY (MỞ XE LÊN LÀ CHẠY)
+
+### 📋 Bước 0: Bật nguồn & Mạng Wi-Fi
+1. **Nguồn 24V:** Bật công tắc pin 24V cấp nguồn cho 4 mạch cầu H BTS7960 và cắm cáp USB nối Pi với ESP32.
+2. **Wi-Fi:** Đảm bảo Raspberry Pi và Laptop kết nối **cùng một mạng Wi-Fi** (hoặc phát Hotspot từ điện thoại).
+3. **Đồng bộ thời gian (Rất quan trọng để RViz mượt, không drop frame):**
+   ```bash
+   sudo systemctl restart systemd-timesyncd
+   ```
+
+### 🤖 Bước 1: Trên Raspberry Pi (Khởi động phần cứng xe)
+Mở Terminal trên Pi (hoặc SSH từ Laptop):
+```bash
+real-robot
+```
+*(Nếu có cập nhật code mới từ GitHub: `cd ~/robot-ws && git pull origin main && real-robot`)*
+
+> [!NOTE]
+> Lệnh `real-robot` tự động khởi chạy:
+> - LiDAR RPLIDAR C1 (quét 360° 10Hz)
+> - Camera Astra + Bridge nén JPEG gửi qua Wi-Fi (~200 KB/s không làm nghẽn LiDAR)
+> - ESP32 Hardware Bridge (PID động cơ + đọc 4 Encoder)
+> - Mô hình 3D URDF & Cây toạ độ TF
+
+### 💻 Bước 2: Trên Laptop (Mở giao diện quan sát)
+Mở Terminal trên Laptop:
+```bash
+laptop-view
+```
+*(Tự động kích hoạt receiver giải nén ảnh camera và mở RViz2 hiển thị xe 3D, LiDAR, Camera).*
+
+### 🎮 Bước 3: Trên Laptop (Lái xe bằng bàn phím)
+Mở thêm **1 Tab Terminal mới** trên Laptop:
+```bash
+wasd
+```
+*(Click chuột vào cửa sổ terminal `wasd`, dùng các phím `W, A, S, D` để lái xe, phím cách `Space` để dừng khẩn cấp).*
+
+### 🗺️ Bảng tra nhanh các chế độ vận hành:
+| Mục đích | Lệnh trên Pi | Lệnh trên Laptop |
+| :--- | :--- | :--- |
+| **Chạy xe cơ bản + Camera + LiDAR** | `real-robot` | `laptop-view` & `wasd` |
+| **Quét bản đồ SLAM** | `real-slam` | `laptop-view` & `wasd` $\to$ xong gõ `savemap <ten_map>` |
+| **Tự hành Nav2 (Tự né vật cản)** | `real-nav` | `laptop-view` $\to$ chọn **2D Goal Pose** |
+
+---
+
 ## 📑 MỤC LỤC
+0. [Quy Trình Khởi Động Hàng Ngày (Mở Xe Lên Là Chạy)](#-quy-trình-khởi-động-hàng-ngày-mở-xe-lên-là-chạy)
 1. [Giai Đoạn 1: Thiết Lập Môi Trường Trên Raspberry Pi (Làm 1 Lần)](#-giai-đoạn-1-thiết-lập-môi-trường-trên-raspberry-pi-làm-1-lần)
 2. [Giai Đoạn 2: Cố Định Cổng USB (Udev Rules) Cho Cảm Biến](#-giai-đoạn-2-cố-định-cổng-usb-udev-rules-cho-cảm-biến)
 3. [Giai Đoạn 3: Tích Hợp GPS & IMU Vào Hệ Thống (Sensor Fusion EKF)](#-giai-đoạn-3-tích-hợp-gps--imu-vào-hệ-thống-sensor-fusion-ekf)
