@@ -127,7 +127,8 @@ def generate_launch_description():
     camera_node = Node(
         package='astra_camera',
         executable='astra_camera_node',
-        name='astra_camera',
+        namespace='camera',
+        name='camera',
         output='screen',
         env=camera_env,
         parameters=[{
@@ -146,9 +147,6 @@ def generate_launch_description():
             'use_uvc_camera': False,
             'camera_link_frame_id': 'camera_link',
         }],
-        remappings=[
-            ('/camera/color/image_raw', '/camera/image_raw'),
-        ],
         condition=IfCondition(LaunchConfiguration('enable_camera'))
     )
 
