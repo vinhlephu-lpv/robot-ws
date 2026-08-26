@@ -6,6 +6,7 @@
     <General>
       <AllowMulticast>true</AllowMulticast>
       <MaxMessageSize>65500B</MaxMessageSize>
+      <FragmentSize>4000B</FragmentSize>
     </General>
     <Discovery>
       <Peers>
@@ -17,6 +18,7 @@
       <MaxAutoParticipantIndex>30</MaxAutoParticipantIndex>
     </Discovery>
     <Internal>
+      <SocketReceiveBufferSize min="10MB"/>
       <Watermarks>
         <WhcHigh>10MB</WhcHigh>
       </Watermarks>
