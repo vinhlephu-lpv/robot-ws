@@ -150,6 +150,21 @@ def generate_launch_description():
         condition=IfCondition(LaunchConfiguration('enable_camera'))
     )
 
+    # ── WiFi Camera Bridge (Nén JPEG gửi qua Wi-Fi) ─────────────────
+    wifi_cam_bridge = Node(
+        package='my_robot_bringup',
+        executable='wifi_cam_bridge',
+        name='wifi_cam_bridge',
+        output='screen',
+        parameters=[{
+            'target_width': 320,
+            'target_height': 240,
+            'jpeg_quality': 50,
+            'skip_frames': 2,
+        }],
+        condition=IfCondition(LaunchConfiguration('enable_camera'))
+    )
+
     # ── ESP32 Hardware Bridge (Motor PID + Encoder Odom) ─────────────
     esp32_bridge = Node(
         package='my_robot_bringup',
@@ -195,11 +210,13 @@ def generate_launch_description():
         enable_camera_arg,
         enable_cnn_arg,
         enable_rviz_arg,
+        camera_driver_arg,
         robot_state_pub,
         joint_state_pub,
         static_odom_tf,
         lidar_node,
         camera_node,
+        wifi_cam_bridge,
         esp32_bridge,
         cnn_driver,
         rviz2_node,

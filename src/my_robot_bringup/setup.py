@@ -29,6 +29,8 @@ setup(
     entry_points={
         'console_scripts': [
             'esp32_bridge = my_robot_bringup.esp32_bridge:main',
+            'wifi_cam_bridge = my_robot_bringup.wifi_cam_bridge:main',
+            'wifi_cam_receiver = my_robot_bringup.wifi_cam_receiver:main',
         ],
     },
 )
