@@ -27,7 +27,8 @@ load_ws() {
 }
 
 # 1. Biên dịch Workspace
-alias build="cd \"$WS_DIR\" && source /opt/ros/jazzy/setup.bash && colcon build --symlink-install && source install/setup.bash"
+alias build="cd \"$WS_DIR\" && source /opt/ros/jazzy/setup.bash && colcon build --symlink-install --packages-ignore astra_camera astra_camera_msgs && source install/setup.bash"
+alias build-all="cd \"$WS_DIR\" && source /opt/ros/jazzy/setup.bash && colcon build --symlink-install && source install/setup.bash"
 alias rb-build="build"
 
 # 2. Các lệnh chạy Mô phỏng (PC)
