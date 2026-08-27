@@ -115,6 +115,21 @@ alias get-videos="get-video"
 alias getvideo="get-video"
 alias extract-dataset="python3 \"$WS_DIR/scripts/extract_dataset.py\""
 
+# Lệnh xem video nhanh bằng Firefox (không cần cài thêm app)
+play-video() {
+    local f="${1:-}"
+    if [ -z "$f" ]; then
+        f=$(ls -t "$WS_DIR/dataset/"*.mp4 2>/dev/null | head -n 1)
+    fi
+    if [ -n "$f" ] && [ -f "$f" ]; then
+        echo "🎬 Đang mở video: $f"
+        firefox "$f" &>/dev/null &
+    else
+        echo "❌ Không tìm thấy file video nào trong $WS_DIR/dataset/"
+    fi
+}
+alias xem-video="play-video"
+
 # =====================================================
 # BẢNG TRA CỨU LỆNH TẮT NHANH (ros-help)
 # =====================================================
@@ -128,6 +143,7 @@ cat << 'EOF'
   laptop-view        : Mở RViz2 + tự nhận Camera nén từ Pi (mượt, không nghẽn)
   wasd               : Bàn phím lái xe (W=tiến, S=lùi, A/D=rẽ, Space=dừng)
   get-video          : Tự động kéo video MP4 mới quay từ Pi về robot_ws/dataset/
+  play-video (xem)   : Xem ngay video vừa kéo về bằng trình duyệt Firefox
   extract-dataset <f>: Cắt video thành bộ ảnh sạch (JPG) để gán nhãn train CNN
   rviz               : Mở RViz2 đồ họa thuần túy
   cancel             : Hủy mục tiêu dẫn đường Nav2
