@@ -19,7 +19,7 @@ from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.conditions import IfCondition, UnlessCondition
-from launch.substitutions import LaunchConfiguration, Command
+from launch.substitutions import LaunchConfiguration, Command, PythonExpression
 from launch_ros.actions import Node
 
 
@@ -60,12 +60,12 @@ def generate_launch_description():
         description='Enable depth stream (false saves USB bandwidth and maximizes color 30 FPS)')
 
     color_width_arg = DeclareLaunchArgument(
-        'color_width', default_value='320',
-        description='Color image width (320 ensures rock-solid 30 FPS without USB drop)')
+        'color_width', default_value='640',
+        description='Color image width (640 for VGA)')
 
     color_height_arg = DeclareLaunchArgument(
-        'color_height', default_value='240',
-        description='Color image height (240 ensures rock-solid 30 FPS without USB drop)')
+        'color_height', default_value='480',
+        description='Color image height (480 for VGA)')
 
     enable_cnn_arg = DeclareLaunchArgument(
         'enable_cnn', default_value='false',
@@ -172,7 +172,12 @@ def generate_launch_description():
             'publish_tf': False,
             'camera_link_frame_id': 'camera_link',
         }],
-        condition=IfCondition(LaunchConfiguration('enable_camera'))
+        condition=IfCondition(
+            PythonExpression([
+                "'", LaunchConfiguration('enable_camera'), "' == 'true' and '",
+                LaunchConfiguration('record'), "' != 'true'"
+            ])
+        )
     )
 
     # ── WiFi Camera Bridge (Nén JPEG gửi qua Wi-Fi) ─────────────────
@@ -224,8 +229,13 @@ def generate_launch_description():
         name='video_recorder',
         output='screen',
         parameters=[{
+            'device': LaunchConfiguration('camera_device'),
             'topic': '/camera/color/image_raw',
             'filename': LaunchConfiguration('record_name'),
+            'width': 640,
+            'height': 480,
+            'fps': 30.0,
+            'direct_capture': True,
         }],
         condition=IfCondition(LaunchConfiguration('record'))
     )
