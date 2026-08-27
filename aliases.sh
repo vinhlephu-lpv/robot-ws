@@ -112,36 +112,54 @@ alias get-videos="get-video"
 alias getvideo="get-video"
 alias extract-dataset="python3 \"$WS_DIR/scripts/extract_dataset.py\""
 
-# Trợ giúp
-alias robot-help="cat << 'EOF'
-=====================================================
- Danh Sách Lệnh Tắt Nhanh Xe Tự Hành (1-3 Chữ)
-=====================================================
-[Lệnh Chung]
-  build          : Biên dịch toàn bộ workspace
-  teleop         : Lái xe bằng bàn phím (U, I, O, J, K, L)
-  rviz           : Mở RViz 2 hiển thị đồ họa
-  laptop-view    : Mở RViz + nhận camera nén từ Pi qua Wi-Fi
+# =====================================================
+# BẢNG TRA CỨU LỆNH TẮT NHANH (ros-help)
+# =====================================================
+ros_help_func() {
+cat << 'EOF'
+================================================================================
+  🤖 BẢNG TRA CỨU TOÀN BỘ LỆNH TẮT NHANH (ROS 2 ROBOT CHEAT SHEET)
+================================================================================
 
-[Mô Phỏng & Phân Tích Đồ Thị]
-  sim            : Bật thế giới Gazebo + RViz + Xe ảo
-  ai             : Bật AI CNN nhận diện luống bắp tự lái
-  slam           : Bật SLAM vẽ bản đồ
-  nav            : Bật Nav2 dẫn đường tự động
-  savemap <tên>  : Lưu bản đồ vào thư mục maps/
-  cancel         : Hủy mục tiêu dẫn đường
-  plot           : Vẽ dữ liệu quỹ đạo & cảm biến xe vừa chạy (Telemetry)
-  plot-pp        : Vẽ 4 biểu đồ phân tích đáp ứng Pure Pursuit
-  plot-smc       : Vẽ đáp ứng bước bộ điều khiển trượt SMC
-  plot-gui       : Mở giao diện tương tác Live Tuning GUI (thanh trượt)
+💻 [TRÊN LAPTOP] (Màn hình quan sát, Lái xe & Xử lý Dataset)
+  laptop-view        : Mở RViz2 + tự nhận Camera nén từ Pi (mượt, không nghẽn)
+  wasd               : Bàn phím lái xe (W=tiến, S=lùi, A/D=rẽ, Space=dừng)
+  get-video          : Tự động kéo video MP4 mới quay từ Pi về robot_ws/dataset/
+  extract-dataset <f>: Cắt video thành bộ ảnh sạch (JPG) để gán nhãn train CNN
+  rviz               : Mở RViz2 đồ họa thuần túy
+  cancel             : Hủy mục tiêu dẫn đường Nav2
 
-[Robot Thật - Chạy trên Raspberry Pi]
-  test-lidar     : Kiểm tra cảm biến RPLIDAR C1
-  test-cam       : Kiểm tra Camera Astra
-  test-all       : Kiểm tra toàn bộ cảm biến thật
-  real-robot     : Bật toàn bộ phần cứng robot thật
-  real-slam      : Bật Robot thật + SLAM vẽ bản đồ
-  real-nav       : Bật Robot thật + Nav2 dẫn đường
-=====================================================
+🍓 [TRÊN RASPBERRY PI] (Khởi động phần cứng xe & Quay video)
+  real-robot         : BẬT XE THẬT (Chế độ bình thường: chỉ xem, KHÔNG lưu)
+  real-record [tên]  : BẬT XE THẬT + QUAY VIDEO THÔ (100% Raw, lưu MP4 vào Pi)
+  real-slam          : Bật Xe Thật + SLAM vẽ bản đồ
+  real-nav           : Bật Xe Thật + Nav2 dẫn đường tự né vật cản
+                       (Ví dụ: real-nav map:=/path/to/map.yaml)
+  savemap <tên_map>  : Lưu bản đồ SLAM vừa quét xong vào thư mục maps/
+  test-lidar         : Kiểm tra tia quét mắt LiDAR RPLIDAR C1
+  test-cam           : Kiểm tra hình ảnh Camera Astra
+  test-all           : Kiểm tra toàn bộ cảm biến trên xe
+
+🎮 [MÔ PHỎNG & ĐỒ THỊ] (Chạy trên PC / Laptop)
+  sim                : Mở thế giới ảo Gazebo + RViz + Xe mô phỏng
+  gazebo             : Mở riêng Gazebo (không mở RViz)
+  ai                 : Bật thuật toán AI CNN bám luống trong mô phỏng
+  slam               : Bật SLAM vẽ bản đồ ảo
+  nav                : Bật Nav2 dẫn đường trong mô phỏng
+  plot               : Vẽ biểu đồ quỹ đạo & cảm biến Telemetry
+  plot-pp            : Vẽ phân tích đáp ứng Pure Pursuit
+  plot-smc           : Vẽ phân tích bộ điều khiển trượt SMC
+  plot-gui           : Mở giao diện thanh trượt tinh chỉnh Live Tuning
+
+⚙️ [BIÊN DỊCH & CÔNG CỤ]
+  build              : Build nhanh workspace (bỏ qua astra_camera)
+  build-all          : Build toàn bộ tất cả package
+  ros-help           : Xem lại bảng hướng dẫn này bất cứ lúc nào
+================================================================================
 EOF
-"
+}
+ros-help() {
+    ros_help_func "$@"
+}
+alias robot-help="ros-help"
+alias help-robot="ros-help"
