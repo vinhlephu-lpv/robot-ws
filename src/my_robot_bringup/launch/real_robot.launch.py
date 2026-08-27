@@ -172,12 +172,7 @@ def generate_launch_description():
             'publish_tf': False,
             'camera_link_frame_id': 'camera_link',
         }],
-        condition=IfCondition(
-            PythonExpression([
-                "'", LaunchConfiguration('enable_camera'), "' == 'true' and '",
-                LaunchConfiguration('record'), "' != 'true'"
-            ])
-        )
+        condition=IfCondition(LaunchConfiguration('enable_camera'))
     )
 
     # ── WiFi Camera Bridge (Nén JPEG gửi qua Wi-Fi) ─────────────────
