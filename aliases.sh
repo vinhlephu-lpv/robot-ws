@@ -74,6 +74,17 @@ alias test-all="load_ws && ros2 launch my_sensor_test test_all_sensors.launch.py
 alias real-robot="load_ws && ros2 launch my_robot_bringup real_robot.launch.py"
 alias real-slam="load_ws && ros2 launch my_robot_bringup real_slam.launch.py"
 alias real-nav="load_ws && ros2 launch my_robot_bringup real_nav.launch.py"
+alias record-video="load_ws && python3 \"$WS_DIR/scripts/record_video.py\""
+alias share-videos="mkdir -p \"$WS_DIR/recordings\" && cd \"$WS_DIR/recordings\" && python3 -m http.server 8080"
+alias extract-dataset="python3 \"$WS_DIR/scripts/extract_dataset.py\""
+
+get-videos() {
+    local pi_ip="${1:-10.10.178.200}"
+    mkdir -p "$WS_DIR/dataset"
+    echo "📥 Đang tải video từ Pi ($pi_ip) về $WS_DIR/dataset/ ..."
+    scp "bao@$pi_ip:~/robot-ws/recordings/*.mp4" "$WS_DIR/dataset/" 2>/dev/null || \
+    scp "bao@$pi_ip:~/robot_ws/recordings/*.mp4" "$WS_DIR/dataset/"
+}
 
 # Trợ giúp
 alias robot-help="cat << 'EOF'

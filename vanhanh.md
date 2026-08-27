@@ -49,6 +49,7 @@ wasd
 | **Chạy xe cơ bản + Camera + LiDAR** | `real-robot` | `laptop-view` & `wasd` |
 | **Quét bản đồ SLAM** | `real-slam` | `laptop-view` & `wasd` $\to$ xong gõ `savemap <ten_map>` |
 | **Tự hành Nav2 (Tự né vật cản)** | `real-nav` | `laptop-view` $\to$ chọn **2D Goal Pose** |
+| **Quay Video Dataset Train CNN** | `record-video [tên]` | `get-videos` & `extract-dataset <video.mp4>` |
 
 ---
 
@@ -308,6 +309,58 @@ graph TD
 4. **Cơ chế hoạt động:**
    - Camera thu nhận hình ảnh $\to$ Mạng CNN phân đoạn luống bắp và tính tâm đường đi $\to$ Bộ điều khiển bám hàng PID lái xe chạy thẳng mượt mà.
    - Khi hết hàng bắp (LiDAR và Camera nhận diện vùng trống): Xe tự kích hoạt chu trình **Drive Out (2.5m)** $\to$ Tự động bẻ lái cung tròn **U-Turn 180°** sang hàng bắp tiếp theo.
+
+---
+
+### 📹 KỊCH BẢN E: Thu Thập Video Trên Xe & Tạo Dataset Train CNN
+
+Quy trình chuẩn giúp bạn lái xe quay video thực địa ở đồng ruộng, sau đó chuyển file về Laptop và trích xuất thành bộ ảnh dataset chất lượng cao để gán nhãn train mô hình CNN:
+
+```mermaid
+graph LR
+    A["Pi: real-robot <br/> (Bật Camera Astra)"] --> B["Pi: record-video luong_bap_1 <br/> (Ghi MP4 trực tiếp vào ổ cứng)"]
+    B -->|Bấm Ctrl+C| C["Video lưu tại <br/> ~/robot-ws/recordings/"]
+    C -->|SCP hoặc Web Browser| D["Laptop: get-videos <br/> (Tải file về Laptop)"]
+    D --> E["Laptop: extract-dataset <br/> (Cắt ảnh tự động mỗi 0.3s)"]
+    E --> F["dataset/images/ <br/> Sẵn sàng gán nhãn & train CNN"]
+```
+
+#### Bước 1: Khởi động xe và bật camera trên Pi
+```bash
+# Terminal 1 trên Pi (SSH):
+real-robot
+```
+
+#### Bước 2: Bật quay video trên Pi
+Mở thêm **Terminal 2 trên Pi (SSH)** và gõ:
+```bash
+record-video luong_bap_1
+```
+**(Nếu không truyền tên, script sẽ tự đặt tên theo ngày giờ: `dataset_video_YYYYMMDD_HHMMSS.mp4`).*
+* Trong lúc xe chạy, video được ghi thẳng vào ổ cứng/thẻ nhớ của Pi ở tốc độ **30 FPS, độ phân giải gốc 640x480**, hoàn toàn không tốn băng thông sóng Wi-Fi.
+* Màn hình terminal sẽ hiển thị thời gian quay, số frame và dung lượng file thời gian thực.
+* Khi xe chạy hết luống bắp, bấm **`Ctrl + C`** để dừng quay và lưu video.
+
+#### Bước 3: Chuyển video từ Pi về Laptop (Chọn 1 trong 2 cách cực tiện)
+* **Cách 1 (Nhanh nhất - Bằng 1 lệnh trên Laptop):**
+  Mở Terminal trên Laptop gõ:
+  ```bash
+  get-videos <IP_CỦA_PI>
+  # Ví dụ: get-videos 10.10.178.200
+  ```
+  *(Toàn bộ video mới quay sẽ được tự động tải về thư mục `dataset/` trên Laptop).*
+
+* **Cách 2 (Qua trình duyệt Web - Không cần gõ lệnh):**
+  - Trên Pi gõ: `share-videos`
+  - Trên Laptop: Mở trình duyệt Web (Chrome/Firefox) gõ: `http://<IP_PI>:8080` $\to$ click chuột vào tên video để tải về máy tính.
+
+#### Bước 4: Trích xuất video thành bộ ảnh Dataset trên Laptop
+Sau khi đã có file video trên Laptop, gõ lệnh:
+```bash
+extract-dataset ~/robot_ws/dataset/luong_bap_1.mp4 --interval 0.3
+```
+* **Ý nghĩa:** Cứ mỗi `0.3 giây` trích xuất 1 ảnh (khoảng 3-4 ảnh/giây), loại bỏ các frame trùng lặp khi xe dừng hoặc đi chậm.
+* Ảnh được lưu tự động vào thư mục `dataset/images/` với tên chuẩn: `crop_row_00001.jpg`, `crop_row_00002.jpg`,... sẵn sàng đưa vào LabelImg / Roboflow gán nhãn train CNN!
 
 ---
 
