@@ -9,6 +9,9 @@ load_ws() {
     if [ -f "$WS_DIR/install/setup.bash" ]; then
         source "$WS_DIR/install/setup.bash"
     fi
+    if [ -f "/home/vinh/astra_ws/install/setup.bash" ]; then
+        source "/home/vinh/astra_ws/install/setup.bash"
+    fi
     export ROS_DOMAIN_ID=0
     export ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
     export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
