@@ -115,9 +115,10 @@ class RawVideoRecorder(Node):
             if cvt is not None:
                 frame = cv2.cvtColor(frame, cvt)
 
+            now = time.time()
             if self.start_time is None:
-                self.start_time = time.time()
-                self.last_log_time = self.start_time
+                self.start_time = now
+                self.last_log_time = now
 
             # Đẩy (frame, timestamp) vào queue cho thread ghi đĩa độc lập
             try:
