@@ -119,21 +119,20 @@ class RawVideoRecorder(Node):
                 self.start_time = time.time()
                 self.last_log_time = self.start_time
 
-            # Đẩy vào queue cho thread ghi đĩa độc lập
+            # Đẩy (frame, timestamp) vào queue cho thread ghi đĩa độc lập
             try:
-                self.frame_queue.put_nowait(frame)
+                self.frame_queue.put_nowait((frame, now))
                 self.received_frames += 1
             except queue.Full:
                 self.get_logger().warn("Bộ đệm ghi video bị đầy (ổ cứng quá chậm)!", throttle_duration_sec=3.0)
 
-            now = time.time()
             if now - self.last_log_time >= 3.0:
                 elapsed = now - self.start_time
                 fps_in = self.received_frames / elapsed if elapsed > 0 else 0
                 mb = os.path.getsize(self.output_path) / (1024 * 1024) if os.path.exists(self.output_path) else 0
                 self.get_logger().info(
                     f"🔴 [Đang quay]: {int(elapsed//60):02d}:{int(elapsed%60):02d} | "
-                    f"Camera: {fps_in:.1f} FPS | Đã lưu: {self.written_frames} frames | {mb:.1f} MB"
+                    f"Camera: {fps_in:.1f} FPS | Đã lưu: {self.written_frames} frames ({int(elapsed):d}s chuẩn thực tế) | {mb:.1f} MB"
                 )
                 self.last_log_time = now
 
@@ -141,10 +140,10 @@ class RawVideoRecorder(Node):
             self.get_logger().error(f"Lỗi nhận frame: {e}", throttle_duration_sec=5.0)
 
     def _writer_worker(self):
-        """Thread chạy ngầm độc lập ghi video ra file MP4 mượt mà."""
+        """Thread chạy ngầm độc lập ghi video ra file MP4 đồng bộ 1:1 thời gian thực."""
         while self.is_running or not self.frame_queue.empty():
             try:
-                frame = self.frame_queue.get(timeout=0.1)
+                frame, frame_time = self.frame_queue.get(timeout=0.1)
             except queue.Empty:
                 continue
 
@@ -156,8 +155,16 @@ class RawVideoRecorder(Node):
                     f"📹 [Video Writer] Bắt đầu ghi file: {w}x{h} @ {self.fps:.0f} FPS -> {self.output_path}"
                 )
 
-            self.writer.write(frame)
-            self.written_frames += 1
+            # Đồng bộ thời lượng video 1:1 chuẩn theo thời gian thực (chống tua nhanh)
+            elapsed = max(0.0, frame_time - self.start_time)
+            target_frames = int(round(elapsed * self.fps))
+            repeats = max(1, target_frames - self.written_frames)
+            repeats = min(repeats, 15)
+
+            for _ in range(repeats):
+                self.writer.write(frame)
+                self.written_frames += 1
+
             self.frame_queue.task_done()
 
         if self.writer is not None:
