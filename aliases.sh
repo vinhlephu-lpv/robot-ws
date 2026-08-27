@@ -109,6 +109,7 @@ get-video() {
     echo "✅ File video đã được lưu tại: $WS_DIR/dataset/"
 }
 alias get-videos="get-video"
+alias getvideo="get-video"
 alias extract-dataset="python3 \"$WS_DIR/scripts/extract_dataset.py\""
 
 # Trợ giúp
