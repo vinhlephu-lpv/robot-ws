@@ -26,7 +26,10 @@ load_ws() {
     fi
 }
 
-# 1. Biên dịch Workspace
+# 1. Biên dịch & Cập nhật Workspace
+alias reload="source ~/.bashrc && echo '✅ Đã cập nhật nạp lại toàn bộ lệnh mới nhất!'"
+alias update-cmd="reload"
+alias capnhat="reload"
 alias build="cd \"$WS_DIR\" && source /opt/ros/jazzy/setup.bash && colcon build --symlink-install --packages-ignore astra_camera astra_camera_msgs && source install/setup.bash"
 alias build-all="cd \"$WS_DIR\" && source /opt/ros/jazzy/setup.bash && colcon build --symlink-install && source install/setup.bash"
 alias rb-build="build"
@@ -152,6 +155,7 @@ cat << 'EOF'
   plot-gui           : Mở giao diện thanh trượt tinh chỉnh Live Tuning
 
 ⚙️ [BIÊN DỊCH & CÔNG CỤ]
+  reload (capnhat)   : Nạp lại toàn bộ lệnh mới nhất sau khi git pull
   build              : Build nhanh workspace (bỏ qua astra_camera)
   build-all          : Build toàn bộ tất cả package
   ros-help           : Xem lại bảng hướng dẫn này bất cứ lúc nào
