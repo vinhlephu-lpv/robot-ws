@@ -90,6 +90,21 @@ real-record() {
     fi
 }
 
+# Lệnh MỞ RVIZ + XEM XE 3D + CAMERA USB + QUAY VIDEO TÁCH FRAME DATASET RIÊNG (Chạy trên Laptop)
+rviz-record() {
+    load_ws
+    local vname="${1:-}"
+    mkdir -p "$WS_DIR/dataset/videos" "$WS_DIR/dataset/imgs"
+    if [ -n "$vname" ]; then
+        ros2 launch my_robot_bringup laptop_record.launch.py name:="$vname"
+    else
+        ros2 launch my_robot_bringup laptop_record.launch.py
+    fi
+}
+alias record-rviz="rviz-record"
+alias laptop-record="rviz-record"
+alias quay-rviz="rviz-record"
+
 # Lệnh tải video từ Pi xuống Laptop (Chạy trên Laptop)
 get-video() {
     local pi_ip="${1:-}"

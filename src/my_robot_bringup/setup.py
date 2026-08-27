@@ -32,6 +32,7 @@ setup(
             'wifi_cam_bridge = my_robot_bringup.wifi_cam_bridge:main',
             'wifi_cam_receiver = my_robot_bringup.wifi_cam_receiver:main',
             'video_recorder = my_robot_bringup.video_recorder:main',
+            'camera_recorder = my_robot_bringup.camera_recorder:main',
         ],
     },
 )
