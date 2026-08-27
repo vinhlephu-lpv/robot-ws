@@ -54,8 +54,8 @@ def generate_launch_description():
         description='FPS ghi video')
 
     interval_arg = DeclareLaunchArgument(
-        'interval', default_value='0.2',
-        description='Khoảng cách thời gian tách frame (giây) vào thư mục imgs')
+        'interval', default_value='0.333',
+        description='Khoảng cách thời gian tách frame (giây) vào thư mục imgs (0.333s = 3 ảnh/giây)')
 
     open_rviz_arg = DeclareLaunchArgument(
         'open_rviz', default_value='true',

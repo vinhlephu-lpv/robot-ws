@@ -55,7 +55,7 @@ class CameraRecorderNode(Node):
         self.declare_parameter('fps', 30.0)
         self.declare_parameter('topic', '/camera/color/image_raw')
         self.declare_parameter('record_name', '')
-        self.declare_parameter('extract_interval', 0.2)  # Mỗi 0.2s lưu 1 ảnh (5 fps) để tránh trùng lặp
+        self.declare_parameter('extract_interval', 0.333)  # Mỗi 0.333s lưu 1 ảnh (3 ảnh/giây)
         self.declare_parameter('output_dir', default_dataset_dir)
 
         self.mode_param = self.get_parameter('mode').value
@@ -156,7 +156,7 @@ class CameraRecorderNode(Node):
         self.get_logger().info(f"📹 Nguồn hình ảnh:          {self.active_mode.upper()} -> {self.topic_name}")
         self.get_logger().info(f"🎞️ Đường dẫn Video riêng:   {self.video_path}")
         self.get_logger().info(f"🖼️ Thư mục Ảnh riêng:       {self.imgs_dir}/")
-        self.get_logger().info(f"⏱️ Chu kỳ tách ảnh:         Mỗi {self.extract_interval}s/ảnh (tránh trùng lặp)")
+        self.get_logger().info(f"⏱️ Chu kỳ tách ảnh:         Mỗi {self.extract_interval:.3f}s/ảnh (3 ảnh/giây)")
         self.get_logger().info("=" * 65)
 
     def _open_v4l2_camera(self):
