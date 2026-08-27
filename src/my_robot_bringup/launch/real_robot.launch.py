@@ -55,6 +55,10 @@ def generate_launch_description():
         'enable_camera', default_value='true',
         description='Enable Astra camera node')
 
+    enable_depth_arg = DeclareLaunchArgument(
+        'enable_depth', default_value='false',
+        description='Enable depth stream (false saves USB bandwidth and maximizes color 30 FPS)')
+
     enable_cnn_arg = DeclareLaunchArgument(
         'enable_cnn', default_value='false',
         description='Enable CNN row-following driver')
@@ -150,7 +154,7 @@ def generate_launch_description():
             'depth_height': 480,
             'depth_fps': 30,
             'enable_color': True,
-            'enable_depth': True,
+            'enable_depth': LaunchConfiguration('enable_depth'),
             'enable_point_cloud': False,
             'use_uvc_camera': False,
             'camera_link_frame_id': 'camera_link',
@@ -229,6 +233,7 @@ def generate_launch_description():
         esp32_port_arg,
         enable_esp32_arg,
         enable_camera_arg,
+        enable_depth_arg,
         enable_cnn_arg,
         enable_rviz_arg,
         camera_driver_arg,
