@@ -59,6 +59,14 @@ def generate_launch_description():
         'enable_depth', default_value='false',
         description='Enable depth stream (false saves USB bandwidth and maximizes color 30 FPS)')
 
+    color_width_arg = DeclareLaunchArgument(
+        'color_width', default_value='320',
+        description='Color image width (320 ensures rock-solid 30 FPS without USB drop)')
+
+    color_height_arg = DeclareLaunchArgument(
+        'color_height', default_value='240',
+        description='Color image height (240 ensures rock-solid 30 FPS without USB drop)')
+
     enable_cnn_arg = DeclareLaunchArgument(
         'enable_cnn', default_value='false',
         description='Enable CNN row-following driver')
@@ -147,16 +155,21 @@ def generate_launch_description():
             'camera_name': 'camera',
             'vendor_id': '0x2bc5',
             'product_id': '0x0407',
-            'color_width': 640,
-            'color_height': 480,
+            'color_width': LaunchConfiguration('color_width'),
+            'color_height': LaunchConfiguration('color_height'),
             'color_fps': 30,
-            'depth_width': 640,
-            'depth_height': 480,
+            'depth_width': 320,
+            'depth_height': 240,
             'depth_fps': 30,
             'enable_color': True,
             'enable_depth': LaunchConfiguration('enable_depth'),
+            'enable_ir': False,
             'enable_point_cloud': False,
             'use_uvc_camera': False,
+            'oni_log_level': 'none',
+            'oni_log_to_console': False,
+            'oni_log_to_file': False,
+            'publish_tf': False,
             'camera_link_frame_id': 'camera_link',
         }],
         condition=IfCondition(LaunchConfiguration('enable_camera'))
@@ -234,6 +247,8 @@ def generate_launch_description():
         enable_esp32_arg,
         enable_camera_arg,
         enable_depth_arg,
+        color_width_arg,
+        color_height_arg,
         enable_cnn_arg,
         enable_rviz_arg,
         camera_driver_arg,
