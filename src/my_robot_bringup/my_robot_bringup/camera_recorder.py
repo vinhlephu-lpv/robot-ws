@@ -270,13 +270,19 @@ class CameraRecorderNode(Node):
                     if frame.shape[2] == 3:
                         frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
 
-                # 1. Ghi frame vào file Video MP4
+                # 1. Ghi frame vào file Video MP4 (Đồng bộ 1:1 chuẩn thời gian thực, chống tua nhanh)
                 if self.writer is None:
                     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
                     self.writer = cv2.VideoWriter(self.video_path, fourcc, self.target_fps, (w, h))
 
-                self.writer.write(frame)
-                self.total_video_frames += 1
+                elapsed = max(0.0, now - self.start_time)
+                target_video_frames = int(round(elapsed * self.target_fps))
+                repeats = max(1, target_video_frames - self.total_video_frames)
+                repeats = min(repeats, 15)
+
+                for _ in range(repeats):
+                    self.writer.write(frame)
+                    self.total_video_frames += 1
 
                 # 2. Tách ảnh theo chu kỳ
                 if (now - self.last_extract_time) >= self.extract_interval:
