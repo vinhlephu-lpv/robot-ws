@@ -23,3 +23,8 @@ __pycache__/
 
 # Run logs
 logs/
+
+# Video recordings & raw dataset images
+recordings/
+dataset/
+*.mp4
