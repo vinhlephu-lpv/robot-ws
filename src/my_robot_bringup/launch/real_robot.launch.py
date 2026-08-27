@@ -67,6 +67,14 @@ def generate_launch_description():
         'camera_driver', default_value='v4l2',
         description='Camera driver: v4l2 (robust UVC /dev/video0) or astra (OpenNI 3D)')
 
+    record_arg = DeclareLaunchArgument(
+        'record', default_value='false',
+        description='Record raw camera video to MP4 dataset file on Pi')
+
+    record_name_arg = DeclareLaunchArgument(
+        'record_name', default_value='',
+        description='Custom filename for recorded MP4 video')
+
     # ── Robot State Publisher (URDF + TF) ────────────────────────────
     robot_state_pub = Node(
         package='robot_state_publisher',
@@ -192,6 +200,19 @@ def generate_launch_description():
         condition=IfCondition(LaunchConfiguration('enable_cnn'))
     )
 
+    # ── Raw Video Recorder (Chỉ bật khi record:=true để ghi dataset thô) ─
+    video_recorder = Node(
+        package='my_robot_bringup',
+        executable='video_recorder',
+        name='video_recorder',
+        output='screen',
+        parameters=[{
+            'topic': '/camera/color/image_raw',
+            'filename': LaunchConfiguration('record_name'),
+        }],
+        condition=IfCondition(LaunchConfiguration('record'))
+    )
+
     # ── RViz2 ────────────────────────────────────────────────────────
     rviz2_node = Node(
         package='rviz2',
@@ -211,6 +232,8 @@ def generate_launch_description():
         enable_cnn_arg,
         enable_rviz_arg,
         camera_driver_arg,
+        record_arg,
+        record_name_arg,
         robot_state_pub,
         joint_state_pub,
         static_odom_tf,
@@ -218,6 +241,7 @@ def generate_launch_description():
         camera_node,
         wifi_cam_bridge,
         esp32_bridge,
+        video_recorder,
         cnn_driver,
         rviz2_node,
     ])

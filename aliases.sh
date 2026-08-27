@@ -74,17 +74,42 @@ alias test-all="load_ws && ros2 launch my_sensor_test test_all_sensors.launch.py
 alias real-robot="load_ws && ros2 launch my_robot_bringup real_robot.launch.py"
 alias real-slam="load_ws && ros2 launch my_robot_bringup real_slam.launch.py"
 alias real-nav="load_ws && ros2 launch my_robot_bringup real_nav.launch.py"
-alias record-video="load_ws && python3 \"$WS_DIR/scripts/record_video.py\""
-alias share-videos="mkdir -p \"$WS_DIR/recordings\" && cd \"$WS_DIR/recordings\" && python3 -m http.server 8080"
-alias extract-dataset="python3 \"$WS_DIR/scripts/extract_dataset.py\""
 
-get-videos() {
-    local pi_ip="${1:-10.10.178.200}"
+# Lệnh kích hoạt xe THẬT CÓ QUAY VIDEO THÔ (100% Raw, không hiện gì trên màn hình)
+real-record() {
+    load_ws
+    local vname="${1:-}"
+    if [ -n "$vname" ]; then
+        ros2 launch my_robot_bringup real_robot.launch.py record:=true record_name:="$vname"
+    else
+        ros2 launch my_robot_bringup real_robot.launch.py record:=true
+    fi
+}
+
+# Lệnh tải video từ Pi xuống Laptop (Chạy trên Laptop)
+get-video() {
+    local pi_ip="${1:-}"
+    if [ -z "$pi_ip" ]; then
+        for ip in 10.10.178.200 10.10.177.141; do
+            if ping -c 1 -W 1 "$ip" &>/dev/null; then
+                pi_ip="$ip"
+                break
+            fi
+        done
+    fi
+    if [ -z "$pi_ip" ]; then
+        pi_ip="10.10.178.200"
+    fi
     mkdir -p "$WS_DIR/dataset"
-    echo "📥 Đang tải video từ Pi ($pi_ip) về $WS_DIR/dataset/ ..."
+    echo "📥 Đang kéo video thô từ Pi ($pi_ip) về $WS_DIR/dataset/ ..."
+    rsync -avP --include='*.mp4' "bao@$pi_ip:~/robot-ws/recordings/" "$WS_DIR/dataset/" 2>/dev/null || \
+    rsync -avP --include='*.mp4' "bao@$pi_ip:~/robot_ws/recordings/" "$WS_DIR/dataset/" 2>/dev/null || \
     scp "bao@$pi_ip:~/robot-ws/recordings/*.mp4" "$WS_DIR/dataset/" 2>/dev/null || \
     scp "bao@$pi_ip:~/robot_ws/recordings/*.mp4" "$WS_DIR/dataset/"
+    echo "✅ File video đã được lưu tại: $WS_DIR/dataset/"
 }
+alias get-videos="get-video"
+alias extract-dataset="python3 \"$WS_DIR/scripts/extract_dataset.py\""
 
 # Trợ giúp
 alias robot-help="cat << 'EOF'
