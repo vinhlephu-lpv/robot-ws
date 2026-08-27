@@ -95,6 +95,11 @@ real-record() {
 
 # Lệnh MỞ RVIZ + XEM XE 3D + CAMERA USB + QUAY VIDEO TÁCH FRAME DATASET RIÊNG (Chạy trên Laptop)
 rviz-record() {
+    killall -9 astra_camera_node 2>/dev/null || true
+    if [ -f "/home/vinh/astra_ws/install/setup.bash" ]; then
+        source "/home/vinh/astra_ws/install/setup.bash"
+    fi
+    export LD_LIBRARY_PATH="/home/vinh/astra_ws/install/astra_camera_msgs/lib:/home/vinh/astra_ws/install/astra_camera/lib:$LD_LIBRARY_PATH"
     load_ws
     local vname="${1:-}"
     mkdir -p "$WS_DIR/dataset/videos" "$WS_DIR/dataset/imgs"

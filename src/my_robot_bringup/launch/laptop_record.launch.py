@@ -128,31 +128,32 @@ def generate_launch_description():
     ]
 
     if has_astra:
-        # Tự động nạp gói astra_camera từ /home/vinh/astra_ws nếu cần
-        astra_install = '/home/vinh/astra_ws/install/astra_camera'
-        if os.path.exists(astra_install):
-            os.environ['AMENT_PREFIX_PATH'] = astra_install + ':' + os.environ.get('AMENT_PREFIX_PATH', '')
+        for p in ['/home/vinh/astra_ws/install/astra_camera', '/home/vinh/astra_ws/install/astra_camera_msgs']:
+            if os.path.exists(p):
+                os.environ['AMENT_PREFIX_PATH'] = p + ':' + os.environ.get('AMENT_PREFIX_PATH', '')
 
-        try:
-            astra_pkg = get_package_share_directory('astra_camera')
-            astra_xml = os.path.join(astra_pkg, 'launch', 'astra.launch.xml')
-            astra_node = IncludeLaunchDescription(
-                AnyLaunchDescriptionSource(astra_xml),
-                launch_arguments={
-                    'enable_color': 'true',
-                    'enable_depth': 'false',
-                    'enable_ir': 'false',
-                    'enable_point_cloud': 'false',
-                    'enable_colored_point_cloud': 'false',
-                    'color_width': '640',
-                    'color_height': '480',
-                    'color_fps': '30',
-                    'oni_log_level': 'none',
-                    'publish_tf': 'false',
-                }.items()
-            )
-            launch_entities.insert(0, astra_node)
-        except Exception:
-            pass
+        astra_ld = '/home/vinh/astra_ws/install/astra_camera_msgs/lib:/home/vinh/astra_ws/install/astra_camera/lib:' + os.environ.get('LD_LIBRARY_PATH', '')
+        
+        astra_node = Node(
+            package='astra_camera',
+            executable='astra_camera_node',
+            namespace='camera',
+            name='camera',
+            output='screen',
+            parameters=[{
+                'enable_color': True,
+                'enable_depth': False,
+                'enable_ir': False,
+                'enable_point_cloud': False,
+                'enable_colored_point_cloud': False,
+                'color_width': 640,
+                'color_height': 480,
+                'color_fps': 30,
+                'oni_log_level': 'none',
+                'publish_tf': False,
+            }],
+            additional_env={'LD_LIBRARY_PATH': astra_ld}
+        )
+        launch_entities.insert(0, astra_node)
 
     return LaunchDescription(launch_entities)
