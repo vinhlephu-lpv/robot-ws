@@ -6,7 +6,6 @@
     <General>
       <AllowMulticast>true</AllowMulticast>
       <MaxMessageSize>65500B</MaxMessageSize>
-      <FragmentSize>1344B</FragmentSize>
     </General>
     <Discovery>
       <Peers>
@@ -19,8 +18,11 @@
     </Discovery>
     <Internal>
       <Watermarks>
-        <WhcHigh>2MB</WhcHigh>
+        <WhcHigh>32MB</WhcHigh>
+        <WhcLow>8MB</WhcLow>
       </Watermarks>
+      <SocketReceiveBufferSize min="16MB"/>
+      <SocketSendBufferSize min="16MB"/>
     </Internal>
   </Domain>
 </CycloneDDS>

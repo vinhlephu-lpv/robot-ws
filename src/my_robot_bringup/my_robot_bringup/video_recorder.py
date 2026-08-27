@@ -74,9 +74,9 @@ class RawVideoRecorder(Node):
         self.writer_thread.start()
 
         qos = QoSProfile(
-            reliability=ReliabilityPolicy.BEST_EFFORT,
+            reliability=ReliabilityPolicy.RELIABLE,
             history=HistoryPolicy.KEEP_LAST,
-            depth=10,
+            depth=30,
             durability=DurabilityPolicy.VOLATILE
         )
 
