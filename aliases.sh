@@ -116,6 +116,15 @@ alias get-videos="get-video"
 alias getvideo="get-video"
 alias extract-dataset="python3 \"$WS_DIR/scripts/extract_dataset.py\""
 
+# Lệnh xóa toàn bộ video đã quay (chạy được trên cả Pi và Laptop)
+clean-video() {
+    echo "🗑️ Đang dọn dẹp các video trong thư mục recordings..."
+    rm -f ~/robot-ws/recordings/*.mp4 ~/robot_ws/recordings/*.mp4 "$WS_DIR/recordings/"*.mp4 2>/dev/null || true
+    echo "✅ Đã xóa sạch toàn bộ video đã quay!"
+}
+alias clear-video="clean-video"
+alias del-video="clean-video"
+
 # Lệnh xem video nhanh bằng Firefox (không cần cài thêm app)
 play-video() {
     local f="${1:-}"
