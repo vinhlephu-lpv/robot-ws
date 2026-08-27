@@ -18,11 +18,11 @@
     </Discovery>
     <Internal>
       <Watermarks>
-        <WhcHigh>32MB</WhcHigh>
-        <WhcLow>8MB</WhcLow>
+        <WhcHigh>64MB</WhcHigh>
+        <WhcLow>16MB</WhcLow>
       </Watermarks>
-      <SocketReceiveBufferSize min="16MB"/>
-      <SocketSendBufferSize min="16MB"/>
+      <SocketReceiveBufferSize min="32MB"/>
+      <SocketSendBufferSize min="32MB"/>
     </Internal>
   </Domain>
 </CycloneDDS>

@@ -112,17 +112,14 @@ class RawVideoRecorder(Node):
             frame = np.frombuffer(msg.data, dtype=np.uint8)[:expected_size].reshape(
                 msg.height, msg.width, channels
             )
-            if cvt is not None:
-                frame = cv2.cvtColor(frame, cvt)
-
             now = time.time()
             if self.start_time is None:
                 self.start_time = now
                 self.last_log_time = now
 
-            # Đẩy (frame, timestamp) vào queue cho thread ghi đĩa độc lập
+            # Đẩy (frame, cvt, timestamp) vào queue cho thread ghi đĩa độc lập
             try:
-                self.frame_queue.put_nowait((frame, now))
+                self.frame_queue.put_nowait((frame, cvt, now))
                 self.received_frames += 1
             except queue.Full:
                 self.get_logger().warn("Bộ đệm ghi video bị đầy (ổ cứng quá chậm)!", throttle_duration_sec=3.0)
@@ -144,9 +141,12 @@ class RawVideoRecorder(Node):
         """Thread chạy ngầm độc lập ghi video ra file MP4 đồng bộ 1:1 thời gian thực."""
         while self.is_running or not self.frame_queue.empty():
             try:
-                frame, frame_time = self.frame_queue.get(timeout=0.1)
+                frame, cvt, frame_time = self.frame_queue.get(timeout=0.1)
             except queue.Empty:
                 continue
+
+            if cvt is not None:
+                frame = cv2.cvtColor(frame, cvt)
 
             if self.writer is None:
                 h, w = frame.shape[:2]

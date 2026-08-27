@@ -12,10 +12,11 @@ load_ws() {
     export ROS_DOMAIN_ID=0
     export ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
     export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
-    if [ -f "$HOME/.cyclonedds.xml" ]; then
-        export CYCLONEDDS_URI="file://$HOME/.cyclonedds.xml"
-    elif [ -f "$WS_DIR/cyclonedds.xml" ]; then
+    if [ -f "$WS_DIR/cyclonedds.xml" ]; then
         export CYCLONEDDS_URI="file://$WS_DIR/cyclonedds.xml"
+        cp -f "$WS_DIR/cyclonedds.xml" "$HOME/.cyclonedds.xml" 2>/dev/null || true
+    elif [ -f "$HOME/.cyclonedds.xml" ]; then
+        export CYCLONEDDS_URI="file://$HOME/.cyclonedds.xml"
     fi
     if [ -d "$WS_DIR/install/astra_camera/lib/OpenNI2/Drivers" ]; then
         export OPENNI2_REDIST="$WS_DIR/install/astra_camera/lib/OpenNI2/Drivers"
