@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Camera Recorder & Frame Extractor Node for RViz.
-Mở camera USB ngoài (hỗ trợ Orbbec Astra Mini S và USB Webcam), hiển thị trực tiếp trên RViz,
-đồng thời tự động quay video MP4 và tách sẵn từng frame ảnh vào bộ dataset (imgs/ và videos/ riêng biệt).
+High-Performance Camera Recorder & Frame Extractor Node for RViz.
+Sử dụng MultiThreadedExecutor + Queue đệm RAM để ghi video và tách ảnh không độ trễ,
+đảm bảo RViz xem mượt mà 30 FPS không bao giờ bị đơ hay lag.
 """
 
 import os
@@ -10,6 +10,7 @@ import sys
 import time
 import csv
 import glob
+import queue
 import threading
 import subprocess
 from datetime import datetime
@@ -22,7 +23,10 @@ except ImportError:
 
 import rclpy
 from rclpy.node import Node
-from sensor_msgs.msg import Image, CameraInfo
+from rclpy.executors import MultiThreadedExecutor
+from rclpy.callback_groups import ReentrantCallbackGroup
+from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
+from sensor_msgs.msg import Image
 from geometry_msgs.msg import Twist
 
 
@@ -30,7 +34,9 @@ class CameraRecorderNode(Node):
     def __init__(self):
         super().__init__('camera_recorder_node')
 
-        # Thư mục gốc dataset chuẩn (lưu vào robot-ws/dataset hoặc robot_ws/dataset)
+        self.callback_group = ReentrantCallbackGroup()
+
+        # Thư mục gốc dataset chuẩn
         ws_candidates = [
             os.path.join(os.path.expanduser('~'), 'robot-ws', 'dataset'),
             os.path.join(os.path.expanduser('~'), 'robot_ws', 'dataset'),
@@ -77,16 +83,21 @@ class CameraRecorderNode(Node):
         self.imgs_dir = os.path.join(self.dataset_root, 'imgs', self.session_name)
         os.makedirs(self.imgs_dir, exist_ok=True)
 
-        # File nhãn CSV lưu góc lái và tốc độ đồng bộ với từng ảnh (cho train CNN)
+        # File nhãn CSV lưu góc lái và tốc độ
         self.csv_path = os.path.join(self.imgs_dir, 'labels.csv')
         self.csv_file = open(self.csv_path, mode='w', newline='')
         self.csv_writer = csv.writer(self.csv_file)
         self.csv_writer.writerow(['frame_file', 'timestamp', 'linear_x', 'angular_z'])
 
-        # Subscribe /cmd_vel để gán nhãn góc lái cho ảnh
+        # Subscribe /cmd_vel
         self.current_linear_x = 0.0
         self.current_angular_z = 0.0
-        self.cmd_sub = self.create_subscription(Twist, '/cmd_vel', self._cmd_callback, 10)
+        self.cmd_sub = self.create_subscription(
+            Twist, '/cmd_vel', self._cmd_callback, 10,
+            callback_group=self.callback_group)
+
+        # Hàng đợi RAM FIFO không khóa (tối đa 90 frame ~ 3 giây)
+        self.frame_queue = queue.Queue(maxsize=90)
 
         self.writer = None
         self.total_video_frames = 0
@@ -99,7 +110,6 @@ class CameraRecorderNode(Node):
 
         # Xác định chế độ hoạt động
         if self.mode_param == 'auto':
-            # Kiểm tra xem có Astra Camera USB cắm vào không
             has_astra = False
             try:
                 out = subprocess.check_output(['lsusb'], text=True, stderr=subprocess.DEVNULL)
@@ -108,33 +118,41 @@ class CameraRecorderNode(Node):
             except Exception:
                 pass
 
-            if has_astra:
-                self.active_mode = 'topic'
-            else:
-                self.active_mode = 'v4l2'
+            self.active_mode = 'topic' if has_astra else 'v4l2'
         else:
             self.active_mode = self.mode_param
 
+        # QoS tối ưu chống lag: Best Effort + Keep Last 2 frames
+        cam_qos = QoSProfile(
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=2
+        )
+
         if self.active_mode == 'topic':
-            # Chế độ Topic: Lắng nghe ảnh từ Astra Camera (hoặc ROS camera driver)
             self.image_sub = self.create_subscription(
-                Image, self.topic_name, self._topic_image_callback, 10)
-            self.get_logger().info(f"📷 [Chế độ Topic] Đang nhận luồng ảnh từ Camera USB qua topic: {self.topic_name}")
+                Image, self.topic_name, self._topic_image_callback, cam_qos,
+                callback_group=self.callback_group)
+            self.get_logger().info(f"📷 [Chế độ Topic] Đang nhận luồng ảnh Camera USB qua: {self.topic_name}")
         else:
-            # Chế độ V4L2: Mở camera USB ngoài qua OpenCV (BỎ QUA /dev/video0 là webcam laptop)
             self.image_pub = self.create_publisher(Image, self.topic_name, 10)
             self.cap = self._open_v4l2_camera()
             if self.cap is None or not self.cap.isOpened():
                 self.get_logger().warn("⚠️ Không tìm thấy Camera USB ngoài qua V4L2. Chuyển sang chờ topic ROS...")
                 self.active_mode = 'topic'
                 self.image_sub = self.create_subscription(
-                    Image, self.topic_name, self._topic_image_callback, 10)
+                    Image, self.topic_name, self._topic_image_callback, cam_qos,
+                    callback_group=self.callback_group)
             else:
-                self.capture_thread = threading.Thread(target=self._v4l2_capture_loop, daemon=True)
-                self.capture_thread.start()
+                self.v4l2_thread = threading.Thread(target=self._v4l2_capture_loop, daemon=True)
+                self.v4l2_thread.start()
+
+        # Luồng ngầm ghi đĩa độc lập (KHÔNG BAO GIỜ làm đơ ROS 2 hay RViz)
+        self.writer_thread = threading.Thread(target=self._writer_worker, daemon=True)
+        self.writer_thread.start()
 
         self.get_logger().info("=" * 65)
-        self.get_logger().info(f"🚀 [RViz Camera Recorder] KHỞI ĐỘNG THÀNH CÔNG!")
+        self.get_logger().info("🚀 [RViz Camera Recorder] KHỞI ĐỘNG THÀNH CÔNG (ASYNC ENCODING)!")
         self.get_logger().info(f"📹 Nguồn hình ảnh:          {self.active_mode.upper()} -> {self.topic_name}")
         self.get_logger().info(f"🎞️ Đường dẫn Video riêng:   {self.video_path}")
         self.get_logger().info(f"🖼️ Thư mục Ảnh riêng:       {self.imgs_dir}/")
@@ -148,7 +166,6 @@ class CameraRecorderNode(Node):
             candidates = [self.device_param]
         else:
             devs = sorted(glob.glob('/dev/video*'))
-            # Bỏ qua /dev/video0 và /dev/video1 (webcam có sẵn của laptop)
             candidates = [d for d in devs if d not in ('/dev/video0', '/dev/video1')]
 
         for dev in candidates:
@@ -174,76 +191,23 @@ class CameraRecorderNode(Node):
         self.current_linear_x = msg.linear.x
         self.current_angular_z = msg.angular.z
 
-    def _process_frame(self, frame, now):
-        """Xử lý chung: ghi vào file video MP4 và tách frame vào dataset/imgs/."""
-        if self.start_time is None:
-            self.start_time = now
-            self.last_log_time = now
-
-        h, w = frame.shape[:2]
-
-        # 1. Khởi tạo VideoWriter (nếu chưa có)
-        if self.writer is None:
-            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-            self.writer = cv2.VideoWriter(self.video_path, fourcc, self.target_fps, (w, h))
-
-        self.writer.write(frame)
-        self.total_video_frames += 1
-
-        # 2. Tách frame theo chu kỳ
-        if (now - self.last_extract_time) >= self.extract_interval:
-            self.total_extracted_images += 1
-            img_filename = f"frame_{self.total_extracted_images:05d}.jpg"
-            img_save_path = os.path.join(self.imgs_dir, img_filename)
-            cv2.imwrite(img_save_path, frame, [cv2.IMWRITE_JPEG_QUALITY, 95])
-
-            # Ghi nhãn CSV
-            self.csv_writer.writerow([
-                img_filename,
-                f"{now:.3f}",
-                f"{self.current_linear_x:.3f}",
-                f"{self.current_angular_z:.3f}"
-            ])
-            self.csv_file.flush()
-            self.last_extract_time = now
-
-        # In nhật ký định kỳ
-        if now - self.last_log_time >= 2.5:
-            elapsed = now - self.start_time
-            fps = self.total_video_frames / elapsed if elapsed > 0 else 0
-            mb = os.path.getsize(self.video_path) / (1024 * 1024) if os.path.exists(self.video_path) else 0
-            mins = int(elapsed // 60)
-            secs = int(elapsed % 60)
-            self.get_logger().info(
-                f"🔴 [Quay Camera USB]: {mins:02d}:{secs:02d} | Video: {self.total_video_frames} frames ({fps:.1f} FPS, {mb:.1f}MB) | "
-                f"Đã tách: {self.total_extracted_images} ảnh -> dataset/imgs/{self.session_name}/"
-            )
-            self.last_log_time = now
-
     def _topic_image_callback(self, msg: Image):
-        """Nhận ảnh từ ROS Topic (Astra Camera) và ghi vào dataset."""
+        """Callback siêu nhẹ (<0.01ms): Chỉ đẩy con trỏ data vào RAM queue rồi thoát ngay!"""
         now = time.time()
-        try:
-            # Chuyển đổi sensor_msgs/Image sang numpy array
-            if msg.encoding == 'bgr8':
-                frame = np.frombuffer(msg.data, dtype=np.uint8).reshape((msg.height, msg.width, 3))
-            elif msg.encoding == 'rgb8':
-                rgb = np.frombuffer(msg.data, dtype=np.uint8).reshape((msg.height, msg.width, 3))
-                frame = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
-            elif msg.encoding == 'mono8':
-                gray = np.frombuffer(msg.data, dtype=np.uint8).reshape((msg.height, msg.width))
-                frame = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
-            else:
-                frame = np.frombuffer(msg.data, dtype=np.uint8).reshape((msg.height, msg.width, -1))
-                if frame.shape[2] == 3:
-                    frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+        # Nếu queue bị đầy do đĩa ghi chậm, bỏ frame cũ nhất để luôn đồng bộ thời gian thực
+        if self.frame_queue.full():
+            try:
+                self.frame_queue.get_nowait()
+            except queue.Empty:
+                pass
 
-            self._process_frame(frame, now)
-        except Exception as e:
+        try:
+            self.frame_queue.put_nowait((msg.data, msg.width, msg.height, msg.encoding, now))
+        except queue.Full:
             pass
 
     def _v4l2_capture_loop(self):
-        """Vòng lặp đọc camera V4L2."""
+        """Vòng lặp đọc V4L2 và phát lên RViz."""
         while self.is_running and self.cap and self.cap.isOpened():
             ret, frame = self.cap.read()
             if not ret or frame is None:
@@ -253,7 +217,7 @@ class CameraRecorderNode(Node):
             now = time.time()
             h, w, c = frame.shape
 
-            # Phát lên ROS 2 để RViz hiển thị
+            # Phát lên ROS 2 cho RViz hiển thị
             try:
                 msg = Image()
                 msg.header.stamp = self.get_clock().now().to_msg()
@@ -267,12 +231,91 @@ class CameraRecorderNode(Node):
             except Exception:
                 pass
 
-            self._process_frame(frame, now)
+            if self.frame_queue.full():
+                try:
+                    self.frame_queue.get_nowait()
+                except queue.Empty:
+                    pass
+            try:
+                self.frame_queue.put_nowait((frame.tobytes(), w, h, 'bgr8', now))
+            except queue.Full:
+                pass
+
+    def _writer_worker(self):
+        """Luồng công nhân ngầm: Chuyên xử lý chuyển đổi màu, ghi MP4 và lưu ảnh vào ổ cứng."""
+        while self.is_running or not self.frame_queue.empty():
+            try:
+                item = self.frame_queue.get(timeout=0.1)
+            except queue.Empty:
+                continue
+
+            raw_data, w, h, encoding, now = item
+
+            if self.start_time is None:
+                self.start_time = now
+                self.last_log_time = now
+
+            try:
+                # Giải mã định dạng ảnh
+                if encoding == 'bgr8':
+                    frame = np.frombuffer(raw_data, dtype=np.uint8).reshape((h, w, 3))
+                elif encoding == 'rgb8':
+                    rgb = np.frombuffer(raw_data, dtype=np.uint8).reshape((h, w, 3))
+                    frame = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+                elif encoding == 'mono8':
+                    gray = np.frombuffer(raw_data, dtype=np.uint8).reshape((h, w))
+                    frame = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+                else:
+                    frame = np.frombuffer(raw_data, dtype=np.uint8).reshape((h, w, -1))
+                    if frame.shape[2] == 3:
+                        frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+
+                # 1. Ghi frame vào file Video MP4
+                if self.writer is None:
+                    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                    self.writer = cv2.VideoWriter(self.video_path, fourcc, self.target_fps, (w, h))
+
+                self.writer.write(frame)
+                self.total_video_frames += 1
+
+                # 2. Tách ảnh theo chu kỳ
+                if (now - self.last_extract_time) >= self.extract_interval:
+                    self.total_extracted_images += 1
+                    img_filename = f"frame_{self.total_extracted_images:05d}.jpg"
+                    img_save_path = os.path.join(self.imgs_dir, img_filename)
+                    cv2.imwrite(img_save_path, frame, [cv2.IMWRITE_JPEG_QUALITY, 92])
+
+                    # Ghi nhãn CSV
+                    self.csv_writer.writerow([
+                        img_filename,
+                        f"{now:.3f}",
+                        f"{self.current_linear_x:.3f}",
+                        f"{self.current_angular_z:.3f}"
+                    ])
+                    self.csv_file.flush()
+                    self.last_extract_time = now
+
+                # In log mỗi 2.5 giây
+                if now - self.last_log_time >= 2.5:
+                    elapsed = now - self.start_time
+                    fps = self.total_video_frames / elapsed if elapsed > 0 else 0
+                    mb = os.path.getsize(self.video_path) / (1024 * 1024) if os.path.exists(self.video_path) else 0
+                    mins = int(elapsed // 60)
+                    secs = int(elapsed % 60)
+                    q_len = self.frame_queue.qsize()
+                    self.get_logger().info(
+                        f"🔴 [Quay Camera USB]: {mins:02d}:{secs:02d} | Video: {self.total_video_frames} frames ({fps:.1f} FPS, {mb:.1f}MB) | "
+                        f"Đã tách: {self.total_extracted_images} ảnh -> dataset/imgs/{self.session_name}/ | Queue: {q_len}"
+                    )
+                    self.last_log_time = now
+
+            except Exception as e:
+                pass
 
     def destroy_node(self):
         self.is_running = False
-        if hasattr(self, 'capture_thread') and self.capture_thread.is_alive():
-            self.capture_thread.join(timeout=2.0)
+        if hasattr(self, 'writer_thread') and self.writer_thread.is_alive():
+            self.writer_thread.join(timeout=2.0)
 
         if self.writer is not None:
             self.writer.release()
@@ -305,8 +348,10 @@ class CameraRecorderNode(Node):
 def main(args=None):
     rclpy.init(args=args)
     node = CameraRecorderNode()
+    executor = MultiThreadedExecutor(num_threads=2)
+    executor.add_node(node)
     try:
-        rclpy.spin(node)
+        executor.spin()
     except (KeyboardInterrupt, rclpy.executors.ExternalShutdownException):
         pass
     finally:

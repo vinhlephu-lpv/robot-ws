@@ -142,9 +142,13 @@ def generate_launch_description():
                     'enable_color': 'true',
                     'enable_depth': 'false',
                     'enable_ir': 'false',
+                    'enable_point_cloud': 'false',
+                    'enable_colored_point_cloud': 'false',
                     'color_width': '640',
                     'color_height': '480',
                     'color_fps': '30',
+                    'oni_log_level': 'none',
+                    'publish_tf': 'false',
                 }.items()
             )
             launch_entities.insert(0, astra_node)
