@@ -99,27 +99,37 @@ class VideoRecorderNode(Node):
                 self.writer = cv2.VideoWriter(
                     self.output_path, fourcc, self.fps, (self.width, self.height)
                 )
+                self.total_written_frames = 0
+                self.raw_received_frames = 0
 
                 print("\n" + "=" * 60)
-                print(f"🔴 ĐANG QUAY VIDEO: {os.path.basename(self.output_path)}")
+                print(f"🔴 ĐANG QUAY VIDEO (ĐỒNG BỘ 1:1): {os.path.basename(self.output_path)}")
                 print(f"📐 Độ phân giải: {self.width}x{self.height} | Tốc độ: {self.fps:.0f} FPS")
                 print(f"📁 Lưu tại: {self.output_path}")
                 print("👉 Bấm [Ctrl + C] bất cứ lúc nào để DỪNG VÀ XUẤT FILE")
                 print("=" * 60 + "\n")
 
-            self.writer.write(frame)
-            self.frame_count += 1
+            # Đồng bộ thời gian thực: Đảm bảo độ dài video khớp 1:1 với đồng hồ thực tế
+            elapsed = now - self.start_time
+            target_frames = int(elapsed * self.fps)
+            frames_to_write = max(1, target_frames - self.total_written_frames)
+
+            for _ in range(frames_to_write):
+                self.writer.write(frame)
+
+            self.total_written_frames += frames_to_write
+            self.raw_received_frames += 1
 
             if now - self.last_stat_time >= 1.0:
-                elapsed = now - self.start_time
-                real_fps = self.frame_count / elapsed if elapsed > 0 else 0
+                real_fps = self.raw_received_frames / elapsed if elapsed > 0 else 0
                 file_size_mb = os.path.getsize(self.output_path) / (1024 * 1024) if os.path.exists(self.output_path) else 0
 
                 mins = int(elapsed // 60)
                 secs = int(elapsed % 60)
                 print(
                     f"\r🔴 Đang ghi: {mins:02d}:{secs:02d} | "
-                    f"Frames: {self.frame_count} ({real_fps:.1f} fps) | "
+                    f"Camera: {real_fps:.1f} fps | "
+                    f"Video: {self.total_written_frames} frames | "
                     f"Dung lượng: {file_size_mb:.1f} MB   ",
                     end="", flush=True
                 )

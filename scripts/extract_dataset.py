@@ -49,6 +49,8 @@ def extract_frames(video_path, output_dir, time_interval=0.3, prefix="crop_row")
 
     saved_count = 0
     current_frame = 0
+    prev_saved_frame = None
+    import numpy as np
 
     while True:
         ret, frame = cap.read()
@@ -56,10 +58,16 @@ def extract_frames(video_path, output_dir, time_interval=0.3, prefix="crop_row")
             break
 
         if current_frame % frame_step == 0:
+            # Bỏ qua nếu frame giống hệt ảnh đã lưu trước đó (xe đứng yên)
+            if prev_saved_frame is not None and np.array_equal(frame, prev_saved_frame):
+                current_frame += 1
+                continue
+
             out_name = f"{prefix}_{saved_count+1:05d}.jpg"
             out_path = os.path.join(output_dir, out_name)
             cv2.imwrite(out_path, frame, [cv2.IMWRITE_JPEG_QUALITY, 95])
             saved_count += 1
+            prev_saved_frame = frame
 
             progress = (current_frame / total_frames * 100) if total_frames > 0 else 0
             print(f"\r⏳ Đang trích xuất: {progress:5.1f}% | Đã lưu: {saved_count} ảnh...", end="", flush=True)

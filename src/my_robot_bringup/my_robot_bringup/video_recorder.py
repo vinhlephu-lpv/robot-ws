@@ -111,20 +111,30 @@ class RawVideoRecorder(Node):
                 self.last_log_time = now
                 fourcc = cv2.VideoWriter_fourcc(*'mp4v')
                 self.writer = cv2.VideoWriter(self.output_path, fourcc, self.fps, (w, h))
+                self.total_written_frames = 0
+                self.raw_received_frames = 0
                 self.get_logger().info(
-                    f"🔴 [Video Recorder] BẮT ĐẦU GHI: {w}x{h} @ {self.fps:.0f} FPS -> {self.output_path}"
+                    f"🔴 [Video Recorder] BẮT ĐẦU GHI (ĐỒNG BỘ THỜI GIAN THỰC 1:1): {w}x{h} @ {self.fps:.0f} FPS -> {self.output_path}"
                 )
 
+            # Đồng bộ thời gian thực: Đảm bảo độ dài video khớp 1:1 với đồng hồ thực tế
+            elapsed = now - self.start_time
+            target_frames = int(elapsed * self.fps)
+            frames_to_write = max(1, target_frames - self.total_written_frames)
+
             # GHI TRỰC TIẾP FRAME THÔ (KHÔNG VẼ BẤT KỲ GÌ LÊN ẢNH)
-            self.writer.write(frame)
-            self.frame_count += 1
+            for _ in range(frames_to_write):
+                self.writer.write(frame)
+
+            self.total_written_frames += frames_to_write
+            self.raw_received_frames += 1
 
             if now - self.last_log_time >= 5.0:
-                elapsed = now - self.start_time
-                fps_actual = self.frame_count / elapsed if elapsed > 0 else 0
+                fps_actual = self.raw_received_frames / elapsed if elapsed > 0 else 0
                 mb = os.path.getsize(self.output_path) / (1024 * 1024) if os.path.exists(self.output_path) else 0
                 self.get_logger().info(
-                    f"[Video Recorder] Đang ghi: {self.frame_count} frames ({fps_actual:.1f} fps) | {mb:.1f} MB"
+                    f"[Video Recorder] Đang ghi: {int(elapsed//60):02d}:{int(elapsed%60):02d} | "
+                    f"Camera: {fps_actual:.1f} fps | File: {mb:.1f} MB"
                 )
                 self.last_log_time = now
 
@@ -135,11 +145,13 @@ class RawVideoRecorder(Node):
         if self.writer is not None:
             self.writer.release()
             self.writer = None
+            elapsed = time.time() - self.start_time if self.start_time else 0
             mb = os.path.getsize(self.output_path) / (1024 * 1024) if os.path.exists(self.output_path) else 0
             self.get_logger().info("=" * 60)
-            self.get_logger().info(f"✅ ĐÃ HOÀN TẤT LƯU VIDEO THÔ!")
+            self.get_logger().info(f"✅ ĐÃ HOÀN TẤT LƯU VIDEO THÔ (TỐC ĐỘ THỰC 1:1)!")
             self.get_logger().info(f"📁 Đường dẫn: {self.output_path}")
-            self.get_logger().info(f"📦 Tổng: {self.frame_count} frames | {mb:.2f} MB")
+            self.get_logger().info(f"⏱️ Thời lượng: {int(elapsed//60):02d}:{int(elapsed%60):02d} ({self.total_written_frames} video frames)")
+            self.get_logger().info(f"📦 Dung lượng: {mb:.2f} MB")
             self.get_logger().info("=" * 60)
 
 
