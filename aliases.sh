@@ -89,7 +89,16 @@ alias slam="load_ws && ros2 launch my_robot_slam slam.launch.py"
 alias nav="load_ws && ros2 launch my_robot_navigation nav.launch.py"
 alias teleop="load_ws && ros2 run my_robot_controller teleop_wasd"
 alias wasd="teleop"
-alias rviz="load_ws && rviz2 -d \"$WS_DIR/src/my_robot_description/rviz/display.rviz\""
+
+# Mở RViz + Camera USB (Hiển thị mô hình xe 3D + Khung hình Webcam DVD20)
+rviz_view_func() {
+    load_ws
+    mkdir -p "$WS_DIR/dataset/videos" "$WS_DIR/dataset/imgs"
+    ros2 launch my_robot_bringup laptop_record.launch.py "$@"
+}
+alias rviz="rviz_view_func"
+alias rviz-cam="rviz_view_func"
+alias rviz-only="load_ws && rviz2 -d \"$WS_DIR/src/my_robot_description/rviz/display.rviz\""
 
 # Mở RViz nhận stream WiFi nhẹ từ Pi
 laptop_view_func() {
