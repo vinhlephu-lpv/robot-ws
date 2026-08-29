@@ -291,13 +291,14 @@
       <pose> 0 0 0 0 0 0 </pose>
       <always_on>true</always_on>
       <visualize>true</visualize>
-      <update_rate>15.0</update_rate>
+      <update_rate>30.0</update_rate>
       <camera>
-        <horizontal_fov>1.085</horizontal_fov>
+        <!-- Góc FOV ngang chuẩn 78 độ (1.361 rad) của Webcam DVD20 1080p -->
+        <horizontal_fov>1.361</horizontal_fov>
         <image>
           <format>R8G8B8</format>
-          <width>640</width>
-          <height>480</height>
+          <width>1920</width>
+          <height>1080</height>
         </image>
         <clip>
           <near>0.05</near>

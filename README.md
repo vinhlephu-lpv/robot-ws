@@ -51,7 +51,7 @@ source ~/.bashrc
 | :--- | :--- |
 | **`build`** | Build lại code trên Pi |
 | **`test-lidar`** | Kiểm tra kết nối & dữ liệu cảm biến RPLIDAR C1 |
-| **`test-cam`** | Kiểm tra hình ảnh & độ sâu Camera Astra Mini S |
+| **`test-cam`** | Kiểm tra hình ảnh Webcam DVD20 (1080p Full HD) |
 | **`test-all`** | Kiểm tra toàn bộ cảm biến thật cùng lúc |
 | **`real-robot`** | Khởi động toàn bộ phần cứng (Lidar, Camera, ESP32 Bridge, TF) |
 | **`real-slam`** | Chạy Robot thật + Thuật toán SLAM vẽ bản đồ thực tế |

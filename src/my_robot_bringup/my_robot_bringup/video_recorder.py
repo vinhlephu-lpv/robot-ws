@@ -41,7 +41,7 @@ class RawVideoRecorder(Node):
         self.declare_parameter('topic', '/camera/color/image_raw')
         self.declare_parameter('output_dir', default_dir)
         self.declare_parameter('filename', '')
-        self.declare_parameter('fps', 30.0)
+        self.declare_parameter('fps', 60.0)
 
         self.topic_name = self.get_parameter('topic').value
         self.output_dir = self.get_parameter('output_dir').value

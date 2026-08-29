@@ -129,6 +129,28 @@ def generate_launch_description():
         }]
     )
 
+    # ── Camera Driver (V4L2 USB Webcam DVD20) ─────────────────────────
+    v4l2_camera_node = Node(
+        package='v4l2_camera',
+        executable='v4l2_camera_node',
+        namespace='camera',
+        name='camera_node',
+        output='screen',
+        parameters=[{
+            'video_device': LaunchConfiguration('camera_device'),
+            'image_size': [640, 480],
+            'camera_frame_id': 'camera_link',
+            'pixel_format': 'MJPG',
+        }],
+        remappings=[
+            ('image_raw', '/camera/color/image_raw'),
+            ('camera_info', '/camera/color/camera_info'),
+        ],
+        condition=IfCondition(
+            PythonExpression(["'", LaunchConfiguration('enable_camera'), "' == 'true' and '", LaunchConfiguration('camera_driver'), "' == 'v4l2'"])
+        )
+    )
+
     # ── Camera Driver (Orbbec Astra Mini S 3D Camera via OpenNI2) ───
     camera_env = dict(os.environ)
     try:
@@ -172,7 +194,9 @@ def generate_launch_description():
             'publish_tf': False,
             'camera_link_frame_id': 'camera_link',
         }],
-        condition=IfCondition(LaunchConfiguration('enable_camera'))
+        condition=IfCondition(
+            PythonExpression(["'", LaunchConfiguration('enable_camera'), "' == 'true' and '", LaunchConfiguration('camera_driver'), "' == 'astra'"])
+        )
     )
 
     # ── WiFi Camera Bridge (Nén JPEG gửi qua Wi-Fi) ─────────────────
@@ -263,6 +287,7 @@ def generate_launch_description():
         joint_state_pub,
         static_odom_tf,
         lidar_node,
+        v4l2_camera_node,
         camera_node,
         wifi_cam_bridge,
         esp32_bridge,

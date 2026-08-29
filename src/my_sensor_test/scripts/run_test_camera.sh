@@ -44,13 +44,20 @@ if lsusb | grep -q "2bc5:"; then
     sleep 3
     ros2 run rqt_image_view rqt_image_view /camera/color/image_raw
 else
+    # Auto-detect USB webcam device (default /dev/video0)
+    DEV_PATH="/dev/video0"
+    if [ -e "/dev/video0" ]; then
+        DEV_PATH="/dev/video0"
+    fi
+
     echo "============================================================"
-    echo "  [MY_SENSOR_TEST] ĐANG KHỞI CHẠY KIỂM THỬ USB WEBCAM"
+    echo "  [MY_SENSOR_TEST] ĐÃ KẾT NỐI DVD20 USB WEBCAM"
     echo "============================================================"
-    echo "• Thiết bị: /dev/video0"
-    echo "• Topic: /camera/image_raw"
+    echo "• Cổng thiết bị: $DEV_PATH"
+    echo "• Topic xem hình: /camera/image_raw"
+    echo "• Đang mở cửa sổ rqt_image_view..."
     echo "• Bấm Ctrl+C trong Terminal này để tắt."
     echo "------------------------------------------------------------"
 
-    ros2 launch my_sensor_test test_camera.launch.py "$@"
+    ros2 launch my_sensor_test test_camera.launch.py video_device:="$DEV_PATH" "$@"
 fi

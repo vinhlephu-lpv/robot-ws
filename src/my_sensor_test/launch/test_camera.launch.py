@@ -38,10 +38,11 @@ def generate_launch_description():
             'video_device': LaunchConfiguration('video_device'),
             'image_size': [640, 480],
             'camera_frame_id': 'camera_link',
-            'pixel_format': 'YUYV',
+            'pixel_format': 'MJPG',
         }],
         remappings=[
             ('image_raw', '/camera/image_raw'),
+            ('camera_info', '/camera/camera_info'),
         ]
     )
 

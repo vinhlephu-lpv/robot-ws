@@ -38,11 +38,12 @@ class CameraRecorderNode(Node):
 
         # Thư mục gốc dataset chuẩn
         ws_candidates = [
-            os.path.join(os.path.expanduser('~'), 'robot-ws', 'dataset'),
-            os.path.join(os.path.expanduser('~'), 'robot_ws', 'dataset'),
+            os.path.join(os.getcwd(), 'dataset'),
             os.path.join(os.path.expanduser('~'), 'Màn hình nền', 'robot_ws', 'dataset'),
+            os.path.join(os.path.expanduser('~'), 'robot_ws', 'dataset'),
+            os.path.join(os.path.expanduser('~'), 'robot-ws', 'dataset'),
         ]
-        default_dataset_dir = ws_candidates[0]
+        default_dataset_dir = ws_candidates[1] if os.path.exists(os.path.dirname(ws_candidates[1])) else ws_candidates[0]
         for cand in ws_candidates:
             if os.path.exists(os.path.dirname(cand)):
                 default_dataset_dir = cand
@@ -50,9 +51,9 @@ class CameraRecorderNode(Node):
 
         self.declare_parameter('mode', 'auto')          # 'auto', 'topic', hoặc 'v4l2'
         self.declare_parameter('device', 'auto')        # Cổng /dev/video* (nếu dùng V4L2)
-        self.declare_parameter('width', 640)
-        self.declare_parameter('height', 480)
-        self.declare_parameter('fps', 30.0)
+        self.declare_parameter('width', 1920)           # 1920 (1080p Full HD), 1280 (720p), 640 (VGA)
+        self.declare_parameter('height', 1080)
+        self.declare_parameter('fps', 60.0)             # 60.0 FPS hoặc 30.0 FPS
         self.declare_parameter('topic', '/camera/color/image_raw')
         self.declare_parameter('record_name', '')
         self.declare_parameter('extract_interval', 0.333)  # Mỗi 0.333s lưu 1 ảnh (3 ảnh/giây)
@@ -136,6 +137,7 @@ class CameraRecorderNode(Node):
             self.get_logger().info(f"📷 [Chế độ Topic] Đang nhận luồng ảnh Camera USB qua: {self.topic_name}")
         else:
             self.image_pub = self.create_publisher(Image, self.topic_name, 10)
+            self.alt_image_pub = self.create_publisher(Image, '/camera/image_raw', 10)
             self.cap = self._open_v4l2_camera()
             if self.cap is None or not self.cap.isOpened():
                 self.get_logger().warn("⚠️ Không tìm thấy Camera USB ngoài qua V4L2. Chuyển sang chờ topic ROS...")
@@ -160,17 +162,40 @@ class CameraRecorderNode(Node):
         self.get_logger().info("=" * 65)
 
     def _open_v4l2_camera(self):
-        """Mở camera USB ngoài, cố ý BỎ QUA webcam tích hợp của máy tính (/dev/video0, /dev/video1)."""
+        """Mở webcam USB ngoài (ưu tiên webcam USB như DVD20, bỏ qua webcam tích hợp laptop)."""
         candidates = []
         if self.device_param != 'auto' and os.path.exists(self.device_param):
             candidates = [self.device_param]
         else:
-            devs = sorted(glob.glob('/dev/video*'))
-            candidates = [d for d in devs if d not in ('/dev/video0', '/dev/video1')]
+            all_devs = sorted(glob.glob('/dev/video*'))
+            usb_external = []
+            builtin = []
+            others = []
+            for dev in all_devs:
+                try:
+                    out = subprocess.check_output(['udevadm', 'info', '-q', 'property', '-n', dev], text=True, stderr=subprocess.DEVNULL)
+                    props = dict(line.split('=', 1) for line in out.strip().split('\n') if '=' in line)
+                    model = props.get('ID_MODEL', '').lower()
+                    vendor = props.get('ID_VENDOR', '').lower()
+                    is_usb = (props.get('ID_BUS', '') == 'usb')
+                    if 'user_facing' in model or 'integrated' in model or 'internal' in model:
+                        builtin.append(dev)
+                    elif is_usb:
+                        usb_external.append(dev)
+                    else:
+                        others.append(dev)
+                except Exception:
+                    others.append(dev)
+            # Ưu tiên webcam ngoài cắm qua USB
+            candidates = usb_external + others + builtin
 
         for dev in candidates:
             try:
+                dev_idx = int(dev.replace('/dev/video', '')) if dev.startswith('/dev/video') and dev.replace('/dev/video', '').isdigit() else dev
                 cap = cv2.VideoCapture(dev, cv2.CAP_V4L2)
+                if not cap.isOpened():
+                    cap = cv2.VideoCapture(dev_idx)
+
                 if cap.isOpened():
                     cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
                     cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.target_width)
@@ -180,7 +205,7 @@ class CameraRecorderNode(Node):
                     if ret and test_frame is not None:
                         w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
                         h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                        self.get_logger().info(f"📷 Đã kết nối Camera USB tại {dev}: {w}x{h} @ {self.target_fps} FPS")
+                        self.get_logger().info(f"📷 Đã kết nối Webcam USB DVD20 tại {dev}: {w}x{h} @ {self.target_fps} FPS")
                         return cap
                     cap.release()
             except Exception:
@@ -228,6 +253,8 @@ class CameraRecorderNode(Node):
                 msg.step = w * c
                 msg.data = frame.tobytes()
                 self.image_pub.publish(msg)
+                if hasattr(self, 'alt_image_pub'):
+                    self.alt_image_pub.publish(msg)
             except Exception:
                 pass
 
@@ -269,6 +296,11 @@ class CameraRecorderNode(Node):
                     frame = np.frombuffer(raw_data, dtype=np.uint8).reshape((h, w, -1))
                     if frame.shape[2] == 3:
                         frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+
+                # Điều chỉnh độ phân giải đầu ra theo đúng target (hỗ trợ 2K 2560x1440, 1080p, v.v.)
+                if (w != self.target_width or h != self.target_height) and self.target_width > 0 and self.target_height > 0:
+                    frame = cv2.resize(frame, (self.target_width, self.target_height), interpolation=cv2.INTER_CUBIC)
+                    h, w = self.target_height, self.target_width
 
                 # 1. Ghi frame vào file Video MP4 (Đồng bộ 1:1 chuẩn thời gian thực, chống tua nhanh)
                 if self.writer is None:

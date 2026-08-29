@@ -75,7 +75,7 @@ savemap() {
 
 # 3. Các lệnh chạy trên Robot Thật (Raspberry Pi)
 alias test-lidar="load_ws && ros2 launch my_sensor_test test_lidar.launch.py"
-alias test-cam="load_ws && ros2 launch astra_camera astra.launch.xml enable_color:=true enable_depth:=true color_width:=640 color_height:=480 depth_width:=640 depth_height:=480 enable_point_cloud:=false"
+alias test-cam="load_ws && bash \"$WS_DIR/src/my_sensor_test/scripts/run_test_camera.sh\""
 alias test-gps="load_ws && ros2 run my_robot_controller gps_driver --ros-args -p serial_port:=/dev/ttyAMA0 -p baudrate:=38400"
 alias test-all="load_ws && ros2 launch my_sensor_test test_all_sensors.launch.py"
 alias real-robot="load_ws && ros2 launch my_robot_bringup real_robot.launch.py"
@@ -93,20 +93,18 @@ real-record() {
     fi
 }
 
-# Lệnh MỞ RVIZ + XEM XE 3D + CAMERA USB + QUAY VIDEO TÁCH FRAME DATASET RIÊNG (Chạy trên Laptop)
+# Lệnh MỞ RVIZ + XEM XE 3D + WEBCAM USB DVD20 (1080p Full HD) + QUAY VIDEO TÁCH FRAME DATASET RIÊNG (Chạy trên Laptop)
 rviz-record() {
     killall -9 astra_camera_node 2>/dev/null || true
-    if [ -f "/home/vinh/astra_ws/install/setup.bash" ]; then
-        source "/home/vinh/astra_ws/install/setup.bash"
-    fi
-    export LD_LIBRARY_PATH="/home/vinh/astra_ws/install/astra_camera_msgs/lib:/home/vinh/astra_ws/install/astra_camera/lib:$LD_LIBRARY_PATH"
     load_ws
     local vname="${1:-}"
-    mkdir -p "$WS_DIR/dataset/videos" "$WS_DIR/dataset/imgs"
     if [ -n "$vname" ]; then
-        ros2 launch my_robot_bringup laptop_record.launch.py name:="$vname"
+        shift
+        mkdir -p "$WS_DIR/dataset/videos" "$WS_DIR/dataset/imgs"
+        ros2 launch my_robot_bringup laptop_record.launch.py name:="$vname" "$@"
     else
-        ros2 launch my_robot_bringup laptop_record.launch.py
+        mkdir -p "$WS_DIR/dataset/videos" "$WS_DIR/dataset/imgs"
+        ros2 launch my_robot_bringup laptop_record.launch.py "$@"
     fi
 }
 alias record-rviz="rviz-record"
@@ -189,7 +187,7 @@ cat << 'EOF'
                        (Ví dụ: real-nav map:=/path/to/map.yaml)
   savemap <tên_map>  : Lưu bản đồ SLAM vừa quét xong vào thư mục maps/
   test-lidar         : Kiểm tra tia quét mắt LiDAR RPLIDAR C1
-  test-cam           : Kiểm tra hình ảnh Camera Astra
+  test-cam           : Kiểm tra hình ảnh Webcam DVD20 (/dev/video0)
   test-all           : Kiểm tra toàn bộ cảm biến trên xe
 
 🎮 [MÔ PHỎNG & ĐỒ THỊ] (Chạy trên PC / Laptop)

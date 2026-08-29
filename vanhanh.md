@@ -121,7 +121,7 @@ build
 ## 🔌 GIAI ĐOẠN 2: SƠ ĐỒ KẾT NỐI CỔNG & CỐ ĐỊNH USB (UDEV RULES)
 
 ### 1. Sơ đồ cắm cổng tối ưu trên Raspberry Pi 5:
-* **Camera Astra Mini S:** Cắm vào **Cổng USB 3.0 (Màu xanh dương)** (Băng thông cao & nguồn ổn định).
+* **DVD20 USB Webcam:** Cắm vào **Cổng USB** $\to$ nhận diện cổng `/dev/video0`.
 * **LiDAR RPLIDAR C1:** Cắm vào **Cổng USB 3.0 (Màu xanh dương)**.
 * **ESP32 Controller:** Cắm vào **Cổng USB 2.0 (Màu đen)** (`/dev/ttyUSB0` hoặc `/dev/ttyACM0`).
 * **Module GPS (Dây nhảy GPIO):**
@@ -188,19 +188,15 @@ test-lidar
 ```
 *(LiDAR quay tròn và xuất hiện chùm tia laser 360° trên RViz).*
 
-### 3. Kiểm tra Camera Astra Mini S (Full 30 FPS Depth + Color):
+### 3. Kiểm tra DVD20 USB Webcam (Full 30 FPS VGA 640x480):
 ```bash
 test-cam
 ```
 *Hoặc lệnh chi tiết:*
 ```bash
-ros2 launch astra_camera astra.launch.xml \
-    enable_color:=true enable_depth:=true \
-    color_width:=640 color_height:=480 \
-    depth_width:=640 depth_height:=480 \
-    enable_point_cloud:=false
+ros2 launch my_sensor_test test_camera.launch.py video_device:=/dev/video0
 ```
-*(Kiểm tra: `ros2 topic hz /camera/color/image_raw` và `ros2 topic hz /camera/depth/image_raw` đều đạt ~30 FPS).*
+*(Kiểm tra: Cửa sổ xem trực tiếp hiển thị mượt mà 30 FPS, topic `/camera/image_raw` hoặc `/camera/color/image_raw`).*
 
 ### 4. Kiểm tra Định vị GPS:
 - **Cách 1: Xem dữ liệu NMEA gốc từ cổng UART GPIO:**
