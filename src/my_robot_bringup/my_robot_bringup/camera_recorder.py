@@ -36,14 +36,14 @@ class CameraRecorderNode(Node):
 
         self.callback_group = ReentrantCallbackGroup()
 
-        # Thư mục gốc dataset chuẩn
+        # Thư mục gốc dataset chuẩn (luôn ưu tiên thư mục trong Workspace)
         ws_candidates = [
-            os.path.join(os.getcwd(), 'dataset'),
             os.path.join(os.path.expanduser('~'), 'Màn hình nền', 'robot_ws', 'dataset'),
             os.path.join(os.path.expanduser('~'), 'robot_ws', 'dataset'),
             os.path.join(os.path.expanduser('~'), 'robot-ws', 'dataset'),
+            os.path.join(os.getcwd(), 'dataset'),
         ]
-        default_dataset_dir = ws_candidates[1] if os.path.exists(os.path.dirname(ws_candidates[1])) else ws_candidates[0]
+        default_dataset_dir = ws_candidates[0]
         for cand in ws_candidates:
             if os.path.exists(os.path.dirname(cand)):
                 default_dataset_dir = cand
@@ -201,7 +201,31 @@ class CameraRecorderNode(Node):
                     cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.target_width)
                     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.target_height)
                     cap.set(cv2.CAP_PROP_FPS, self.target_fps)
+                    
+                    # Tắt thông báo rác libjpeg từ C
+                    null_fd = None
+                    old_err = None
+                    try:
+                        null_fd = os.open(os.devnull, os.O_WRONLY)
+                        old_err = os.dup(2)
+                        os.dup2(null_fd, 2)
+                    except Exception:
+                        pass
+
                     ret, test_frame = cap.read()
+
+                    if old_err is not None:
+                        try:
+                            os.dup2(old_err, 2)
+                            os.close(old_err)
+                        except Exception:
+                            pass
+                    if null_fd is not None:
+                        try:
+                            os.close(null_fd)
+                        except Exception:
+                            pass
+
                     if ret and test_frame is not None:
                         w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
                         h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
@@ -232,41 +256,70 @@ class CameraRecorderNode(Node):
             pass
 
     def _v4l2_capture_loop(self):
-        """Vòng lặp đọc V4L2 và phát lên RViz."""
-        while self.is_running and self.cap and self.cap.isOpened():
-            ret, frame = self.cap.read()
-            if not ret or frame is None:
-                time.sleep(0.005)
-                continue
+        """Vòng lặp đọc V4L2 và phát lên RViz (đã lọc sạch log rác Corrupt JPEG data từ libjpeg)."""
+        null_fd = None
+        try:
+            null_fd = os.open(os.devnull, os.O_WRONLY)
+        except Exception:
+            pass
 
-            now = time.time()
-            h, w, c = frame.shape
+        try:
+            while self.is_running and self.cap and self.cap.isOpened():
+                old_err = None
+                if null_fd is not None:
+                    try:
+                        old_err = os.dup(2)
+                        os.dup2(null_fd, 2)
+                    except Exception:
+                        old_err = None
 
-            # Phát lên ROS 2 cho RViz hiển thị
-            try:
-                msg = Image()
-                msg.header.stamp = self.get_clock().now().to_msg()
-                msg.header.frame_id = 'camera_link'
-                msg.height = h
-                msg.width = w
-                msg.encoding = 'bgr8'
-                msg.step = w * c
-                msg.data = frame.tobytes()
-                self.image_pub.publish(msg)
-                if hasattr(self, 'alt_image_pub'):
-                    self.alt_image_pub.publish(msg)
-            except Exception:
-                pass
+                ret, frame = self.cap.read()
 
-            if self.frame_queue.full():
+                if old_err is not None:
+                    try:
+                        os.dup2(old_err, 2)
+                        os.close(old_err)
+                    except Exception:
+                        pass
+
+                if not ret or frame is None:
+                    time.sleep(0.005)
+                    continue
+
+                now = time.time()
+                h, w, c = frame.shape
+
+                # Phát lên ROS 2 cho RViz hiển thị
                 try:
-                    self.frame_queue.get_nowait()
-                except queue.Empty:
+                    msg = Image()
+                    msg.header.stamp = self.get_clock().now().to_msg()
+                    msg.header.frame_id = 'camera_link'
+                    msg.height = h
+                    msg.width = w
+                    msg.encoding = 'bgr8'
+                    msg.step = w * c
+                    msg.data = frame.tobytes()
+                    self.image_pub.publish(msg)
+                    if hasattr(self, 'alt_image_pub'):
+                        self.alt_image_pub.publish(msg)
+                except Exception:
                     pass
-            try:
-                self.frame_queue.put_nowait((frame.tobytes(), w, h, 'bgr8', now))
-            except queue.Full:
-                pass
+
+                if self.frame_queue.full():
+                    try:
+                        self.frame_queue.get_nowait()
+                    except queue.Empty:
+                        pass
+                try:
+                    self.frame_queue.put_nowait((frame.tobytes(), w, h, 'bgr8', now))
+                except queue.Full:
+                    pass
+        finally:
+            if null_fd is not None:
+                try:
+                    os.close(null_fd)
+                except Exception:
+                    pass
 
     def _writer_worker(self):
         """Luồng công nhân ngầm: Chuyên xử lý chuyển đổi màu, ghi MP4 và lưu ảnh vào ổ cứng."""
