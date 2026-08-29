@@ -42,6 +42,14 @@ if [ -f "$WS_DIR/install/setup.bash" ]; then
     source "$WS_DIR/install/setup.bash"
 fi
 
+# Thiết lập CycloneDDS cấu hình mở (tránh lỗi buffer mạng)
+if [ -f "$WS_DIR/cyclonedds.xml" ]; then
+    export CYCLONEDDS_URI="file://$WS_DIR/cyclonedds.xml"
+    cp -f "$WS_DIR/cyclonedds.xml" "$HOME/.cyclonedds.xml" 2>/dev/null || true
+fi
+export ROS_DOMAIN_ID=0
+export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+
 echo -e "\n${GREEN}▶ Đang khởi chạy ROS 2 IMU Driver Node (/imu)...${NC}"
 echo -e "${YELLOW}💡 Giữ yên xe trong 1-2 giây đầu để cảm biến tự động cân bằng Zero-Bias!${NC}"
 echo -e "${YELLOW}💡 Nhấn Ctrl + C để dừng kiểm tra.${NC}\n"

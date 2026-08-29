@@ -6,17 +6,8 @@
       <MaxMessageSize>65500B</MaxMessageSize>
     </General>
     <Discovery>
-      <Peers>
-        <Peer address="10.10.178.200"/>
-        <Peer address="10.10.177.141"/>
-        <Peer address="10.10.191.255"/>
-      </Peers>
       <ParticipantIndex>auto</ParticipantIndex>
-      <MaxAutoParticipantIndex>30</MaxAutoParticipantIndex>
+      <MaxAutoParticipantIndex>100</MaxAutoParticipantIndex>
     </Discovery>
-    <Internal>
-      <SocketReceiveBufferSize min="4MB"/>
-      <SocketSendBufferSize min="4MB"/>
-    </Internal>
   </Domain>
 </CycloneDDS>
