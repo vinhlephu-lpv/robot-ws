@@ -5,13 +5,22 @@ WS_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 
 # Hàm nạp môi trường ROS 2 và Workspace
 load_ws() {
-    source /opt/ros/jazzy/setup.bash
+    if [ -f "/opt/ros/jazzy/setup.bash" ]; then
+        source /opt/ros/jazzy/setup.bash
+    elif [ -f "/opt/ros/humble/setup.bash" ]; then
+        source /opt/ros/humble/setup.bash
+    fi
+
     if [ -f "$WS_DIR/install/setup.bash" ]; then
         source "$WS_DIR/install/setup.bash"
     fi
-    if [ -f "/home/vinh/astra_ws/install/setup.bash" ]; then
-        source "/home/vinh/astra_ws/install/setup.bash"
+
+    if [ -f "$HOME/astra_ws/install/setup.bash" ]; then
+        source "$HOME/astra_ws/install/setup.bash"
+    elif [ -f "/tmp/astra_ws/install/setup.bash" ]; then
+        source "/tmp/astra_ws/install/setup.bash"
     fi
+
     export ROS_DOMAIN_ID=0
     export ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
     export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
@@ -21,22 +30,55 @@ load_ws() {
     elif [ -f "$HOME/.cyclonedds.xml" ]; then
         export CYCLONEDDS_URI="file://$HOME/.cyclonedds.xml"
     fi
-    if [ -d "$WS_DIR/install/astra_camera/lib/OpenNI2/Drivers" ]; then
-        export OPENNI2_REDIST="$WS_DIR/install/astra_camera/lib/OpenNI2/Drivers"
-        export OPENNI2_DRIVERS_PATH="$WS_DIR/install/astra_camera/lib/OpenNI2/Drivers"
-    elif [ -d "$WS_DIR/src/astra_camera/openni2_redist/arm64/OpenNI2/Drivers" ]; then
-        export OPENNI2_REDIST="$WS_DIR/src/astra_camera/openni2_redist/arm64/OpenNI2/Drivers"
-        export OPENNI2_DRIVERS_PATH="$WS_DIR/src/astra_camera/openni2_redist/arm64/OpenNI2/Drivers"
-    fi
 }
 
 # 1. Biên dịch & Cập nhật Workspace
 alias reload="source ~/.bashrc && echo '✅ Đã cập nhật nạp lại toàn bộ lệnh mới nhất!'"
 alias update-cmd="reload"
 alias capnhat="reload"
-alias build="cd \"$WS_DIR\" && source /opt/ros/jazzy/setup.bash && colcon build --symlink-install --packages-ignore astra_camera astra_camera_msgs && source install/setup.bash"
-alias build-all="cd \"$WS_DIR\" && source /opt/ros/jazzy/setup.bash && colcon build --symlink-install && source install/setup.bash"
-alias rb-build="build"
+
+# Hàm build thông minh (tự động nhận diện distro Jazzy / Humble)
+build_func() {
+    cd "$WS_DIR"
+    if [ -f "/opt/ros/jazzy/setup.bash" ]; then
+        source /opt/ros/jazzy/setup.bash
+    elif [ -f "/opt/ros/humble/setup.bash" ]; then
+        source /opt/ros/humble/setup.bash
+    fi
+    colcon build --symlink-install --packages-ignore astra_camera astra_camera_msgs "$@"
+    if [ -f "$WS_DIR/install/setup.bash" ]; then
+        source "$WS_DIR/install/setup.bash"
+    fi
+}
+alias build="build_func"
+alias rb-build="build_func"
+
+build_all_func() {
+    cd "$WS_DIR"
+    if [ -f "/opt/ros/jazzy/setup.bash" ]; then
+        source /opt/ros/jazzy/setup.bash
+    elif [ -f "/opt/ros/humble/setup.bash" ]; then
+        source /opt/ros/humble/setup.bash
+    fi
+    colcon build --symlink-install "$@"
+    if [ -f "$WS_DIR/install/setup.bash" ]; then
+        source "$WS_DIR/install/setup.bash"
+    fi
+}
+alias build-all="build_all_func"
+
+# Lệnh 1-Click đồng bộ nhanh từ GitHub về máy
+git_sync_func() {
+    cd "$WS_DIR"
+    echo "📥 Đang kéo mã nguồn mới nhất từ GitHub..."
+    git pull origin main
+    echo "🔨 Đang biên dịch lại Workspace..."
+    build_func
+    echo "✅ Đã đồng bộ và nạp lại toàn bộ lệnh thành công!"
+}
+alias git-sync="git_sync_func"
+alias dongbo="git_sync_func"
+alias sync-code="git_sync_func"
 
 # 2. Các lệnh chạy Mô phỏng (PC)
 alias sim="load_ws && ros2 launch my_robot_simulation sim.launch.py"
@@ -48,6 +90,8 @@ alias nav="load_ws && ros2 launch my_robot_navigation nav.launch.py"
 alias teleop="load_ws && ros2 run my_robot_controller teleop_wasd"
 alias wasd="teleop"
 alias rviz="load_ws && rviz2 -d \"$WS_DIR/src/my_robot_description/rviz/display.rviz\""
+
+# Mở RViz nhận stream WiFi nhẹ từ Pi
 laptop_view_func() {
     load_ws
     killall -q wifi_cam_receiver 2>/dev/null || true
@@ -73,11 +117,16 @@ savemap() {
     echo "Đã lưu bản đồ '$map_name' vào thư mục: $WS_DIR/maps/"
 }
 
-# 3. Các lệnh chạy trên Robot Thật (Raspberry Pi)
+# 3. Các lệnh kiểm tra cảm biến riêng lẻ (1-Click Test)
 alias test-lidar="load_ws && ros2 launch my_sensor_test test_lidar.launch.py"
 alias test-cam="load_ws && bash \"$WS_DIR/src/my_sensor_test/scripts/run_test_camera.sh\""
+alias test-camera="test-cam"
 alias test-gps="load_ws && ros2 run my_robot_controller gps_driver --ros-args -p serial_port:=/dev/ttyAMA0 -p baudrate:=38400"
+alias test-esp32="load_ws && ros2 run my_robot_bringup esp32_bridge --ros-args -p serial_port:=/dev/esp32"
 alias test-all="load_ws && ros2 launch my_sensor_test test_all_sensors.launch.py"
+alias test-slam="load_ws && bash \"$WS_DIR/src/my_sensor_test/scripts/run_test_slam.sh\""
+
+# 4. Các lệnh chạy trên Robot Thật (Raspberry Pi)
 alias real-robot="load_ws && ros2 launch my_robot_bringup real_robot.launch.py"
 alias real-slam="load_ws && ros2 launch my_robot_bringup real_slam.launch.py"
 alias real-nav="load_ws && ros2 launch my_robot_bringup real_nav.launch.py"
@@ -93,7 +142,7 @@ real-record() {
     fi
 }
 
-# Lệnh MỞ RVIZ + XEM XE 3D + WEBCAM USB DVD20 (1080p Full HD) + QUAY VIDEO TÁCH FRAME DATASET RIÊNG (Chạy trên Laptop)
+# Lệnh MỞ RVIZ + XEM XE 3D + WEBCAM USB DVD20 (1080p Full HD @ 60 FPS) + QUAY VIDEO TÁCH FRAME DATASET RIÊNG (Chạy trên Laptop)
 rviz-record() {
     killall -9 astra_camera_node 2>/dev/null || true
     load_ws
@@ -139,27 +188,28 @@ alias extract-dataset="python3 \"$WS_DIR/scripts/extract_dataset.py\""
 
 # Lệnh xóa toàn bộ video đã quay (chạy được trên cả Pi và Laptop)
 clean-video() {
-    echo "🗑️ Đang dọn dẹp các video trong thư mục recordings..."
+    echo "🗑️ Đang dọn dẹp các video trong thư mục recordings và dataset..."
     rm -f ~/robot-ws/recordings/*.mp4 ~/robot_ws/recordings/*.mp4 "$WS_DIR/recordings/"*.mp4 2>/dev/null || true
-    echo "✅ Đã xóa sạch toàn bộ video đã quay!"
+    echo "✅ Đã dọn dẹp video hoàn tất!"
 }
 alias clear-video="clean-video"
 alias del-video="clean-video"
 
-# Lệnh xem video nhanh bằng Firefox (không cần cài thêm app)
+# Lệnh xem video nhanh bằng Firefox
 play-video() {
     local f="${1:-}"
     if [ -z "$f" ]; then
-        f=$(ls -t "$WS_DIR/dataset/"*.mp4 2>/dev/null | head -n 1)
+        f=$(ls -t "$WS_DIR/dataset/videos/"*.mp4 "$WS_DIR/dataset/"*.mp4 2>/dev/null | head -n 1)
     fi
     if [ -n "$f" ] && [ -f "$f" ]; then
         echo "🎬 Đang mở video: $f"
         firefox "$f" &>/dev/null &
     else
-        echo "❌ Không tìm thấy file video nào trong $WS_DIR/dataset/"
+        echo "❌ Không tìm thấy file video nào trong $WS_DIR/dataset/videos/"
     fi
 }
 alias xem-video="play-video"
+alias xem="play-video"
 
 # =====================================================
 # BẢNG TRA CỨU LỆNH TẮT NHANH (ros-help)
@@ -171,28 +221,35 @@ cat << 'EOF'
 ================================================================================
 
 💻 [TRÊN LAPTOP] (Màn hình quan sát, Lái xe & Xử lý Dataset)
-  laptop-view        : Mở RViz2 + tự nhận Camera nén từ Pi (mượt, không nghẽn)
-  wasd               : Bàn phím lái xe (W=tiến, S=lùi, A/D=rẽ, Space=dừng)
-  get-video          : Tự động kéo video MP4 mới quay từ Pi về robot_ws/dataset/
-  play-video (xem)   : Xem ngay video vừa kéo về bằng trình duyệt Firefox
+  quay-rviz [tên]    : Mở RViz + Quay video Full HD 1080p 60FPS + Tách Dataset ảnh
+                       (Tên khác: rviz-record, laptop-record)
+  laptop-view        : Mở RViz2 nhận luồng Camera nén từ Pi qua Wi-Fi (mượt, không lag)
+  wasd (teleop)      : Bàn phím lái xe (W=tiến, S=lùi, A/D=rẽ, Space=phanh dừng)
+  get-video          : Tự động kéo video MP4 mới quay từ Pi về máy tính
+  play-video (xem)   : Xem ngay video vừa quay bằng trình duyệt Firefox
+  clean-video        : Dọn dẹp các video cũ giải phóng ổ đĩa
   extract-dataset <f>: Cắt video thành bộ ảnh sạch (JPG) để gán nhãn train CNN
-  rviz               : Mở RViz2 đồ họa thuần túy
+  rviz               : Mở giao diện RViz2 đồ họa thuần túy
   cancel             : Hủy mục tiêu dẫn đường Nav2
 
 🍓 [TRÊN RASPBERRY PI] (Khởi động phần cứng xe & Quay video)
   real-robot         : BẬT XE THẬT (Chế độ bình thường: chỉ xem, KHÔNG lưu)
   real-record [tên]  : BẬT XE THẬT + QUAY VIDEO THÔ (100% Raw, lưu MP4 vào Pi)
-  real-slam          : Bật Xe Thật + SLAM vẽ bản đồ
+  real-slam          : Bật Xe Thật + SLAM Toolbox vẽ bản đồ
   real-nav           : Bật Xe Thật + Nav2 dẫn đường tự né vật cản
                        (Ví dụ: real-nav map:=/path/to/map.yaml)
   savemap <tên_map>  : Lưu bản đồ SLAM vừa quét xong vào thư mục maps/
-  test-lidar         : Kiểm tra tia quét mắt LiDAR RPLIDAR C1
-  test-cam           : Kiểm tra hình ảnh Webcam DVD20 (/dev/video0)
-  test-all           : Kiểm tra toàn bộ cảm biến trên xe
+
+🔍 [KIỂM TRA CẢM BIẾN] (1-Click Test trên Pi / Laptop)
+  test-cam           : Kiểm tra hình ảnh Webcam DVD20 1080p 60FPS (/dev/video0)
+  test-lidar         : Kiểm tra tia quét mắt LiDAR RPLIDAR C1 (/dev/ttyUSB0)
+  test-esp32         : Kiểm tra kết nối mạch điều khiển ESP32 Bridge
+  test-gps           : Kiểm tra module GPS UART GPIO (/dev/ttyAMA0)
+  test-all           : Kiểm tra toàn bộ cảm biến cùng lúc trên RViz
 
 🎮 [MÔ PHỎNG & ĐỒ THỊ] (Chạy trên PC / Laptop)
   sim                : Mở thế giới ảo Gazebo + RViz + Xe mô phỏng
-  gazebo             : Mở riêng Gazebo (không mở RViz)
+  gazebo (sim-only)  : Mở riêng Gazebo (không mở RViz)
   ai                 : Bật thuật toán AI CNN bám luống trong mô phỏng
   slam               : Bật SLAM vẽ bản đồ ảo
   nav                : Bật Nav2 dẫn đường trong mô phỏng
@@ -201,9 +258,10 @@ cat << 'EOF'
   plot-smc           : Vẽ phân tích bộ điều khiển trượt SMC
   plot-gui           : Mở giao diện thanh trượt tinh chỉnh Live Tuning
 
-⚙️ [BIÊN DỊCH & CÔNG CỤ]
+⚙️ [BIÊN DỊCH & CẬP NHẬT]
   reload (capnhat)   : Nạp lại toàn bộ lệnh mới nhất sau khi git pull
-  build              : Build nhanh workspace (bỏ qua astra_camera)
+  git-sync (dongbo)  : Kéo code mới nhất từ GitHub + Build lại tự động 1-Click
+  build              : Build nhanh workspace (colcon build)
   build-all          : Build toàn bộ tất cả package
   ros-help           : Xem lại bảng hướng dẫn này bất cứ lúc nào
 ================================================================================
