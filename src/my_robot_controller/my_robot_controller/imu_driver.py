@@ -211,6 +211,7 @@ class ImuDriverNode(Node):
         self.yaw = 0.0
         self.alpha = 0.96  # Complementary filter weight (96% gyro, 4% gravity)
         self.last_time = time.time()
+        self.last_log_time = 0.0
 
         # Connect to Hardware
         if self.sensor.initialize():
@@ -322,6 +323,17 @@ class ImuDriverNode(Node):
         ]
 
         self.imu_pub.publish(msg)
+
+        # Định kỳ in trạng thái trực quan ra màn hình terminal (4 Hz) để người dùng theo dõi
+        if (now - self.last_log_time) >= 0.25:
+            self.last_log_time = now
+            roll_deg = self.roll / DEG_TO_RAD
+            pitch_deg = self.pitch / DEG_TO_RAD
+            yaw_deg = self.yaw / DEG_TO_RAD
+            self.get_logger().info(
+                f"📐 [IMU Live] Nghiêng (Roll): {roll_deg:+6.1f}° | Dốc (Pitch): {pitch_deg:+6.1f}° | Hướng (Yaw): {yaw_deg:+6.1f}° | "
+                f"Gia tốc: ({ax:+5.2f}, {ay:+5.2f}, {az:+5.2f}) m/s²"
+            )
 
     def destroy_node(self):
         if self.i2c:
