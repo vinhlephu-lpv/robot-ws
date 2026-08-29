@@ -121,6 +121,7 @@ savemap() {
 alias test-lidar="load_ws && ros2 launch my_sensor_test test_lidar.launch.py"
 alias test-cam="load_ws && bash \"$WS_DIR/src/my_sensor_test/scripts/run_test_camera.sh\""
 alias test-camera="test-cam"
+alias test-imu="load_ws && bash \"$WS_DIR/src/my_sensor_test/scripts/run_test_imu.sh\""
 alias test-gps="load_ws && ros2 run my_robot_controller gps_driver --ros-args -p serial_port:=/dev/ttyAMA0 -p baudrate:=38400"
 alias test-esp32="load_ws && ros2 run my_robot_bringup esp32_bridge --ros-args -p serial_port:=/dev/esp32"
 alias test-all="load_ws && ros2 launch my_sensor_test test_all_sensors.launch.py"
@@ -243,6 +244,7 @@ cat << 'EOF'
 🔍 [KIỂM TRA CẢM BIẾN] (1-Click Test trên Pi / Laptop)
   test-cam           : Kiểm tra hình ảnh Webcam DVD20 1080p 60FPS (/dev/video0)
   test-lidar         : Kiểm tra tia quét mắt LiDAR RPLIDAR C1 (/dev/ttyUSB0)
+  test-imu           : Kiểm tra cảm biến IMU 9 trục ICM-20948 (I2C Pin 3, 5)
   test-esp32         : Kiểm tra kết nối mạch điều khiển ESP32 Bridge
   test-gps           : Kiểm tra module GPS UART GPIO (/dev/ttyAMA0)
   test-all           : Kiểm tra toàn bộ cảm biến cùng lúc trên RViz

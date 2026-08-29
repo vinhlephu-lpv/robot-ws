@@ -33,6 +33,7 @@ setup(
             'data_collector = my_robot_controller.data_collector:main',
             'lidar_processor = my_robot_controller.lidar_processor:main',
             'gps_driver = my_robot_controller.gps_driver:main',
+            'imu_driver = my_robot_controller.imu_driver:main',
             'bts7960_driver = my_robot_controller.bts7960_driver:main',
             'data_collection_driver = my_robot_controller.data_collection_driver:main',
             'telemetry_logger = my_robot_controller.telemetry_logger:main',

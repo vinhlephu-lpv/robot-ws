@@ -87,6 +87,10 @@ def generate_launch_description():
         'record_name', default_value='',
         description='Custom filename for recorded MP4 video')
 
+    enable_imu_arg = DeclareLaunchArgument(
+        'enable_imu', default_value='true',
+        description='Enable ICM-20948 9-axis IMU driver over I2C')
+
     # ── Robot State Publisher (URDF + TF) ────────────────────────────
     robot_state_pub = Node(
         package='robot_state_publisher',
@@ -259,6 +263,22 @@ def generate_launch_description():
         condition=IfCondition(LaunchConfiguration('record'))
     )
 
+    # ── ICM-20948 IMU Node (I2C trên Raspberry Pi) ───────────────────
+    imu_node = Node(
+        package='my_robot_controller',
+        executable='imu_driver',
+        name='imu_driver_node',
+        output='screen',
+        parameters=[{
+            'i2c_bus': 1,
+            'i2c_address': 0x68,
+            'frame_id': 'imu_link',
+            'publish_topic': '/imu',
+            'rate_hz': 50.0,
+        }],
+        condition=IfCondition(LaunchConfiguration('enable_imu'))
+    )
+
     # ── RViz2 ────────────────────────────────────────────────────────
     rviz2_node = Node(
         package='rviz2',
@@ -283,6 +303,7 @@ def generate_launch_description():
         camera_driver_arg,
         record_arg,
         record_name_arg,
+        enable_imu_arg,
         robot_state_pub,
         joint_state_pub,
         static_odom_tf,
@@ -291,6 +312,7 @@ def generate_launch_description():
         camera_node,
         wifi_cam_bridge,
         esp32_bridge,
+        imu_node,
         video_recorder,
         cnn_driver,
         rviz2_node,

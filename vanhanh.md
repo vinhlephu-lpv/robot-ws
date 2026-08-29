@@ -212,11 +212,19 @@ ros2 launch my_sensor_test test_camera.launch.py video_device:=/dev/video0
   ```
   *(Mở tab mới kiểm tra tọa độ: `ros2 topic echo /gps/fix`).*
 
-### 5. Kiểm tra Cảm biến IMU ICM-20948:
-```bash
-sudo i2cdetect -y 1
-```
-*(Thấy địa chỉ `68` xuất hiện trên bảng I2C).*
+### 5. Kiểm tra Cảm biến IMU 9 trục ICM-20948:
+* **Kiểm tra địa chỉ I2C phần cứng:**
+  ```bash
+  sudo i2cdetect -y 1
+  ```
+  *(Thấy địa chỉ `68` xuất hiện trên bảng I2C).*
+
+* **Khởi chạy node đọc IMU (/imu):**
+  ```bash
+  test-imu
+  # Hoặc xem trực tiếp dữ liệu Roll, Pitch, Yaw trên topic:
+  ros2 topic echo /imu
+  ```
 
 ### 6. Kiểm tra tổng quát 1-Click:
 ```bash
