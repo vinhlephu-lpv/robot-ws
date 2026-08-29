@@ -289,22 +289,7 @@ class CameraRecorderNode(Node):
                 now = time.time()
                 h, w, c = frame.shape
 
-                # Phát lên ROS 2 cho RViz hiển thị
-                try:
-                    msg = Image()
-                    msg.header.stamp = self.get_clock().now().to_msg()
-                    msg.header.frame_id = 'camera_link'
-                    msg.height = h
-                    msg.width = w
-                    msg.encoding = 'bgr8'
-                    msg.step = w * c
-                    msg.data = frame.tobytes()
-                    self.image_pub.publish(msg)
-                    if hasattr(self, 'alt_image_pub'):
-                        self.alt_image_pub.publish(msg)
-                except Exception:
-                    pass
-
+                # 1. Đưa frame gốc 1080p Full HD vào Queue ngầm để ghi Video MP4 và tách Dataset ảnh
                 if self.frame_queue.full():
                     try:
                         self.frame_queue.get_nowait()
@@ -313,6 +298,24 @@ class CameraRecorderNode(Node):
                 try:
                     self.frame_queue.put_nowait((frame.tobytes(), w, h, 'bgr8', now))
                 except queue.Full:
+                    pass
+
+                # 2. Phát luồng ảnh preview 640x360 lên ROS 2 cho RViz (giúp RViz hiển thị tức thì, không bị nghẽn 370MB/s)
+                try:
+                    preview = cv2.resize(frame, (640, 360), interpolation=cv2.INTER_LINEAR)
+                    ph, pw, pc = preview.shape
+                    msg = Image()
+                    msg.header.stamp = self.get_clock().now().to_msg()
+                    msg.header.frame_id = 'camera_link'
+                    msg.height = ph
+                    msg.width = pw
+                    msg.encoding = 'bgr8'
+                    msg.step = pw * pc
+                    msg.data = preview.tobytes()
+                    self.image_pub.publish(msg)
+                    if hasattr(self, 'alt_image_pub'):
+                        self.alt_image_pub.publish(msg)
+                except Exception:
                     pass
         finally:
             if null_fd is not None:
