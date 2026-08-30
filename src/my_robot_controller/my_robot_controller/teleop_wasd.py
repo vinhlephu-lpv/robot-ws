@@ -114,9 +114,9 @@ def main():
 
             elif key in SPEED_BINDINGS:
                 factor = SPEED_BINDINGS[key]
-                linear_speed = max(0.05, min(1.0, linear_speed * factor))
-                angular_speed = max(0.1, min(2.5, angular_speed * factor))
-                print(f"\r[TỐC ĐỘ MỚI] Dài = {linear_speed:.2f} m/s | Góc = {angular_speed:.2f} rad/s{' '*20}", end="", flush=True)
+                linear_speed = round(max(0.05, min(1.20, linear_speed * factor)), 2)
+                angular_speed = round(max(0.10, min(2.50, angular_speed * factor)), 2)
+                print(f"\n⚡ [TỐC ĐỘ MỚI] Dài: {linear_speed:.2f} m/s | Góc: {angular_speed:.2f} rad/s")
 
             elif key == '\x03':  # Ctrl+C
                 break
@@ -127,7 +127,7 @@ def main():
             twist.angular.z = target_th * angular_speed
             pub.publish(twist)
 
-            print(f"\r[ĐIỀU KHIỂN] {last_action:<14} | v = {twist.linear.x:+.2f} m/s | w = {twist.angular.z:+.2f} rad/s", end="", flush=True)
+            print(f"\r[ĐIỀU KHIỂN] {last_action:<14} | v = {twist.linear.x:+.2f} m/s (Mức: {linear_speed:.2f} m/s) | w = {twist.angular.z:+.2f} rad/s", end="", flush=True)
 
     except Exception as e:
         print(f"\nLỗi: {e}")
