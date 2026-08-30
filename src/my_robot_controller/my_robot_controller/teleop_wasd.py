@@ -84,24 +84,27 @@ def main():
     node = rclpy.create_node('teleop_wasd_node')
     pub = node.create_publisher(Twist, '/cmd_vel', 10)
 
-    linear_speed = 0.35   # m/s (Tốc độ tiêu chuẩn vượt tải êm ái)
+    linear_speed = 0.35   # m/s
     angular_speed = 0.80  # rad/s
 
     print(BANNER)
-    print(f"👉 Chế độ Giữ Lệnh (Cruise Control): Bấm 1 phím là xe chạy liên tục, bấm Space để dừng.")
+    print(f"👉 Chế độ Lái Tự Động Ngắt: Nhấn giữ phím để xe chạy, THẢ TAY RA LÀ XE TỰ DỪNG.")
     print(f"👉 Tốc độ hiện tại: Dài = {linear_speed:.2f} m/s | Góc = {angular_speed:.2f} rad/s\n")
 
     target_x = 0.0
     target_th = 0.0
     last_action = "DỪNG"
+    last_key_time = 0.0
+    KEY_TIMEOUT = 0.30  # Giây: Quá 0.3s không bấm giữ phím -> tự phanh dừng
 
     try:
         while rclpy.ok():
-            key = get_key(settings, timeout=0.08)
+            key = get_key(settings, timeout=0.06)
 
             if key in MOVE_BINDINGS:
                 target_x = MOVE_BINDINGS[key][0]
                 target_th = MOVE_BINDINGS[key][1]
+                last_key_time = time.time()
 
                 if target_x > 0 and target_th == 0: last_action = "TIẾN ⬆️"
                 elif target_x < 0 and target_th == 0: last_action = "LÙI ⬇️"
@@ -122,7 +125,12 @@ def main():
             elif key == '\x03':  # Ctrl+C
                 break
 
-            # Phát liên tục 10 Hz để ESP32 Watchdog không bị ngắt quãng
+            # Tự động phanh dừng khi nhả tay không còn bấm giữ phím
+            if (target_x != 0.0 or target_th != 0.0) and (time.time() - last_key_time > KEY_TIMEOUT):
+                target_x = 0.0
+                target_th = 0.0
+                last_action = "DỪNG"
+
             twist = Twist()
             twist.linear.x = target_x * linear_speed
             twist.angular.z = target_th * angular_speed
