@@ -224,7 +224,7 @@ play-video() {
 
 # 1. Xem dữ liệu IMU qua bộ lọc Madgwick (/imu/data)
 xem-imu() {
-    echo "🧭 Đang theo dõi Cảm biến IMU qua Bộ lọc Madgwick (/imu/data)... Nhấn Ctrl+C để dừng."
+    echo "🧭 [IMU Madgwick] Đang theo dõi hướng và độ nghiêng cảm biến... (Ctrl+C để dừng)"
     python3 -c '
 import rclpy, math
 from sensor_msgs.msg import Imu
@@ -243,8 +243,7 @@ def cb(msg):
     yaw = math.degrees(math.atan2(siny_cosp, cosy_cosp))
 
     wz = msg.angular_velocity.z
-    az = msg.linear_acceleration.z
-    print(f"\r[IMU Madgwick] Nghiêng (Roll): {roll:+6.1f}° | Dốc (Pitch): {pitch:+6.1f}° | Hướng (Yaw): {yaw:+6.1f}° | Xoay Z: {wz:+5.2f}rad/s | Accel Z: {az:+5.2f}m/s²", end="", flush=True)
+    print(f"\r🧭 [IMU Madgwick] Hướng xe (Yaw): {yaw:+6.1f}° | Nghiêng ngang: {roll:+5.1f}° | Dốc trước/sau: {pitch:+5.1f}° | Tốc độ xoay: {wz:+5.2f}rad/s", end="", flush=True)
 
 rclpy.init()
 node = rclpy.create_node("xem_imu_cli")
@@ -260,7 +259,7 @@ alias check-imu="xem-imu"
 
 # 2. Xem dữ liệu Encoder bánh xe từ ESP32 (/odom/raw)
 xem-encoder() {
-    echo "🚗 Đang theo dõi Odometry bánh xe từ ESP32 (/odom/raw)... Nhấn Ctrl+C để dừng."
+    echo "🚗 [Encoder ESP32] Đang theo dõi vận tốc và quãng đường lăn bánh... (Ctrl+C để dừng)"
     python3 -c '
 import rclpy, math
 from nav_msgs.msg import Odometry
@@ -270,7 +269,7 @@ def cb(msg):
     wz = msg.twist.twist.angular.z
     x = msg.pose.pose.position.x
     y = msg.pose.pose.position.y
-    print(f"\r[Encoder ESP32] Vận tốc tiến Vx: {vx:+5.2f} m/s | Xoay bánh Wz: {wz:+5.2f} rad/s | Tọa độ bánh: ({x:+5.2f}, {y:+5.2f}) m", end="", flush=True)
+    print(f"\r🚗 [Encoder ESP32] Vận tốc lăn: {vx:+5.2f}m/s | Bẻ lái bánh: {wz:+5.2f}rad/s | Quãng đường đã lăn: ({x:+5.2f}, {y:+5.2f})m", end="", flush=True)
 
 rclpy.init()
 node = rclpy.create_node("xem_enc_cli")
@@ -287,7 +286,7 @@ alias show-encoder="xem-encoder"
 
 # 3. Xem kết quả dung hợp EKF cuối cùng (/odometry/filtered)
 xem-ekf() {
-    echo "⭐ Đang theo dõi Kết quả Dung hợp EKF cuối cùng (/odometry/filtered)... Nhấn Ctrl+C để dừng."
+    echo "⭐ [EKF Fusion] Đang theo dõi tọa độ & hướng dung hợp tổng hợp... (Ctrl+C để dừng)"
     python3 -c '
 import rclpy, math
 from nav_msgs.msg import Odometry
@@ -302,7 +301,7 @@ def cb(msg):
     y = msg.pose.pose.position.y
     vx = msg.twist.twist.linear.x
     wz = msg.twist.twist.angular.z
-    print(f"\r[EKF Dung Hợp] Vị trí X: {x:+6.2f}m | Y: {y:+6.2f}m | Hướng Yaw: {yaw:+6.1f}° | Tốc độ: {vx:+5.2f}m/s | Bẻ lái: {wz:+5.2f}rad/s", end="", flush=True)
+    print(f"\r⭐ [EKF Tổng Hợp] Tọa độ: (X:{x:+5.2f}m, Y:{y:+5.2f}m) | Hướng chuẩn: {yaw:+6.1f}° | Tốc độ thực: {vx:+5.2f}m/s | Bẻ lái: {wz:+5.2f}rad/s", end="", flush=True)
 
 rclpy.init()
 node = rclpy.create_node("xem_ekf_cli")
