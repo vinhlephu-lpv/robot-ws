@@ -94,12 +94,12 @@ alias ai="load_ws && ros2 launch my_robot_controller control.launch.py"
 alias slam="load_ws && ros2 launch my_robot_slam slam.launch.py"
 alias nav="load_ws && ros2 launch my_robot_navigation nav.launch.py"
 
-# Gói điều khiển phím chuẩn chính thức của ROS 2 (teleop_twist_keyboard)
-alias teleop="load_ws && ros2 run teleop_twist_keyboard teleop_twist_keyboard --ros-args -p repeat_rate:=10.0 -p speed:=0.35 -p turn:=0.80"
+# Bàn phím điều khiển chuẩn ROS 2 + WASD (Chạy liên tục 12 Hz không bao giờ bị ngắt)
+alias teleop="load_ws && ros2 run my_robot_controller teleop_keyboard"
 alias ros-teleop="teleop"
 alias keyboard="teleop"
 alias lai-xe="teleop"
-alias wasd="load_ws && ros2 run my_robot_controller teleop_wasd"
+alias wasd="teleop"
 
 # Mở RViz + Camera USB (Hiển thị mô hình xe 3D + Khung hình Webcam DVD20)
 rviz_view_func() {

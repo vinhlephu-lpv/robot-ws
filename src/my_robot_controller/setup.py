@@ -38,6 +38,7 @@ setup(
             'data_collection_driver = my_robot_controller.data_collection_driver:main',
             'telemetry_logger = my_robot_controller.telemetry_logger:main',
             'teleop_wasd = my_robot_controller.teleop_wasd:main',
+            'teleop_keyboard = my_robot_controller.teleop_keyboard:main',
             'plot_response = my_robot_controller.plot_response:main',
         ],
     },
