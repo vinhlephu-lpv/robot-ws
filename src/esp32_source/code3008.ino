@@ -123,10 +123,10 @@ struct WheelPID {
 #define K_LR_BALANCE        1.500f  // Hệ số khóa cân bằng đồng tốc cụm Trái - Phải
 
 WheelPID wpid[4] = {
-  {PID_KP, PID_KI, PID_KD, 0, 0, 0, 0, 0, 0, false}, // Bánh 1: Trái trước
-  {PID_KP, PID_KI, PID_KD, 0, 0, 0, 0, 0, 0, false}, // Bánh 2: Trái sau
-  {PID_KP, PID_KI, PID_KD, 0, 0, 0, 0, 0, 0, false}, // Bánh 3: Phải trước
-  {PID_KP, PID_KI, PID_KD, 0, 0, 0, 0, 0, 0, false}  // Bánh 4: Phải sau
+  {PID_KP, PID_KI, PID_KD, 0, 0, 0, 0, 0, 0, true}, // Bánh 1: Trái trước (Mặc định BẬT PID)
+  {PID_KP, PID_KI, PID_KD, 0, 0, 0, 0, 0, 0, true}, // Bánh 2: Trái sau
+  {PID_KP, PID_KI, PID_KD, 0, 0, 0, 0, 0, 0, true}, // Bánh 3: Phải trước
+  {PID_KP, PID_KI, PID_KD, 0, 0, 0, 0, 0, 0, true}  // Bánh 4: Phải sau
 };
 
 // Cấu trúc Bộ Lọc Kalman 1D cho từng bánh xe (Tách nhiễu Gaussian và triệt tiêu trễ pha)
@@ -479,8 +479,8 @@ void updateWheelHealth() {
       wHealth[i].isStalled = false;
     }
 
-    // 2. Phát hiện bánh bị hẫng / mất tiếp xúc mặt đất (quay trượt tự do ở tốc độ cao trong khi xe đang tải nặng)
-    if (tgt > 0 && avgRpm > 0.1f && rpm > 1.4f * tgt && rpm > 1.5f * avgRpm) {
+    // 2. Phát hiện bánh bị hẫng: Chỉ kích hoạt khi chạy tự động quãng đường (isDistanceMode), không can thiệp ngắt bánh khi ROS lái xe
+    if (isDistanceMode && tgt > 0 && avgRpm > 0.1f && rpm > 1.4f * tgt && rpm > 1.5f * avgRpm) {
       if (wHealth[i].hangStartTime == 0) wHealth[i].hangStartTime = now;
       if (now - wHealth[i].hangStartTime > 400 && !wHealth[i].isHanging) {
         wHealth[i].isHanging = true;
@@ -876,7 +876,9 @@ void handleCommand(String command) {
         for (int i = 0; i < 4; i++) {
           rosTargetRpmSigned[i] = r[i];
           wpid[i].targetRPM = fabsf(r[i]);
-          int pwm = (int)constrain((r[i] / 220.0f) * 255.0f, -255.0f, 255.0f);
+          wpid[i].enabled = pidGlobalEnabled;
+          int sign = (r[i] >= 0.0f) ? 1 : -1;
+          int pwm = (int)(sign * (MIN_PWM + (fabsf(r[i]) / 220.0f) * (255 - MIN_PWM)));
           slew[i].target = pwm;
         }
       }
