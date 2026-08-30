@@ -84,10 +84,11 @@ def main():
     node = rclpy.create_node('teleop_wasd_node')
     pub = node.create_publisher(Twist, '/cmd_vel', 10)
 
-    linear_speed = 0.30   # m/s
+    linear_speed = 0.35   # m/s (Tốc độ tiêu chuẩn vượt tải êm ái)
     angular_speed = 0.80  # rad/s
 
     print(BANNER)
+    print(f"👉 Chế độ Giữ Lệnh (Cruise Control): Bấm 1 phím là xe chạy liên tục, bấm Space để dừng.")
     print(f"👉 Tốc độ hiện tại: Dài = {linear_speed:.2f} m/s | Góc = {angular_speed:.2f} rad/s\n")
 
     target_x = 0.0
@@ -114,8 +115,8 @@ def main():
 
             elif key in SPEED_BINDINGS:
                 factor = SPEED_BINDINGS[key]
-                linear_speed = round(max(0.05, min(1.20, linear_speed * factor)), 2)
-                angular_speed = round(max(0.10, min(2.50, angular_speed * factor)), 2)
+                linear_speed = round(max(0.15, min(1.20, linear_speed * factor)), 2)
+                angular_speed = round(max(0.20, min(2.50, angular_speed * factor)), 2)
                 print(f"\n⚡ [TỐC ĐỘ MỚI] Dài: {linear_speed:.2f} m/s | Góc: {angular_speed:.2f} rad/s")
 
             elif key == '\x03':  # Ctrl+C
