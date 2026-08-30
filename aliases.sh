@@ -93,8 +93,13 @@ alias sim-only="gazebo"
 alias ai="load_ws && ros2 launch my_robot_controller control.launch.py"
 alias slam="load_ws && ros2 launch my_robot_slam slam.launch.py"
 alias nav="load_ws && ros2 launch my_robot_navigation nav.launch.py"
-alias teleop="load_ws && ros2 run my_robot_controller teleop_wasd"
-alias wasd="teleop"
+
+# Gói điều khiển phím chuẩn chính thức của ROS 2 (teleop_twist_keyboard)
+alias teleop="load_ws && ros2 run teleop_twist_keyboard teleop_twist_keyboard --ros-args -p repeat_rate:=10.0 -p speed:=0.35 -p turn:=0.80"
+alias ros-teleop="teleop"
+alias keyboard="teleop"
+alias lai-xe="teleop"
+alias wasd="load_ws && ros2 run my_robot_controller teleop_wasd"
 
 # Mở RViz + Camera USB (Hiển thị mô hình xe 3D + Khung hình Webcam DVD20)
 rviz_view_func() {
@@ -340,7 +345,8 @@ cat << 'EOF'
   quay-rviz [tên]    : Mở RViz + Quay video Full HD 1080p 60FPS + Tách Dataset ảnh
                        (Tên khác: rviz-record, laptop-record)
   laptop-view        : Mở RViz2 nhận luồng Camera nén từ Pi qua Wi-Fi (mượt, không lag)
-  wasd (teleop)      : Bàn phím lái xe (W=tiến, S=lùi, A/D=rẽ, Space=phanh dừng)
+  teleop (lai-xe)    : Bàn phím lái xe chuẩn gốc ROS 2 (i=tiến, ,=lùi, j/l=rẽ, k=dừng)
+  wasd               : Bàn phím lái xe W/A/S/D
   get-video          : Tự động kéo video MP4 mới quay từ Pi về máy tính
   play-video (xem)   : Xem ngay video vừa quay bằng trình duyệt Firefox
   clean-video        : Dọn dẹp các video cũ giải phóng ổ đĩa
