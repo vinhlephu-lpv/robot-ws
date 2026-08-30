@@ -198,7 +198,8 @@ volatile unsigned long lastEncTime[4] = {0, 0, 0, 0};
 // Điều khiển ROS 2 & Watchdog an toàn
 float         rosTargetRpmSigned[4]   = {0.0f, 0.0f, 0.0f, 0.0f};
 unsigned long lastRosCmdTime          = 0;
-#define ROS_WATCHDOG_TIMEOUT_MS         600
+String        serialRxBuf             = "";
+#define ROS_WATCHDOG_TIMEOUT_MS         1500
 
 // ============================================================
 //  5. CÁC HÀM NGẮT ENCODER (ISR CÓ LỌC GAI NHIỄU IRAM)
@@ -1191,9 +1192,17 @@ void setup() {
 void loop() {
   server.handleClient();
 
-  if (Serial.available()) {
-    String serialCmd = Serial.readStringUntil('\n');
-    handleCommand(serialCmd);
+  // Đọc Serial non-blocking không làm trễ chu kỳ điều khiển động cơ
+  while (Serial.available() > 0) {
+    char c = (char)Serial.read();
+    if (c == '\n' || c == '\r') {
+      if (serialRxBuf.length() > 0) {
+        handleCommand(serialRxBuf);
+        serialRxBuf = "";
+      }
+    } else {
+      if (serialRxBuf.length() < 64) serialRxBuf += c;
+    }
   }
 
   updateSpeedRamp();

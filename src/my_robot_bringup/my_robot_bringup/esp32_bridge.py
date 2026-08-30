@@ -78,7 +78,10 @@ class ESP32Bridge(Node):
         if self.mode == 'serial':
             self.init_serial()
 
-        # ── Loop Timer (20 Hz for Odom processing) ────────────────────
+        self.target_rpm_left = 0.0
+        self.target_rpm_right = 0.0
+
+        # ── Loop Timer (20 Hz for Odom processing & continuous ESP32 streaming) ──
         self.timer = self.create_timer(0.05, self.update_loop)
 
         self.get_logger().info(
@@ -100,7 +103,7 @@ class ESP32Bridge(Node):
     def cmd_vel_callback(self, msg: Twist):
         """
         Receives ROS 2 /cmd_vel (linear.x [m/s], angular.z [rad/s]).
-        Calculates Left & Right wheel target RPMs and sends to ESP32.
+        Calculates Left & Right wheel target RPMs and updates target.
         """
         v = msg.linear.x
         w = msg.angular.z
@@ -110,16 +113,16 @@ class ESP32Bridge(Node):
         v_right = v + (w * self.wheel_base / 2.0)
 
         # Convert m/s -> RPM: RPM = (v * 60) / (pi * D)
-        rpm_left = (v_left * 60.0) / self.wheel_circ
-        rpm_right = (v_right * 60.0) / self.wheel_circ
+        self.target_rpm_left = (v_left * 60.0) / self.wheel_circ
+        self.target_rpm_right = (v_right * 60.0) / self.wheel_circ
 
         # Store for mock odometry
         self.vx = v
         self.vth = w
 
-        # Send to ESP32
+        # Direct write to ESP32 immediately on cmd_vel arrival
         if self.mode == 'serial' and self.ser and self.ser.is_open:
-            cmd_str = f'V {rpm_left:.1f} {rpm_right:.1f}\n'
+            cmd_str = f'V {self.target_rpm_left:.1f} {self.target_rpm_right:.1f}\n'
             try:
                 self.ser.write(cmd_str.encode('utf-8'))
             except Exception as e:
@@ -132,6 +135,14 @@ class ESP32Bridge(Node):
 
         if dt <= 0:
             return
+
+        # Phát liên tục 20 Hz duy trì lệnh nuôi Watchdog ESP32 mượt mà
+        if self.mode == 'serial' and self.ser and self.ser.is_open:
+            cmd_str = f'V {self.target_rpm_left:.1f} {self.target_rpm_right:.1f}\n'
+            try:
+                self.ser.write(cmd_str.encode('utf-8'))
+            except Exception as e:
+                pass
 
         v_l = 0.0
         v_r = 0.0
