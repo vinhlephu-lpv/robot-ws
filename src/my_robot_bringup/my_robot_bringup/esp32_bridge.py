@@ -34,8 +34,8 @@ class ESP32Bridge(Node):
         self.declare_parameter('baudrate', 115200)
         self.declare_parameter('esp32_ip', '192.168.1.100')
         self.declare_parameter('wheel_diameter', 0.20)  # meters (from codepid2608.ino)
-        self.declare_parameter('wheel_base', 0.58)      # meters (track width)
-        self.declare_parameter('publish_tf', True)
+        self.declare_parameter('odom_topic', '/odom/raw')
+        self.declare_parameter('publish_tf', False)
         self.declare_parameter('odom_frame', 'odom')
         self.declare_parameter('base_frame', 'base_footprint')
 
@@ -44,6 +44,7 @@ class ESP32Bridge(Node):
         self.baud = self.get_parameter('baudrate').value
         self.wheel_d = self.get_parameter('wheel_diameter').value
         self.wheel_base = self.get_parameter('wheel_base').value
+        self.odom_topic = self.get_parameter('odom_topic').value
         self.publish_tf = self.get_parameter('publish_tf').value
         self.odom_frame = self.get_parameter('odom_frame').value
         self.base_frame = self.get_parameter('base_frame').value
@@ -62,7 +63,7 @@ class ESP32Bridge(Node):
         self.cmd_sub = self.create_subscription(
             Twist, '/cmd_vel', self.cmd_vel_callback, 10)
         self.odom_pub = self.create_publisher(
-            Odometry, '/odom', 10)
+            Odometry, self.odom_topic, 10)
         self.tf_broadcaster = tf2_ros.TransformBroadcaster(self)
 
         # ── Serial Connection ─────────────────────────────────────────
@@ -133,7 +134,7 @@ class ESP32Bridge(Node):
             try:
                 while self.ser.in_waiting > 0:
                     line = self.ser.readline().decode('utf-8', errors='ignore').strip()
-                    # Example protocol from ESP32: "ODOM <v_left> <v_right>"
+                    # 1. Giao thức ODOM: "ODOM <v_left> <v_right>" (m/s)
                     if line.startswith('ODOM') or line.startswith('O '):
                         parts = line.split()
                         if len(parts) >= 3:
@@ -141,6 +142,23 @@ class ESP32Bridge(Node):
                             v_r = float(parts[2])
                             self.vx = (v_r + v_l) / 2.0
                             self.vth = (v_r - v_l) / self.wheel_base
+                    # 2. Giao thức ENC: "ENC <tick_L> <tick_R> <dt_ms>"
+                    elif line.startswith('ENC'):
+                        parts = line.split()
+                        if len(parts) >= 4:
+                            tick_l = int(parts[1])
+                            tick_r = int(parts[2])
+                            dt_ms = float(parts[3])
+                            if hasattr(self, '_last_tick_l') and hasattr(self, '_last_tick_r') and dt_ms > 0:
+                                dt_s = dt_ms / 1000.0
+                                d_l = tick_l - self._last_tick_l
+                                d_r = tick_r - self._last_tick_r
+                                v_l = (d_l * self.wheel_circ / 200.0) / dt_s
+                                v_r = (d_r * self.wheel_circ / 200.0) / dt_s
+                                self.vx = (v_r + v_l) / 2.0
+                                self.vth = (v_r - v_l) / self.wheel_base
+                            self._last_tick_l = tick_l
+                            self._last_tick_r = tick_r
             except Exception:
                 pass
 
@@ -164,7 +182,7 @@ class ESP32Bridge(Node):
         qz = math.sin(self.yaw / 2.0)
         qw = math.cos(self.yaw / 2.0)
 
-        # 1. Publish /odom message
+        # 1. Publish Odometry message kèm Covariance cho EKF
         odom = Odometry()
         odom.header.stamp = now.to_msg()
         odom.header.frame_id = self.odom_frame
@@ -178,8 +196,30 @@ class ESP32Bridge(Node):
         odom.pose.pose.orientation.z = qz
         odom.pose.pose.orientation.w = qw
 
+        odom.pose.covariance = [
+            0.01, 0.0,  0.0, 0.0, 0.0, 0.0,
+            0.0,  0.01, 0.0, 0.0, 0.0, 0.0,
+            0.0,  0.0,  1e6, 0.0, 0.0, 0.0,
+            0.0,  0.0,  0.0, 1e6, 0.0, 0.0,
+            0.0,  0.0,  0.0, 0.0, 1e6, 0.0,
+            0.0,  0.0,  0.0, 0.0, 0.0, 0.05
+        ]
+
         odom.twist.twist.linear.x = self.vx
+        odom.twist.twist.linear.y = 0.0
+        odom.twist.twist.linear.z = 0.0
+        odom.twist.twist.angular.x = 0.0
+        odom.twist.twist.angular.y = 0.0
         odom.twist.twist.angular.z = self.vth
+
+        odom.twist.covariance = [
+            0.02, 0.0,  0.0, 0.0, 0.0, 0.0,
+            0.0,  1e6,  0.0, 0.0, 0.0, 0.0,
+            0.0,  0.0,  1e6, 0.0, 0.0, 0.0,
+            0.0,  0.0,  0.0, 1e6, 0.0, 0.0,
+            0.0,  0.0,  0.0, 0.0, 1e6, 0.0,
+            0.0,  0.0,  0.0, 0.0, 0.0, 0.05
+        ]
 
         self.odom_pub.publish(odom)
 

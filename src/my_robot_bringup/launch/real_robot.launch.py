@@ -31,6 +31,7 @@ def generate_launch_description():
     xacro_file = os.path.join(pkg_desc, 'urdf', 'robot.urdf.xacro')
     rviz_config = os.path.join(pkg_bringup, 'rviz', 'real_robot.rviz')
     params_real = os.path.join(pkg_ctrl, 'config', 'params_real.yaml')
+    ekf_config = os.path.join(pkg_bringup, 'config', 'ekf.yaml')
 
     robot_description = Command(['xacro ', '"', xacro_file, '"'])
 
@@ -91,6 +92,14 @@ def generate_launch_description():
         'enable_imu', default_value='true',
         description='Enable ICM-20948 9-axis IMU driver over I2C')
 
+    enable_madgwick_arg = DeclareLaunchArgument(
+        'enable_madgwick', default_value='true',
+        description='Enable Madgwick orientation filter for IMU')
+
+    enable_ekf_arg = DeclareLaunchArgument(
+        'enable_ekf', default_value='true',
+        description='Enable EKF sensor fusion (Wheel Odometry + IMU)')
+
     # ── Robot State Publisher (URDF + TF) ────────────────────────────
     robot_state_pub = Node(
         package='robot_state_publisher',
@@ -106,14 +115,16 @@ def generate_launch_description():
         parameters=[{'use_sim_time': False}]
     )
 
-    # ── Static TF: odom -> base_footprint (Khi không có encoder ESP32) ─
+    # ── Static TF: odom -> base_footprint (Khi không có encoder ESP32 và không có EKF) ─
     static_odom_tf = Node(
         package='tf2_ros',
         executable='static_transform_publisher',
         name='static_tf_odom_base',
         arguments=['--x', '0', '--y', '0', '--z', '0', '--yaw', '0', '--pitch', '0', '--roll', '0',
                    '--frame-id', 'odom', '--child-frame-id', 'base_footprint'],
-        condition=UnlessCondition(LaunchConfiguration('enable_esp32'))
+        condition=UnlessCondition(
+            PythonExpression(["'", LaunchConfiguration('enable_esp32'), "' == 'true' or '", LaunchConfiguration('enable_ekf'), "' == 'true'"])
+        )
     )
 
     # ── RPLIDAR C1 (Official sllidar_ros2) ───────────────────────────
@@ -230,7 +241,8 @@ def generate_launch_description():
             'baudrate': 115200,
             'wheel_diameter': 0.20,
             'wheel_base': 0.58,
-            'publish_tf': True,
+            'publish_tf': PythonExpression(["'false' if '", LaunchConfiguration('enable_ekf'), "' == 'true' else 'true'"]),
+            'odom_topic': PythonExpression(["'/odom/raw' if '", LaunchConfiguration('enable_ekf'), "' == 'true' else '/odom'"]),
         }],
         condition=IfCondition(LaunchConfiguration('enable_esp32'))
     )
@@ -273,10 +285,46 @@ def generate_launch_description():
             'i2c_bus': 1,
             'i2c_address': 0x68,
             'frame_id': 'imu_link',
-            'publish_topic': '/imu',
+            'publish_topic': PythonExpression(["'/imu/data_complementary' if '", LaunchConfiguration('enable_madgwick'), "' == 'true' else '/imu/data'"]),
+            'raw_topic': '/imu/data_raw',
             'rate_hz': 50.0,
         }],
         condition=IfCondition(LaunchConfiguration('enable_imu'))
+    )
+
+    # ── Madgwick AHRS Orientation Filter (imu_tools) ─────────────────
+    madgwick_node = Node(
+        package='imu_filter_madgwick',
+        executable='imu_filter_madgwick_node',
+        name='imu_filter_madgwick_node',
+        output='screen',
+        parameters=[{
+            'use_mag': False,
+            'publish_tf': False,
+            'world_frame': 'enu',
+            'gain': 0.1,
+            'zeta': 0.0,
+        }],
+        remappings=[
+            ('imu/data_raw', '/imu/data_raw'),
+            ('imu/data', '/imu/data'),
+        ],
+        condition=IfCondition(
+            PythonExpression(["'", LaunchConfiguration('enable_imu'), "' == 'true' and '", LaunchConfiguration('enable_madgwick'), "' == 'true'"])
+        )
+    )
+
+    # ── EKF Robot Localization (Dung hợp Encoder + IMU) ──────────────
+    ekf_node = Node(
+        package='robot_localization',
+        executable='ekf_node',
+        name='ekf_filter_node',
+        output='screen',
+        parameters=[ekf_config],
+        remappings=[
+            ('odometry/filtered', '/odometry/filtered'),
+        ],
+        condition=IfCondition(LaunchConfiguration('enable_ekf'))
     )
 
     # ── RViz2 ────────────────────────────────────────────────────────
@@ -304,6 +352,8 @@ def generate_launch_description():
         record_arg,
         record_name_arg,
         enable_imu_arg,
+        enable_madgwick_arg,
+        enable_ekf_arg,
         robot_state_pub,
         joint_state_pub,
         static_odom_tf,
@@ -313,6 +363,8 @@ def generate_launch_description():
         wifi_cam_bridge,
         esp32_bridge,
         imu_node,
+        madgwick_node,
+        ekf_node,
         video_recorder,
         cnn_driver,
         rviz2_node,

@@ -377,7 +377,7 @@ class CameraRecorderNode(Node):
                     self.total_extracted_images += 1
                     img_filename = f"frame_{self.total_extracted_images:05d}.jpg"
                     img_save_path = os.path.join(self.imgs_dir, img_filename)
-                    cv2.imwrite(img_save_path, frame, [cv2.IMWRITE_JPEG_QUALITY, 92])
+                    cv2.imwrite(img_save_path, frame, [cv2.IMWRITE_JPEG_QUALITY, 100])
 
                     # Ghi nhãn CSV
                     self.csv_writer.writerow([

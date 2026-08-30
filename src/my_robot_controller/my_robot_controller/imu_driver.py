@@ -180,7 +180,8 @@ class ImuDriverNode(Node):
         self.declare_parameter('i2c_bus', 1)
         self.declare_parameter('i2c_address', 0x68)
         self.declare_parameter('frame_id', 'imu_link')
-        self.declare_parameter('publish_topic', '/imu')
+        self.declare_parameter('publish_topic', '/imu/data')
+        self.declare_parameter('raw_topic', '/imu/data_raw')
         self.declare_parameter('rate_hz', 50.0)
         self.declare_parameter('calibrate_samples', 60)
 
@@ -188,11 +189,13 @@ class ImuDriverNode(Node):
         self.address = int(self.get_parameter('i2c_address').value)
         self.frame_id = self.get_parameter('frame_id').value
         self.publish_topic = self.get_parameter('publish_topic').value
+        self.raw_topic = self.get_parameter('raw_topic').value
         self.rate_hz = float(self.get_parameter('rate_hz').value)
         self.calib_target = int(self.get_parameter('calibrate_samples').value)
 
-        # Publisher
+        # Publishers (Cả dữ liệu thô cho Madgwick và dữ liệu nội suy)
         self.imu_pub = self.create_publisher(Imu, self.publish_topic, 10)
+        self.imu_raw_pub = self.create_publisher(Imu, self.raw_topic, 10)
 
         # I2C & Driver
         self.i2c = I2CInterface(bus_num=self.bus_num, address=self.address)
@@ -292,9 +295,34 @@ class ImuDriverNode(Node):
         qy = cr * sp * cy + sr * cp * sy
         qz = cr * cp * sy - sr * sp * cy
 
-        # Tạo message sensor_msgs/Imu
+        # 1. Publish Raw IMU message cho bộ lọc ngoài (Madgwick AHRS Filter)
+        now_msg = self.get_clock().now().to_msg()
+        raw_msg = Imu()
+        raw_msg.header.stamp = now_msg
+        raw_msg.header.frame_id = self.frame_id
+        # Orientation unknown -> orientation_covariance[0] = -1
+        raw_msg.orientation_covariance = [-1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        raw_msg.angular_velocity.x = gx_corr
+        raw_msg.angular_velocity.y = gy_corr
+        raw_msg.angular_velocity.z = gz_corr
+        raw_msg.angular_velocity_covariance = [
+            0.0001, 0.0, 0.0,
+            0.0, 0.0001, 0.0,
+            0.0, 0.0, 0.0001
+        ]
+        raw_msg.linear_acceleration.x = ax
+        raw_msg.linear_acceleration.y = ay
+        raw_msg.linear_acceleration.z = az
+        raw_msg.linear_acceleration_covariance = [
+            0.01, 0.0, 0.0,
+            0.0, 0.01, 0.0,
+            0.0, 0.0, 0.01
+        ]
+        self.imu_raw_pub.publish(raw_msg)
+
+        # 2. Publish Internal Filtered IMU message (Dự phòng Complementary Filter)
         msg = Imu()
-        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.header.stamp = now_msg
         msg.header.frame_id = self.frame_id
 
         msg.orientation = Quaternion(x=qx, y=qy, z=qz, w=qw)
