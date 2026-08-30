@@ -23,6 +23,9 @@
 | **`test-lidar`** | **Pi (SSH)** | Bật riêng mắt quét LiDAR để kiểm tra xem laser có quay và đo khoảng cách không. | *"Khám mắt LiDAR"* |
 | **`test-cam`** | **Pi (SSH)** | Bật riêng Camera để kiểm tra xem có thu được hình ảnh màu RGB và độ sâu không. | *"Khám mắt Camera"* |
 | **`test-all`** | **Pi (SSH)** | Mở bảng báo cáo kiểm tra toàn bộ cảm biến (thấy hiện chữ **`[OK]`** là xe sẵn sàng chạy). | *"Khám sức khỏe tổng quát"* |
+| **`xem-imu`** | Cả hai | Xem trực tiếp góc Roll, Pitch, Yaw (theo Độ °) từ bộ lọc Madgwick IMU. | *"Xem hướng la bàn IMU"* |
+| **`xem-enc`** | Cả hai | Xem trực tiếp vận tốc bánh xe $v_x$ và góc xoay bánh đo từ Encoder ESP32. | *"Xem công-tơ-mét bánh xe"* |
+| **`xem-ekf`** | Cả hai | Xem kết quả dung hợp EKF cuối cùng (Tọa độ X/Y, Hướng Yaw, Tốc độ thực tế). | *"Xem định vị xe tổng hợp"* |
 
 ---
 

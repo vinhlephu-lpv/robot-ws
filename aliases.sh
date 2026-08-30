@@ -218,8 +218,104 @@ play-video() {
         echo "❌ Không tìm thấy file video nào trong $WS_DIR/dataset/videos/"
     fi
 }
-alias xem-video="play-video"
-alias xem="play-video"
+# =====================================================
+# THEO DÕI BỘ LỌC CẢM BIẾN & SENSOR FUSION (IMU, ENCODER, EKF)
+# =====================================================
+
+# 1. Xem dữ liệu IMU qua bộ lọc Madgwick (/imu/data)
+xem-imu() {
+    echo "🧭 Đang theo dõi Cảm biến IMU qua Bộ lọc Madgwick (/imu/data)... Nhấn Ctrl+C để dừng."
+    python3 -c '
+import rclpy, math
+from sensor_msgs.msg import Imu
+
+def cb(msg):
+    q = msg.orientation
+    sinr_cosp = 2 * (q.w * q.x + q.y * q.z)
+    cosr_cosp = 1 - 2 * (q.x * q.x + q.y * q.y)
+    roll = math.degrees(math.atan2(sinr_cosp, cosr_cosp))
+
+    sinp = 2 * (q.w * q.y - q.z * q.x)
+    pitch = math.degrees(math.asin(max(-1.0, min(1.0, sinp))))
+
+    siny_cosp = 2 * (q.w * q.z + q.x * q.y)
+    cosy_cosp = 1 - 2 * (q.y * q.y + q.z * q.z)
+    yaw = math.degrees(math.atan2(siny_cosp, cosy_cosp))
+
+    wz = msg.angular_velocity.z
+    az = msg.linear_acceleration.z
+    print(f"\r[IMU Madgwick] Nghiêng (Roll): {roll:+6.1f}° | Dốc (Pitch): {pitch:+6.1f}° | Hướng (Yaw): {yaw:+6.1f}° | Xoay Z: {wz:+5.2f}rad/s | Accel Z: {az:+5.2f}m/s²", end="", flush=True)
+
+rclpy.init()
+node = rclpy.create_node("xem_imu_cli")
+node.create_subscription(Imu, "/imu/data", cb, 10)
+try:
+    rclpy.spin(node)
+except KeyboardInterrupt:
+    print()
+'
+}
+alias show-imu="xem-imu"
+alias check-imu="xem-imu"
+
+# 2. Xem dữ liệu Encoder bánh xe từ ESP32 (/odom/raw)
+xem-encoder() {
+    echo "🚗 Đang theo dõi Odometry bánh xe từ ESP32 (/odom/raw)... Nhấn Ctrl+C để dừng."
+    python3 -c '
+import rclpy, math
+from nav_msgs.msg import Odometry
+
+def cb(msg):
+    vx = msg.twist.twist.linear.x
+    wz = msg.twist.twist.angular.z
+    x = msg.pose.pose.position.x
+    y = msg.pose.pose.position.y
+    print(f"\r[Encoder ESP32] Vận tốc tiến Vx: {vx:+5.2f} m/s | Xoay bánh Wz: {wz:+5.2f} rad/s | Tọa độ bánh: ({x:+5.2f}, {y:+5.2f}) m", end="", flush=True)
+
+rclpy.init()
+node = rclpy.create_node("xem_enc_cli")
+node.create_subscription(Odometry, "/odom/raw", cb, 10)
+try:
+    rclpy.spin(node)
+except KeyboardInterrupt:
+    print()
+'
+}
+alias xem-enc="xem-encoder"
+alias show-enc="xem-encoder"
+alias show-encoder="xem-encoder"
+
+# 3. Xem kết quả dung hợp EKF cuối cùng (/odometry/filtered)
+xem-ekf() {
+    echo "⭐ Đang theo dõi Kết quả Dung hợp EKF cuối cùng (/odometry/filtered)... Nhấn Ctrl+C để dừng."
+    python3 -c '
+import rclpy, math
+from nav_msgs.msg import Odometry
+
+def cb(msg):
+    q = msg.pose.pose.orientation
+    siny_cosp = 2 * (q.w * q.z + q.x * q.y)
+    cosy_cosp = 1 - 2 * (q.y * q.y + q.z * q.z)
+    yaw = math.degrees(math.atan2(siny_cosp, cosy_cosp))
+
+    x = msg.pose.pose.position.x
+    y = msg.pose.pose.position.y
+    vx = msg.twist.twist.linear.x
+    wz = msg.twist.twist.angular.z
+    print(f"\r[EKF Dung Hợp] Vị trí X: {x:+6.2f}m | Y: {y:+6.2f}m | Hướng Yaw: {yaw:+6.1f}° | Tốc độ: {vx:+5.2f}m/s | Bẻ lái: {wz:+5.2f}rad/s", end="", flush=True)
+
+rclpy.init()
+node = rclpy.create_node("xem_ekf_cli")
+node.create_subscription(Odometry, "/odometry/filtered", cb, 10)
+try:
+    rclpy.spin(node)
+except KeyboardInterrupt:
+    print()
+'
+}
+alias show-ekf="xem-ekf"
+alias xem-odom="xem-ekf"
+alias show-odom="xem-ekf"
 
 # =====================================================
 # BẢNG TRA CỨU LỆNH TẮT NHANH (ros-help)
@@ -229,6 +325,11 @@ cat << 'EOF'
 ================================================================================
   🤖 BẢNG TRA CỨU TOÀN BỘ LỆNH TẮT NHANH (ROS 2 ROBOT CHEAT SHEET)
 ================================================================================
+
+📊 [THEO DÕI BỘ LỌC & SENSOR FUSION] (Mới nhất)
+  xem-imu (show-imu) : Xem IMU qua Bộ lọc Madgwick (Roll, Pitch, Yaw theo Độ °)
+  xem-enc (xem-encoder): Xem Odometry bánh xe thô từ ESP32 (Vận tốc m/s, Xoay bánh)
+  xem-ekf (xem-odom) : Xem KẾT QUẢ DUNG HỢP EKF CUỐI CÙNG (Tọa độ X/Y, Hướng Yaw, Tốc độ)
 
 💻 [TRÊN LAPTOP] (Màn hình quan sát, Lái xe & Xử lý Dataset)
   quay-rviz [tên]    : Mở RViz + Quay video Full HD 1080p 60FPS + Tách Dataset ảnh
@@ -243,7 +344,7 @@ cat << 'EOF'
   cancel             : Hủy mục tiêu dẫn đường Nav2
 
 🍓 [TRÊN RASPBERRY PI] (Khởi động phần cứng xe & Quay video)
-  real-robot         : BẬT XE THẬT (Chế độ bình thường: chỉ xem, KHÔNG lưu)
+  real-robot         : BẬT XE THẬT (Tự động chạy Madgwick + EKF chuẩn xác)
   real-record [tên]  : BẬT XE THẬT + QUAY VIDEO THÔ (100% Raw, lưu MP4 vào Pi)
   real-slam          : Bật Xe Thật + SLAM Toolbox vẽ bản đồ
   real-nav           : Bật Xe Thật + Nav2 dẫn đường tự né vật cản
