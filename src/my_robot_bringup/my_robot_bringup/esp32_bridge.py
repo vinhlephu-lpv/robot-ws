@@ -142,14 +142,24 @@ class ESP32Bridge(Node):
                             v_r = float(parts[2])
                             self.vx = (v_r + v_l) / 2.0
                             self.vth = (v_r - v_l) / self.wheel_base
-                    # 2. Giao thức ENC: "ENC <tick_L> <tick_R> <dt_ms>"
+                    # 2. Giao thức ENC: "ENC <tick_FL> <tick_RL> <tick_FR> <tick_RR> <dt_ms>" hoặc "ENC <tick_L> <tick_R> <dt_ms>"
                     elif line.startswith('ENC'):
                         parts = line.split()
-                        if len(parts) >= 4:
-                            tick_l = int(parts[1])
-                            tick_r = int(parts[2])
+                        if len(parts) >= 6:
+                            # Chuẩn 4 bánh độc lập từ code3008.ino
+                            tick_l = (float(parts[1]) + float(parts[2])) / 2.0
+                            tick_r = (float(parts[3]) + float(parts[4])) / 2.0
+                            dt_ms = float(parts[5])
+                        elif len(parts) >= 4:
+                            # Chuẩn 2 cụm bánh
+                            tick_l = float(parts[1])
+                            tick_r = float(parts[2])
                             dt_ms = float(parts[3])
-                            if hasattr(self, '_last_tick_l') and hasattr(self, '_last_tick_r') and dt_ms > 0:
+                        else:
+                            dt_ms = 0.0
+
+                        if dt_ms > 0:
+                            if hasattr(self, '_last_tick_l') and hasattr(self, '_last_tick_r'):
                                 dt_s = dt_ms / 1000.0
                                 d_l = tick_l - self._last_tick_l
                                 d_r = tick_r - self._last_tick_r
