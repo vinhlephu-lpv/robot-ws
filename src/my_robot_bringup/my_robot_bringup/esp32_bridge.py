@@ -80,6 +80,7 @@ class ESP32Bridge(Node):
 
         self.target_rpm_left = 0.0
         self.target_rpm_right = 0.0
+        self._serial_rx_buffer = ''
 
         # ── Loop Timer (20 Hz for Odom processing & continuous ESP32 streaming) ──
         self.timer = self.create_timer(0.05, self.update_loop)
@@ -147,46 +148,59 @@ class ESP32Bridge(Node):
         v_l = 0.0
         v_r = 0.0
 
-        # Read serial feedback if available
+        # Read serial feedback non-blocking
         if self.mode == 'serial' and self.ser and self.ser.is_open:
             try:
-                while self.ser.in_waiting > 0:
-                    line = self.ser.readline().decode('utf-8', errors='ignore').strip()
-                    # 1. Giao thức ODOM: "ODOM <v_left> <v_right>" (m/s)
-                    if line.startswith('ODOM') or line.startswith('O '):
-                        parts = line.split()
-                        if len(parts) >= 3:
-                            v_l = float(parts[1])
-                            v_r = float(parts[2])
-                            self.vx = (v_r + v_l) / 2.0
-                            self.vth = (v_r - v_l) / self.wheel_base
-                    # 2. Giao thức ENC: "ENC <tick_FL> <tick_RL> <tick_FR> <tick_RR> <dt_ms>" hoặc "ENC <tick_L> <tick_R> <dt_ms>"
-                    elif line.startswith('ENC'):
-                        parts = line.split()
-                        if len(parts) >= 6:
-                            # Chuẩn 4 bánh độc lập từ code3008.ino
-                            tick_l = (float(parts[1]) + float(parts[2])) / 2.0
-                            tick_r = (float(parts[3]) + float(parts[4])) / 2.0
-                            dt_ms = float(parts[5])
-                        elif len(parts) >= 4:
-                            # Chuẩn 2 cụm bánh
-                            tick_l = float(parts[1])
-                            tick_r = float(parts[2])
-                            dt_ms = float(parts[3])
-                        else:
-                            dt_ms = 0.0
+                if self.ser.in_waiting > 0:
+                    raw_data = self.ser.read(self.ser.in_waiting).decode('utf-8', errors='ignore')
+                    self._serial_rx_buffer += raw_data
 
-                        if dt_ms > 0:
-                            if hasattr(self, '_last_tick_l') and hasattr(self, '_last_tick_r'):
-                                dt_s = dt_ms / 1000.0
-                                d_l = tick_l - self._last_tick_l
-                                d_r = tick_r - self._last_tick_r
-                                v_l = (d_l * self.wheel_circ / 200.0) / dt_s
-                                v_r = (d_r * self.wheel_circ / 200.0) / dt_s
-                                self.vx = (v_r + v_l) / 2.0
-                                self.vth = (v_r - v_l) / self.wheel_base
-                            self._last_tick_l = tick_l
-                            self._last_tick_r = tick_r
+                    while '\n' in self._serial_rx_buffer:
+                        line, self._serial_rx_buffer = self._serial_rx_buffer.split('\n', 1)
+                        line = line.strip()
+                        if not line:
+                            continue
+
+                        # 1. Giao thức ODOM: "ODOM <v_left> <v_right>" (m/s)
+                        if line.startswith('ODOM') or line.startswith('O '):
+                            parts = line.split()
+                            if len(parts) >= 3:
+                                try:
+                                    v_l = float(parts[1])
+                                    v_r = float(parts[2])
+                                    self.vx = (v_r + v_l) / 2.0
+                                    self.vth = (v_r - v_l) / self.wheel_base
+                                except ValueError:
+                                    pass
+
+                        # 2. Giao thức ENC: "ENC <tick_FL> <tick_RL> <tick_FR> <tick_RR> <dt_ms>"
+                        elif line.startswith('ENC'):
+                            parts = line.split()
+                            try:
+                                if len(parts) >= 6:
+                                    tick_l = (float(parts[1]) + float(parts[2])) / 2.0
+                                    tick_r = (float(parts[3]) + float(parts[4])) / 2.0
+                                    dt_ms = float(parts[5])
+                                elif len(parts) >= 4:
+                                    tick_l = float(parts[1])
+                                    tick_r = float(parts[2])
+                                    dt_ms = float(parts[3])
+                                else:
+                                    dt_ms = 0.0
+
+                                if dt_ms > 0:
+                                    if hasattr(self, '_last_tick_l') and hasattr(self, '_last_tick_r'):
+                                        dt_s = dt_ms / 1000.0
+                                        d_l = tick_l - self._last_tick_l
+                                        d_r = tick_r - self._last_tick_r
+                                        v_l = (d_l * self.wheel_circ / 200.0) / dt_s
+                                        v_r = (d_r * self.wheel_circ / 200.0) / dt_s
+                                        self.vx = (v_r + v_l) / 2.0
+                                        self.vth = (v_r - v_l) / self.wheel_base
+                                    self._last_tick_l = tick_l
+                                    self._last_tick_r = tick_r
+                            except ValueError:
+                                pass
             except Exception:
                 pass
 
