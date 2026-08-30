@@ -33,9 +33,14 @@ load_ws() {
 }
 
 # 1. Biên dịch & Cập nhật Workspace
-alias reload="source ~/.bashrc && echo '✅ Đã cập nhật nạp lại toàn bộ lệnh mới nhất!'"
-alias update-cmd="reload"
-alias capnhat="reload"
+reload_func() {
+    [ -f "$HOME/.bashrc" ] && source "$HOME/.bashrc" 2>/dev/null || true
+    [ -f "$WS_DIR/aliases.sh" ] && source "$WS_DIR/aliases.sh"
+    echo "✅ Đã cập nhật nạp lại toàn bộ phím tắt mới nhất!"
+}
+alias reload="reload_func"
+alias capnhat="reload_func"
+alias update-cmd="reload_func"
 
 # Hàm build thông minh (tự động nhận diện distro Jazzy / Humble)
 build_func() {
@@ -79,6 +84,7 @@ git_sync_func() {
 alias git-sync="git_sync_func"
 alias dongbo="git_sync_func"
 alias sync-code="git_sync_func"
+alias sync="git_sync_func"
 
 # 2. Các lệnh chạy Mô phỏng (PC)
 alias sim="load_ws && ros2 launch my_robot_simulation sim.launch.py"
