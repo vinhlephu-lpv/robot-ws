@@ -34,6 +34,7 @@ class ESP32Bridge(Node):
         self.declare_parameter('baudrate', 115200)
         self.declare_parameter('esp32_ip', '192.168.1.100')
         self.declare_parameter('wheel_diameter', 0.20)  # meters (from codepid2608.ino)
+        self.declare_parameter('wheel_base', 0.58)      # meters (distance between left and right wheels)
         self.declare_parameter('odom_topic', '/odom/raw')
         self.declare_parameter('publish_tf', False)
         self.declare_parameter('odom_frame', 'odom')
@@ -42,10 +43,16 @@ class ESP32Bridge(Node):
         self.mode = self.get_parameter('connection_mode').value
         self.port = self.get_parameter('serial_port').value
         self.baud = self.get_parameter('baudrate').value
-        self.wheel_d = self.get_parameter('wheel_diameter').value
-        self.wheel_base = self.get_parameter('wheel_base').value
+        self.wheel_d = float(self.get_parameter('wheel_diameter').value)
+        self.wheel_base = float(self.get_parameter('wheel_base').value)
         self.odom_topic = self.get_parameter('odom_topic').value
-        self.publish_tf = self.get_parameter('publish_tf').value
+        
+        raw_pub_tf = self.get_parameter('publish_tf').value
+        if isinstance(raw_pub_tf, str):
+            self.publish_tf = raw_pub_tf.lower() in ('true', '1', 'yes')
+        else:
+            self.publish_tf = bool(raw_pub_tf)
+
         self.odom_frame = self.get_parameter('odom_frame').value
         self.base_frame = self.get_parameter('base_frame').value
 
