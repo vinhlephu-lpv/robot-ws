@@ -5,6 +5,7 @@ Control robot using familiar gaming keys: W, A, S, D, Space!
 """
 
 import sys
+import time
 import select
 import termios
 import tty
@@ -89,32 +90,27 @@ def main():
     print(BANNER)
     print(f"👉 Tốc độ hiện tại: Dài = {linear_speed:.2f} m/s | Góc = {angular_speed:.2f} rad/s\n")
 
-    x = 0.0
-    th = 0.0
+    target_x = 0.0
+    target_th = 0.0
+    last_action = "DỪNG"
 
     try:
         while rclpy.ok():
-            key = get_key(settings, timeout=0.1)
+            key = get_key(settings, timeout=0.08)
 
             if key in MOVE_BINDINGS:
-                x = MOVE_BINDINGS[key][0]
-                th = MOVE_BINDINGS[key][1]
-                twist = Twist()
-                twist.linear.x = x * linear_speed
-                twist.angular.z = th * angular_speed
-                pub.publish(twist)
+                target_x = MOVE_BINDINGS[key][0]
+                target_th = MOVE_BINDINGS[key][1]
 
-                action = "DỪNG"
-                if x > 0 and th == 0: action = "TIẾN ⬆️"
-                elif x < 0 and th == 0: action = "LÙI ⬇️"
-                elif th > 0 and x == 0: action = "RẼ TRÁI ⬅️"
-                elif th < 0 and x == 0: action = "RẼ PHẢI ➡️"
-                elif x > 0 and th > 0: action = "TIẾN TRÁI ↖️"
-                elif x > 0 and th < 0: action = "TIẾN PHẢI ↗️"
-                elif x < 0 and th < 0: action = "LÙI TRÁI ↙️"
-                elif x < 0 and th > 0: action = "LÙI PHẢI ↘️"
-
-                print(f"\r[ĐIỀU KHIỂN] {action:<14} | v = {twist.linear.x:+.2f} m/s | w = {twist.angular.z:+.2f} rad/s", end="", flush=True)
+                if target_x > 0 and target_th == 0: last_action = "TIẾN ⬆️"
+                elif target_x < 0 and target_th == 0: last_action = "LÙI ⬇️"
+                elif target_th > 0 and target_x == 0: last_action = "RẼ TRÁI ⬅️"
+                elif target_th < 0 and target_x == 0: last_action = "RẼ PHẢI ➡️"
+                elif target_x > 0 and target_th > 0: last_action = "TIẾN TRÁI ↖️"
+                elif target_x > 0 and target_th < 0: last_action = "TIẾN PHẢI ↗️"
+                elif target_x < 0 and target_th < 0: last_action = "LÙI TRÁI ↙️"
+                elif target_x < 0 and target_th > 0: last_action = "LÙI PHẢI ↘️"
+                else: last_action = "DỪNG"
 
             elif key in SPEED_BINDINGS:
                 factor = SPEED_BINDINGS[key]
@@ -124,6 +120,14 @@ def main():
 
             elif key == '\x03':  # Ctrl+C
                 break
+
+            # Phát liên tục 10 Hz để ESP32 Watchdog không bị ngắt quãng
+            twist = Twist()
+            twist.linear.x = target_x * linear_speed
+            twist.angular.z = target_th * angular_speed
+            pub.publish(twist)
+
+            print(f"\r[ĐIỀU KHIỂN] {last_action:<14} | v = {twist.linear.x:+.2f} m/s | w = {twist.angular.z:+.2f} rad/s", end="", flush=True)
 
     except Exception as e:
         print(f"\nLỗi: {e}")
