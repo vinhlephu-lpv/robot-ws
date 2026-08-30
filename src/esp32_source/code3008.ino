@@ -597,31 +597,31 @@ void updatePID(float dt) {
     float side_sync = isLeft ? (avgLeft - rpm_act) : (avgRight - rpm_act);
     float internal_sync_corr = side_sync * 0.40f;
 
-    // 9. Bù mô-men xoắn tốc độ thấp thích ứng tải
+    // 9. BÙ MÔ-MEN XOẮN TỐC ĐỘ THẤP THÍCH ỨNG TẢI NẶNG (Adaptive High-Torque Low-Speed Boost)
+    // Cung cấp lực kéo cực đại ở dải tốc độ chậm (10-60 RPM) để xe chở nặng 20-35kg leo dốc, vượt cản không bị lịm
     float torque_boost = 0.0f;
     if (target < 75.0f && track_error > 0.0f) {
       float defectRatio = constrain(track_error / target, 0.0f, 1.0f);
-      torque_boost = defectRatio * 65.0f;
+      torque_boost = defectRatio * 70.0f; // Bơm thêm tới +70 PWM khi tải nặng làm tụt tốc
     }
-    if (rpm_act < 2.5f && target > 2.5f) {
-      torque_boost += 30.0f;
+    // Mồi lực khởi động phá ma sát tĩnh ban đầu khi bánh xe gần như đứng yên (< 3 RPM)
+    if (rpm_act < 3.0f && target > 2.0f) {
+      torque_boost += 35.0f;
     }
 
-    // Khâu ghì hãm chống vọt tốc độ khi chạy chậm
-    if (rpm_act >= target) {
-      torque_boost = 0.0f;
-      if (rpm_act > target + 1.5f) {
-        pid_corr -= (rpm_act - target) * 2.5f;
-      }
+    // Khâu ghì hãm êm ái chống vọt tốc độ khi chạy chậm
+    if (rpm_act > target + 1.5f) {
+      pid_corr -= (rpm_act - target) * 2.0f;
     }
 
     // 10. Tổng hợp PWM điều khiển hoàn chỉnh:
     int desired = constrain((int)(ff_pwm + coulomb_ff + pid_corr + balance_corr + internal_sync_corr + torque_boost), 0, 255);
 
-    // Trần an toàn ở tốc độ thấp:
+    // Trần an toàn thích ứng tải ở tốc độ thấp (Adaptive Load-Aware Low-Speed Cap):
+    // Cho phép mở rộng PWM tự động theo khâu tích phân tải để xe không bị nghẽn lực khi chở nặng
     if (target <= 65.0f) {
-      int safeLowSpeedCap = constrain((int)(MIN_PWM + (target / 65.0f) * 60.0f + (track_error > 4.0f ? 45 : 0)), MIN_PWM, 255);
-      if (rpm_act >= target * 0.85f && desired > safeLowSpeedCap) {
+      int safeLowSpeedCap = constrain((int)(MIN_PWM + (target / 65.0f) * 70.0f + (track_error > 3.0f ? 60 : 0) + max(0.0f, wpid[i].integral * 0.8f)), MIN_PWM, 255);
+      if (rpm_act >= target * 0.90f && desired > safeLowSpeedCap) {
         desired = safeLowSpeedCap;
       }
     } else {
