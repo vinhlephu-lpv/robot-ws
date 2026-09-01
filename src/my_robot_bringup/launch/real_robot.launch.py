@@ -77,8 +77,12 @@ def generate_launch_description():
         description='Enable RViz2 visualization')
 
     camera_driver_arg = DeclareLaunchArgument(
-        'camera_driver', default_value='v4l2',
-        description='Camera driver: v4l2 (robust UVC /dev/video0) or astra (OpenNI 3D)')
+        'camera_driver', default_value='astra',
+        description='Camera driver: astra (Orbbec Astra Pro/Series 3D) or v4l2 (USB Webcam /dev/video0)')
+
+    enable_point_cloud_arg = DeclareLaunchArgument(
+        'enable_point_cloud', default_value='false',
+        description='Enable 3D point cloud generation (/camera/depth/points)')
 
     record_arg = DeclareLaunchArgument(
         'record', default_value='false',
@@ -162,11 +166,11 @@ def generate_launch_description():
             ('camera_info', '/camera/color/camera_info'),
         ],
         condition=IfCondition(
-            PythonExpression(["'", LaunchConfiguration('enable_camera'), "' == 'true' and '", LaunchConfiguration('camera_driver'), "' == 'v4l2'"])
+            PythonExpression(["'", LaunchConfiguration('enable_camera'), "' == 'true' and '", LaunchConfiguration('camera_driver'), "' in ['v4l2', 'webcam']"])
         )
     )
 
-    # ── Camera Driver (Orbbec Astra Mini S 3D Camera via OpenNI2) ───
+    # ── Camera Driver (Orbbec Astra Pro / Series 3D Camera via OpenNI2 & UVC) ───
     camera_env = dict(os.environ)
     try:
         from ament_index_python.packages import get_package_prefix
@@ -190,23 +194,29 @@ def generate_launch_description():
         env=camera_env,
         parameters=[{
             'camera_name': 'camera',
-            'vendor_id': '0x2bc5',
-            'product_id': '0x0407',
+            'vendor_id': 0,
+            'product_id': 0,
             'color_width': LaunchConfiguration('color_width'),
             'color_height': LaunchConfiguration('color_height'),
             'color_fps': 30,
-            'depth_width': 320,
-            'depth_height': 240,
+            'depth_width': 640,
+            'depth_height': 480,
             'depth_fps': 30,
             'enable_color': True,
             'enable_depth': LaunchConfiguration('enable_depth'),
             'enable_ir': False,
-            'enable_point_cloud': False,
-            'use_uvc_camera': False,
+            'enable_point_cloud': LaunchConfiguration('enable_point_cloud'),
+            'enable_colored_point_cloud': False,
+            'use_uvc_camera': True,
+            'uvc_vendor_id': 0x2bc5,
+            'uvc_product_id': 0x0501,
+            'uvc_retry_count': 100,
+            'uvc_camera_format': 'mjpeg',
             'oni_log_level': 'none',
             'oni_log_to_console': False,
             'oni_log_to_file': False,
-            'publish_tf': False,
+            'publish_tf': True,
+            'tf_publish_rate': 10.0,
             'camera_link_frame_id': 'camera_link',
         }],
         condition=IfCondition(
@@ -344,6 +354,7 @@ def generate_launch_description():
         enable_esp32_arg,
         enable_camera_arg,
         enable_depth_arg,
+        enable_point_cloud_arg,
         color_width_arg,
         color_height_arg,
         enable_cnn_arg,

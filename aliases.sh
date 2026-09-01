@@ -94,13 +94,15 @@ alias ai="load_ws && ros2 launch my_robot_controller control.launch.py"
 alias slam="load_ws && ros2 launch my_robot_slam slam.launch.py"
 alias nav="load_ws && ros2 launch my_robot_navigation nav.launch.py"
 
-# Bàn phím điều khiển chuẩn gốc ROS 2 (i, ,, j, l, k - Chạy liên tục 12 Hz)
+# Bàn phím điều khiển robot (WASD & IJKL - Chạy liên tục ~15 Hz nuôi Watchdog ESP32)
 alias teleop="load_ws && ros2 run my_robot_controller teleop_keyboard"
 alias ros-teleop="teleop"
 alias keyboard="teleop"
 alias lai-xe="teleop"
+alias wasd="teleop"
+alias teleop-wasd="teleop"
 
-# Mở RViz + Camera USB (Hiển thị mô hình xe 3D + Khung hình Webcam DVD20)
+# Mở RViz + Camera USB (Hiển thị mô hình xe 3D + Khung hình Astra Camera)
 rviz_view_func() {
     load_ws
     mkdir -p "$WS_DIR/dataset/videos" "$WS_DIR/dataset/imgs"
@@ -203,8 +205,8 @@ get-video() {
     echo "✅ File video đã được lưu tại: $WS_DIR/dataset/"
 }
 alias get-videos="get-video"
-alias getvideo="get-video"
 alias extract-dataset="python3 \"$WS_DIR/scripts/extract_dataset.py\""
+alias rename-dataset="python3 \"$WS_DIR/scripts/rename_dataset.py\""
 
 # Lệnh xóa toàn bộ video đã quay (chạy được trên cả Pi và Laptop)
 clean-video() {

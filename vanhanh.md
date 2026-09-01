@@ -13,7 +13,7 @@
 3. **Đồng bộ thời gian (Rất quan trọng để RViz mượt, không drop frame):**
    ```bash
    sudo systemctl restart systemd-timesyncd
-   ```
+   ``` 
 
 ### 🤖 Bước 1: Trên Raspberry Pi (Khởi động phần cứng xe)
 Mở Terminal trên Pi (hoặc SSH từ Laptop):
@@ -28,6 +28,10 @@ real-robot
 > - Camera Astra + Bridge nén JPEG gửi qua Wi-Fi (~200 KB/s không làm nghẽn LiDAR)
 > - ESP32 Hardware Bridge (PID động cơ + đọc 4 Encoder)
 > - Mô hình 3D URDF & Cây toạ độ TF
+
+🔄 Cách revert về Webcam khi cần:
+Khi test: test-cam webcam
+Khi chạy xe: ros2 launch my_robot_bringup real_robot.launch.py camera_driver:=v4l2
 
 ### 💻 Bước 2: Trên Laptop (Mở giao diện quan sát)
 Mở Terminal trên Laptop:

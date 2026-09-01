@@ -14,8 +14,8 @@
 #define RAMP_INTERVAL_MS        25        // Khởi động mềm mỗi 25ms (40 Hz)
 #define DEBUG_PRINT_INTERVAL_MS 500       // In debug Serial mỗi 500ms
 
-// Ngưỡng Deadzone & Giới hạn gia tốc PWM (Tối ưu lực kéo vượt địa hình với nguồn xả cao 90A)
-#define MIN_PWM                 95        // Tăng từ 75 lên 95: Vượt triệt để deadzone motor 775 24V có tải nặng
+// Ngưỡng Deadzone & Giới hạn gia tốc PWM (Cho phép toàn dải 0-255 PWM để chạy cực êm ở tốc độ chậm 0.10-0.15m/s)
+#define MIN_PWM                 0         // 0: Cho phép toàn dải từ 0 đến 255 PWM để đáp ứng tốc độ cực chậm (0.05 - 0.15 m/s)
 #define MAX_PWM_CHANGE_UP       55        // Tăng từ 35 lên 55: Bơm lực cực nhanh khi khởi động và leo cản dốc
 #define MAX_PWM_CHANGE_DOWN     25        // Giảm tốc mượt mà bảo vệ cơ cấu nhông
 #define RAMP_STEP_MAX           12.0f     // Tăng từ 8.0f lên 12.0f: Bơm gia tốc nhanh
@@ -58,10 +58,10 @@
 #define DRV4_LPWM   8
 
 // Cờ đảo chiều driver (+1: bình thường, -1: đảo chiều nếu đấu ngược dây)
-#define INV_DRV1     1
-#define INV_DRV2     1
-#define INV_DRV3     1
-#define INV_DRV4    -1
+#define INV_DRV1     1   // Bánh trái trước: Tiến
+#define INV_DRV2     1   // Bánh trái sau: Tiến
+#define INV_DRV3    -1   // Bánh phải trước: Đảo chiều để quay cùng chiều tiến với bánh trái
+#define INV_DRV4     1   // Bánh phải sau: Đảo chiều để quay cùng chiều tiến với bánh trái
 
 #define RGB_LED_PIN 48   // Chân LED RGB tích hợp ESP32-S3
 
@@ -98,10 +98,10 @@ struct EncoderData {
 
 // Sơ đồ 4 Encoder: Trái trước (16,17), Trái sau (38,39), Phải trước (40,41), Phải sau (10,11)
 EncoderData enc[4] = {
-  {16, 17, -1, 0, 0, 0, 0, 0, 0, {0}, 0, {0, 0}}, // enc[0]: Bánh trái trước (đảo dấu đếm dương khi tiến)
-  {38, 39, -1, 0, 0, 0, 0, 0, 0, {0}, 0, {0, 0}}, // enc[1]: Bánh trái sau (đảo dấu đếm dương khi tiến)
-  {40, 41,  1, 0, 0, 0, 0, 0, 0, {0}, 0, {0, 0}}, // enc[2]: Bánh phải trước (đếm dương khi tiến)
-  {10, 11,  1, 0, 0, 0, 0, 0, 0, {0}, 0, {0, 0}}  // enc[3]: Bánh phải sau (đếm dương khi tiến)
+  {16, 17,  1, 0, 0, 0, 0, 0, 0, {0}, 0, {0, 0}}, // enc[0]: Bánh trái trước (+: đếm dương khi tiến)
+  {38, 39,  1, 0, 0, 0, 0, 0, 0, {0}, 0, {0, 0}}, // enc[1]: Bánh trái sau (+: đếm dương khi tiến)
+  {40, 41, -1, 0, 0, 0, 0, 0, 0, {0}, 0, {0, 0}}, // enc[2]: Bánh phải trước (-: đảo dấu để đếm dương khi tiến)
+  {10, 11, -1, 0, 0, 0, 0, 0, 0, {0}, 0, {0, 0}}  // enc[3]: Bánh phải sau (-: đảo dấu để đếm dương khi tiến)
 };
 
 struct WheelPID {
@@ -534,7 +534,8 @@ void updatePID(float dt) {
 
   // 2. BỘ KHÓA ĐỒNG TỐC VI SAI TRÁI - PHẢI TỨC THỜI:
   float lrDiff = 0.0f;
-  if ((currentDirection == "FORWARD" || currentDirection == "BACKWARD") && isMoving) {
+  if ((currentDirection == "FORWARD" || currentDirection == "BACKWARD" ||
+      (currentDirection == "ROS" && fabsf(rosTargetRpmSigned[0] - rosTargetRpmSigned[2]) < 1.0f)) && isMoving) {
     lrDiff = avgLeft - avgRight;
   }
   float lrCorrection = constrain(lrDiff * K_LR_BALANCE, -18.0f, 18.0f);
@@ -559,9 +560,9 @@ void updatePID(float dt) {
       continue;
     }
 
-    // 1. Feedforward PWM cơ sở
-    float ff_pwm = (target / 220.0f) * (255.0f - MIN_PWM) + MIN_PWM;
-    float coulomb_ff = (target > 1.0f) ? K_COULOMB_FRICTION : 0.0f;
+    // 1. Feedforward PWM cơ sở tuyến tính 0-255
+    float ff_pwm = (target / 220.0f) * 255.0f;
+    float coulomb_ff = 0.0f;
 
     // 2. Sai số bám tốc độ mục tiêu (Tracking Error)
     float track_error = target - rpm_act;
@@ -598,54 +599,46 @@ void updatePID(float dt) {
     float side_sync = isLeft ? (avgLeft - rpm_act) : (avgRight - rpm_act);
     float internal_sync_corr = side_sync * 0.40f;
 
-    // 9. BÙ MÔ-MEN XOẮN TỐC ĐỘ THẤP THÍCH ỨNG TẢI NẶNG (Adaptive High-Torque Low-Speed Boost)
-    // Cung cấp lực kéo cực đại ở dải tốc độ chậm (10-60 RPM) để xe chở nặng 20-35kg leo dốc, vượt cản không bị lịm
+    // 9. BÙ MÔ-MEN XOẮN TỐC ĐỘ THẤP THÍCH ỨNG TẢI (Adaptive Low-Speed Boost)
     float torque_boost = 0.0f;
-    if (target < 75.0f && track_error > 0.0f) {
+    if (target < 75.0f && track_error > 1.0f) {
       float defectRatio = constrain(track_error / target, 0.0f, 1.0f);
-      torque_boost = defectRatio * 70.0f; // Bơm thêm tới +70 PWM khi tải nặng làm tụt tốc
-    }
-    // Mồi lực khởi động phá ma sát tĩnh ban đầu khi bánh xe gần như đứng yên (< 3 RPM)
-    if (rpm_act < 3.0f && target > 2.0f) {
-      torque_boost += 35.0f;
+      torque_boost = defectRatio * 35.0f; // Bơm thêm lực nhẹ khi tải nặng làm tụt tốc
     }
 
     // Khâu ghì hãm êm ái chống vọt tốc độ khi chạy chậm
-    if (rpm_act > target + 1.5f) {
-      pid_corr -= (rpm_act - target) * 2.0f;
+    if (rpm_act > target + 1.0f) {
+      pid_corr -= (rpm_act - target) * 2.5f;
     }
 
-    // 10. Tổng hợp PWM điều khiển hoàn chỉnh:
+    // 10. Tổng hợp PWM điều khiển hoàn chỉnh (Toàn dải 0-255):
     int desired = constrain((int)(ff_pwm + coulomb_ff + pid_corr + balance_corr + internal_sync_corr + torque_boost), 0, 255);
 
-    // Trần an toàn thích ứng tải ở tốc độ thấp (Adaptive Load-Aware Low-Speed Cap):
-    // Cho phép mở rộng PWM tự động theo khâu tích phân tải để xe không bị nghẽn lực khi chở nặng
+    // Trần an toàn thích ứng tải ở tốc độ thấp:
     if (target <= 65.0f) {
-      int safeLowSpeedCap = constrain((int)(MIN_PWM + (target / 65.0f) * 70.0f + (track_error > 3.0f ? 60 : 0) + max(0.0f, wpid[i].integral * 0.8f)), MIN_PWM, 255);
+      int safeLowSpeedCap = constrain((int)((target / 65.0f) * 140.0f + (track_error > 3.0f ? 50 : 0) + max(0.0f, wpid[i].integral * 0.8f)), 25, 255);
       if (rpm_act >= target * 0.90f && desired > safeLowSpeedCap) {
         desired = safeLowSpeedCap;
       }
     } else {
-      int userPwmCap = max((int)currentSpeed, MIN_PWM);
+      int userPwmCap = (currentDirection == "ROS") ? 255 : max((int)currentSpeed, 0);
       if (rpm_act >= target * 0.5f && desired > userPwmCap) {
         desired = userPwmCap;
       }
     }
 
-    // Giới hạn biến thiên PWM bất đối xứng: Bơm lực tăng tốc nhanh khi leo cản
+    // Giới hạn biến thiên PWM bất đối xứng
     int maxChange = (desired > wpid[i].prevPwmOutput) ? MAX_PWM_CHANGE_UP : MAX_PWM_CHANGE_DOWN;
     int delta   = constrain(desired - wpid[i].prevPwmOutput, -maxChange, maxChange);
     wpid[i].pwmOutput     = constrain(wpid[i].prevPwmOutput + delta, 0, 255);
     wpid[i].prevPwmOutput = wpid[i].pwmOutput;
-
-    if (wpid[i].pwmOutput > 0 && wpid[i].pwmOutput < MIN_PWM) wpid[i].pwmOutput = MIN_PWM;
     
     // XỬ LÝ ĐẶC BIỆT CHO BÁNH BỊ SỰ CỐ:
     if (wHealth[i].isStalled) { 
       wpid[i].pwmOutput = max(0, wpid[i].pwmOutput - 50); 
       wpid[i].integral = 0; 
     } else if (wHealth[i].isHanging) {
-      wpid[i].pwmOutput = MIN_PWM;
+      wpid[i].pwmOutput = 0;
       wpid[i].integral = 0;
     }
 
@@ -695,8 +688,6 @@ void updateSpeedRamp() {
 //  10. ĐIỀU KHIỂN HƯỚNG & NHẬN LỆNH
 // ============================================================
 void setGroupTargets(int speedL, int speedR) {
-  if (speedL != 0 && abs(speedL) < MIN_PWM) speedL = (speedL > 0) ? MIN_PWM : -MIN_PWM;
-  if (speedR != 0 && abs(speedR) < MIN_PWM) speedR = (speedR > 0) ? MIN_PWM : -MIN_PWM;
   slew[0].target = slew[1].target = speedL;
   slew[2].target = slew[3].target = speedR;
 }
@@ -704,7 +695,6 @@ void setGroupTargets(int speedL, int speedR) {
 void writeSpeed(int speed) {
   if (pidGlobalEnabled) return;
   int s = constrain(speed, 0, 255);
-  if (s > 0 && s < MIN_PWM) s = MIN_PWM;
 
   if (currentDirection == "FORWARD")       setGroupTargets(s, s);
   else if (currentDirection == "BACKWARD") setGroupTargets(-s, -s);
@@ -868,7 +858,7 @@ void handleCommand(String command) {
           wpid[i].targetRPM = fabsf(r[i]);
           wpid[i].enabled = pidGlobalEnabled;
           int sign = (r[i] >= 0.0f) ? 1 : -1;
-          int pwm = (int)(sign * (MIN_PWM + (fabsf(r[i]) / 220.0f) * (255 - MIN_PWM)));
+          int pwm = (int)(sign * ((fabsf(r[i]) / 220.0f) * 255.0f));
           slew[i].target = pwm;
         }
       }
