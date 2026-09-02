@@ -9,6 +9,7 @@ Roles:
 3. Fallback: If ESP32 is not connected, operates in graceful Mock/Open-Loop mode.
 """
 
+import os
 import math
 import time
 import rclpy
@@ -91,7 +92,7 @@ class ESP32Bridge(Node):
         self.timer = self.create_timer(0.05, self.update_loop)
 
         self.get_logger().info(
-            f'ESP32 Bridge started [Mode: {self.mode}] [Wheel D: {self.wheel_d}m, Base: {self.wheel_base}m, PPR: {self.encoder_ppr}]')
+            f'ESP32 Bridge started [Mode: {self.mode}] [Port: {self.port}] [Wheel D: {self.wheel_d}m, Base: {self.wheel_base}m, PPR: {self.encoder_ppr}]')
 
     def init_serial(self):
         if not SERIAL_AVAILABLE:
@@ -99,12 +100,23 @@ class ESP32Bridge(Node):
             self.mode = 'mock'
             return
 
-        try:
-            self.ser = serial.Serial(self.port, self.baud, timeout=0.05)
-            self.get_logger().info(f'Connected to ESP32 on {self.port} at {self.baud} baud')
-        except Exception as e:
-            self.get_logger().warn(f'Could not open serial port {self.port}: {e}. Running in MOCK mode.')
-            self.mode = 'mock'
+        candidate_ports = [self.port, '/dev/esp32', '/dev/ttyACM0', '/dev/ttyACM1', '/dev/ttyUSB1', '/dev/ttyUSB0']
+        seen = set()
+        ports_to_try = [p for p in candidate_ports if p and (p not in seen and not seen.add(p))]
+
+        for p in ports_to_try:
+            if not os.path.exists(p):
+                continue
+            try:
+                self.ser = serial.Serial(p, self.baud, timeout=0.05)
+                self.port = p
+                self.get_logger().info(f'✅ Successfully connected to ESP32 on {self.port} at {self.baud} baud')
+                return
+            except Exception as e:
+                self.get_logger().warn(f'Could not open serial port {p}: {e}')
+
+        self.get_logger().warn(f'Could not open any serial port in {ports_to_try}. Running in MOCK mode.')
+        self.mode = 'mock'
 
     def esp32_command_callback(self, msg: StringMsg):
         """
