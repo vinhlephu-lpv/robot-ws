@@ -15,6 +15,7 @@ import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Twist, TransformStamped
 from nav_msgs.msg import Odometry
+from std_msgs.msg import String as StringMsg
 import tf2_ros
 
 try:
@@ -33,8 +34,9 @@ class ESP32Bridge(Node):
         self.declare_parameter('serial_port', '/dev/ttyUSB1')
         self.declare_parameter('baudrate', 115200)
         self.declare_parameter('esp32_ip', '192.168.1.100')
-        self.declare_parameter('wheel_diameter', 0.20)  # meters (from codepid2608.ino)
+        self.declare_parameter('wheel_diameter', 0.20)  # meters (from code0109.ino)
         self.declare_parameter('wheel_base', 0.58)      # meters (distance between left and right wheels)
+        self.declare_parameter('encoder_ppr', 200)      # Pulses per revolution (from code0109.ino)
         self.declare_parameter('odom_topic', '/odom/raw')
         self.declare_parameter('publish_tf', False)
         self.declare_parameter('odom_frame', 'odom')
@@ -45,6 +47,7 @@ class ESP32Bridge(Node):
         self.baud = self.get_parameter('baudrate').value
         self.wheel_d = float(self.get_parameter('wheel_diameter').value)
         self.wheel_base = float(self.get_parameter('wheel_base').value)
+        self.encoder_ppr = float(self.get_parameter('encoder_ppr').value)
         self.odom_topic = self.get_parameter('odom_topic').value
         
         raw_pub_tf = self.get_parameter('publish_tf').value
@@ -69,6 +72,8 @@ class ESP32Bridge(Node):
         # ── Publishers & Subscribers ──────────────────────────────────
         self.cmd_sub = self.create_subscription(
             Twist, '/cmd_vel', self.cmd_vel_callback, 10)
+        self.esp32_cmd_sub = self.create_subscription(
+            StringMsg, '/esp32/command', self.esp32_command_callback, 10)
         self.odom_pub = self.create_publisher(
             Odometry, self.odom_topic, 10)
         self.tf_broadcaster = tf2_ros.TransformBroadcaster(self)
@@ -86,7 +91,7 @@ class ESP32Bridge(Node):
         self.timer = self.create_timer(0.05, self.update_loop)
 
         self.get_logger().info(
-            f'ESP32 Bridge started [Mode: {self.mode}] [Wheel D: {self.wheel_d}m, Base: {self.wheel_base}m]')
+            f'ESP32 Bridge started [Mode: {self.mode}] [Wheel D: {self.wheel_d}m, Base: {self.wheel_base}m, PPR: {self.encoder_ppr}]')
 
     def init_serial(self):
         if not SERIAL_AVAILABLE:
@@ -100,6 +105,20 @@ class ESP32Bridge(Node):
         except Exception as e:
             self.get_logger().warn(f'Could not open serial port {self.port}: {e}. Running in MOCK mode.')
             self.mode = 'mock'
+
+    def esp32_command_callback(self, msg: StringMsg):
+        """
+        Sends arbitrary string commands to ESP32 (e.g., RESET_ODOM, PID 1, PID 0, CALIB 1.05).
+        """
+        cmd = msg.data.strip()
+        if not cmd:
+            return
+        if self.mode == 'serial' and self.ser and self.ser.is_open:
+            try:
+                self.ser.write(f'{cmd}\n'.encode('utf-8'))
+                self.get_logger().info(f'Sent raw command to ESP32: {cmd}')
+            except Exception as e:
+                self.get_logger().warn(f'Failed to send command to ESP32: {e}')
 
     def cmd_vel_callback(self, msg: Twist):
         """
@@ -145,10 +164,8 @@ class ESP32Bridge(Node):
             except Exception as e:
                 pass
 
-        v_l = 0.0
-        v_r = 0.0
-
         # Read serial feedback non-blocking
+        odom_received_this_tick = False
         if self.mode == 'serial' and self.ser and self.ser.is_open:
             try:
                 if self.ser.in_waiting > 0:
@@ -161,7 +178,7 @@ class ESP32Bridge(Node):
                         if not line:
                             continue
 
-                        # 1. Giao thức ODOM: "ODOM <v_left> <v_right>" (m/s)
+                        # 1. Giao thức ODOM: "ODOM <v_left> <v_right>" (m/s - Đã qua bộ lọc Kalman 1D trên ESP32)
                         if line.startswith('ODOM') or line.startswith('O '):
                             parts = line.split()
                             if len(parts) >= 3:
@@ -170,11 +187,12 @@ class ESP32Bridge(Node):
                                     v_r = float(parts[2])
                                     self.vx = (v_r + v_l) / 2.0
                                     self.vth = (v_r - v_l) / self.wheel_base
+                                    odom_received_this_tick = True
                                 except ValueError:
                                     pass
 
                         # 2. Giao thức ENC: "ENC <tick_FL> <tick_RL> <tick_FR> <tick_RR> <dt_ms>"
-                        elif line.startswith('ENC'):
+                        elif line.startswith('ENC') and not odom_received_this_tick:
                             parts = line.split()
                             try:
                                 if len(parts) >= 6:
@@ -193,8 +211,8 @@ class ESP32Bridge(Node):
                                         dt_s = dt_ms / 1000.0
                                         d_l = tick_l - self._last_tick_l
                                         d_r = tick_r - self._last_tick_r
-                                        v_l = (d_l * self.wheel_circ / 200.0) / dt_s
-                                        v_r = (d_r * self.wheel_circ / 200.0) / dt_s
+                                        v_l = (d_l * self.wheel_circ / self.encoder_ppr) / dt_s
+                                        v_r = (d_r * self.wheel_circ / self.encoder_ppr) / dt_s
                                         self.vx = (v_r + v_l) / 2.0
                                         self.vth = (v_r - v_l) / self.wheel_base
                                     self._last_tick_l = tick_l
