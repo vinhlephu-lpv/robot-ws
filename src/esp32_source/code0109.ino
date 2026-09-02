@@ -31,11 +31,11 @@
 #define DEFAULT_CRAWL_RPM       25.0f     // Tốc độ chạy bò chuẩn xác khi gần đích (RPM)
 
 // Cấu hình khởi động mềm & Bù mô-men xoắn vượt địa hình gồ ghề
-#define RPM_ACCEL_RATE          45.0f     // Tăng RPM mục tiêu mượt mà (45 RPM/s): Khởi động siêu êm, không giật
-#define RPM_DECEL_RATE          65.0f     // Giảm RPM mục tiêu (65 RPM/s): Hãm dừng êm ái
-#define K_COULOMB_FRICTION      32.0f     // Lực bù ma sát khô nhông hộp số 775 (PWM): Duy trì mô-men quay khỏe ở tốc độ chậm
-#define K_ROUGH_TERRAIN_BOOST   110.0f    // Bơm mô-men cực mạnh (tăng từ 95 lên 110) khi vấp gờ đất/đá làm tụt tốc độ
-#define PID_ERROR_DEADBAND      0.0f      // Bỏ vùng chết khi chạy để 4 bánh tinh chỉnh chính xác từng 0.1 RPM
+#define RPM_ACCEL_RATE          35.0f     // Tăng RPM mục tiêu mượt mà (35 RPM/s): Khởi động siêu êm, không giật
+#define RPM_DECEL_RATE          55.0f     // Giảm RPM mục tiêu (55 RPM/s): Hãm dừng êm ái
+#define K_COULOMB_FRICTION      28.0f     // Lực bù ma sát khô nhông hộp số 775 (PWM): Duy trì mô-men quay cực khỏe ở tốc độ chậm
+#define K_ROUGH_TERRAIN_BOOST   35.0f     // Bơm mô-men mượt mà (35 PWM) khi gặp tải nặng/gờ cản, không bị sốc giật
+#define PID_ERROR_DEADBAND      0.6f      // Vùng chết sai số PID 0.6 RPM: Triệt tiêu 100% hiện tượng nhồi ga - nhả ga (săn tốc độ)
 
 // Phát hiện kẹt bánh (Stall Detection) - Cho phép 2.2s dồn 100% mô-men xoắn vượt gờ đất đá
 #define STALL_DETECT_MS         2200
@@ -113,13 +113,13 @@ struct WheelPID {
   bool  enabled;
 };
 
-// Hệ số PID tối ưu đồng bộ 4 bánh: Đáp ứng nhanh, duy trì mô-men xoắn lớn liên tục ở tốc độ chậm
-#define PID_KP              3.600f  // Tăng lên 3.60: Phản hồi lực tức thời cực khỏe khi có lệch tốc
-#define PID_KI              3.200f  // Tăng lên 3.20: Duy trì mô-men xoắn liên tục, bù triệt để ma sát hộp số
-#define PID_KD              0.060f  // Khâu vi phân giảm chấn chống rung giật
-#define K_SYNC_CROSS_WHEEL  2.200f  // Tăng lên 2.20: Khóa chặt từng bánh về vận tốc trung bình 4 bánh
-#define K_LR_BALANCE        4.500f  // Tăng lên 4.50: Khóa cứng cân bằng cụm Trái - Phải (chạy thẳng tuyệt đối ở tốc độ chậm)
-#define K_SIDE_SYNC         1.600f  // Tăng lên 1.60: Khóa đồng tốc giữa 2 bánh trước - sau cùng bên
+// Hệ số PID tối ưu đồng bộ 4 bánh: Cân bằng vàng (Duy trì mô-men xoắn lớn liên tục, chạy êm ru không giật)
+#define PID_KP              1.250f  // Hệ số Kp cân bằng: Phản hồi lực chắc chắn, không bị vọt lố
+#define PID_KI              1.050f  // Hệ số Ki: Duy trì mô-men xoắn liên tục, bù triệt để ma sát cơ khí hộp số 775
+#define PID_KD              0.080f  // Hệ số Kd: Giảm chấn dập tắt dao động và triệt tiêu rung giật
+#define K_SYNC_CROSS_WHEEL  0.900f  // Hệ số bù đồng tốc liên bánh xe êm ái
+#define K_LR_BALANCE        1.600f  // Khóa cân bằng cụm Trái - Phải mượt mà, chống xẹo xe
+#define K_SIDE_SYNC         0.500f  // Khóa đồng tốc giữa 2 bánh trước - sau cùng bên
 
 WheelPID wpid[4] = {
   {PID_KP, PID_KI, PID_KD, 0, 0, 0, 0, 0, 0, 0, true}, // Bánh 1: Trái trước
@@ -567,34 +567,32 @@ void updatePID(float dt) {
     // 2. Feedforward PWM cơ sở tuyến tính 0-255:
     float ff_pwm = (setpoint / 220.0f) * (255.0f - K_COULOMB_FRICTION);
 
-    // 3. Sai số bám tốc độ mục tiêu (Tracking Error):
-    // Không dùng deadband khi đang chạy để PID tinh chỉnh chính xác từng 0.1 RPM
+    // 3. Sai số bám tốc độ mục tiêu (Tracking Error) có vùng chết chống dao động:
     float track_error = setpoint - rpm_act;
+    if (fabsf(track_error) < PID_ERROR_DEADBAND) {
+      track_error = 0.0f;
+    }
 
     // 4. Sai số đồng tốc Cross-Coupling 4 bánh:
-    // Bánh nào chạy chậm hơn nhóm thì được bù thêm, bánh nhanh hơn thì giảm xuống
     float sync_error = 0.0f;
     if (isStraight) {
       sync_error = (avgTotal - rpm_act);
     }
-
-    // Ở tốc độ chậm, tăng cường độ nhạy đồng tốc thêm 35% để 4 bánh khóa cứng cùng nhau:
-    float lowSpeedSyncScale = (setpoint <= 45.0f) ? 1.35f : 1.0f;
-    float sync_gain = K_SYNC_CROSS_WHEEL * lowSpeedSyncScale;
+    float sync_gain = K_SYNC_CROSS_WHEEL;
 
     // 5. Sai số tổng hợp đưa vào khâu PID:
     float total_error = track_error + (sync_error * sync_gain);
 
-    // 6. Khâu tích phân (Integral) - Bù đắp hoàn toàn sai lệch cơ khí giữa 4 động cơ (Mô-men sâu):
-    float maxIntegral = (setpoint <= 65.0f) ? 140.0f : 160.0f;
+    // 6. Khâu tích phân (Integral) - Bù đắp hoàn toàn ma sát tĩnh cơ khí hộp số 775:
+    float maxIntegral = (setpoint <= 65.0f) ? 65.0f : 110.0f;
     wpid[i].integral = constrain(wpid[i].integral + total_error * dt, -maxIntegral, maxIntegral);
 
-    // 7. Khâu vi phân (Derivative) có lọc thông thấp:
+    // 7. Khâu vi phân (Derivative) có lọc thông thấp dập tắt dao động:
     float rawDeriv = (total_error - wpid[i].lastError) / dt;
     wpid[i].filteredDeriv = DERIVATIVE_FILTER * rawDeriv + (1.0f - DERIVATIVE_FILTER) * wpid[i].filteredDeriv;
     wpid[i].lastError = total_error;
 
-    // 8. Tính toán PID cơ sở (Kp=3.60, Ki=3.20):
+    // 8. Tính toán PID cơ sở:
     float pid_corr = (wpid[i].kp * total_error) + (wpid[i].ki * wpid[i].integral) + (wpid[i].kd * wpid[i].filteredDeriv);
 
     // 9. Bù khóa cân bằng Trái - Phải và đồng bộ Trước - Sau cùng bên:
@@ -606,23 +604,18 @@ void updatePID(float dt) {
       side_sync_corr = side_diff * K_SIDE_SYNC;
     }
 
-    // 10. BÙ MÔ-MEN XOẮN THÍCH ỨNG TẢI (Uy lực ở MỌI dải tốc độ thấp từ bò siêu chậm đến chạy nhanh):
+    // 10. BÙ MÔ-MEN XOẮN DUY TRÌ LỰC KÉO TỐC ĐỘ THẤP (Êm ái, liên tục, không nhồi giật):
     float torque_boost = 0.0f;
-    if (track_error > 1.2f && setpoint > 1.5f) {
+    if (setpoint < 75.0f && track_error > 1.5f) {
       float defectRatio = constrain(track_error / setpoint, 0.0f, 1.0f);
       torque_boost = defectRatio * K_ROUGH_TERRAIN_BOOST;
     }
 
-    // Khâu duy trì mô-men xoắn liên tục ở tốc độ chậm (chống hiện tượng khựng giật stick-slip):
+    // Khâu duy trì từ trường liên tục ở tốc độ chậm (giúp động cơ 775 quay cực khỏe, không bị ì ma sát):
     float low_speed_torque_maintain = 0.0f;
     if (setpoint > 0.5f && setpoint <= 45.0f) {
       float crawlRatio = (45.0f - setpoint) / 45.0f;
-      low_speed_torque_maintain = crawlRatio * 14.0f; // Bổ sung 5 - 14 PWM duy trì từ trường liên tục
-    }
-
-    // Khâu ghì hãm êm ái chống vọt xe sau khi vượt gờ cản:
-    if (rpm_act > setpoint + 1.5f) {
-      pid_corr -= (rpm_act - setpoint) * 2.5f;
+      low_speed_torque_maintain = crawlRatio * 8.0f; // Duy trì 3 - 8 PWM từ trường liên tục
     }
 
     // 11. Tổng hợp PWM điều khiển hoàn chỉnh (Toàn dải 0-255):
