@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Sensor Diagnostics Node for Camera (Orbbec Astra 3D / USB Webcam) & LiDAR
+Sensor Diagnostics Node for USB Webcam & LiDAR
 Checks hardware ports, permissions, and measures real-time topic frequencies & health.
 """
 
@@ -17,15 +17,12 @@ class SensorDiagnosticsNode(Node):
     def __init__(self):
         super().__init__('sensor_diagnostics_node')
 
-        # Subscribers for Color and Depth images
+        # Subscribers for Color image
         self.color_sub = self.create_subscription(
             Image, '/camera/color/image_raw', self._color_callback, 10
         )
         self.raw_sub = self.create_subscription(
             Image, '/camera/image_raw', self._raw_callback, 10
-        )
-        self.depth_sub = self.create_subscription(
-            Image, '/camera/depth/image_raw', self._depth_callback, 10
         )
         self.scan_sub = self.create_subscription(
             LaserScan, '/scan', self._scan_callback, 10
@@ -39,14 +36,6 @@ class SensorDiagnosticsNode(Node):
         self.color_height = 0
         self.color_encoding = "N/A"
         self.color_source_topic = "/camera/color/image_raw"
-
-        # Depth Image stats
-        self.depth_count = 0
-        self.last_depth_time = 0.0
-        self.depth_fps = 0.0
-        self.depth_width = 0
-        self.depth_height = 0
-        self.depth_encoding = "N/A"
 
         # LiDAR stats
         self.scan_count = 0
@@ -89,19 +78,6 @@ class SensorDiagnosticsNode(Node):
             self.color_encoding = msg.encoding
             self.color_source_topic = "/camera/image_raw"
 
-    def _depth_callback(self, msg: Image):
-        now = time.time()
-        self.depth_count += 1
-        if self.last_depth_time > 0:
-            dt = now - self.last_depth_time
-            if dt > 0:
-                instant_fps = 1.0 / dt
-                self.depth_fps = 0.8 * self.depth_fps + 0.2 * instant_fps if self.depth_fps > 0 else instant_fps
-        self.last_depth_time = now
-        self.depth_width = msg.width
-        self.depth_height = msg.height
-        self.depth_encoding = msg.encoding
-
     def _scan_callback(self, msg: LaserScan):
         now = time.time()
         self.scan_count += 1
@@ -125,7 +101,6 @@ class SensorDiagnosticsNode(Node):
 
         # Check timeouts
         color_active = (now - self.last_color_time) < 2.0 and self.color_count > 0
-        depth_active = (now - self.last_depth_time) < 2.0 and self.depth_count > 0
         lidar_active = (now - self.last_scan_time) < 2.0 and self.scan_count > 0
 
         # Terminal output
@@ -141,7 +116,7 @@ class SensorDiagnosticsNode(Node):
         print("-" * 70)
 
         # 2. Camera RGB Status
-        print(f"[2] TRẠNG THÁI CAMERA MÀU (RGB - {self.color_source_topic}):")
+        print(f"[2] TRẠNG THÁI USB WEBCAM (RGB - {self.color_source_topic}):")
         if color_active:
             print(f"  • Trạng thái : \033[92m[OK - HOẠT ĐỘNG]\033[0m")
             print(f"  • Tốc độ khung hình: {self.color_fps:.1f} FPS")
@@ -149,22 +124,11 @@ class SensorDiagnosticsNode(Node):
             print(f"  • Tổng frames nhận : {self.color_count}")
         else:
             print(f"  • Trạng thái : \033[91m[CHƯA CÓ DỮ LIỆU / MẤT TÍN HIỆU]\033[0m")
-            print(f"  • Gợi ý      : Kiểm tra driver Astra Camera hoặc USB Webcam (/dev/video*)")
+            print(f"  • Gợi ý      : Kiểm tra USB Webcam (/dev/video0)")
         print("-" * 70)
 
-        # 3. Camera Depth Status (Astra 3D)
-        print("[3] TRẠNG THÁI CAMERA ĐỘ SÂU (Depth - /camera/depth/image_raw):")
-        if depth_active:
-            print(f"  • Trạng thái : \033[92m[OK - HOẠT ĐỘNG (ORBBEC ASTRA 3D)]\033[0m")
-            print(f"  • Tốc độ khung hình: {self.depth_fps:.1f} FPS")
-            print(f"  • Kích thước ảnh   : {self.depth_width} x {self.depth_height} ({self.depth_encoding})")
-            print(f"  • Tổng frames nhận : {self.depth_count}")
-        else:
-            print(f"  • Trạng thái : \033[93m[TẮT / CHƯA BẬT (Depth chỉ có trên Astra 3D)]\033[0m")
-        print("-" * 70)
-
-        # 4. LiDAR Status
-        print("[4] TRẠNG THÁI LIDAR (/scan):")
+        # 3. LiDAR Status
+        print("[3] TRẠNG THÁI LIDAR (/scan):")
         if lidar_active:
             print(f"  • Trạng thái : \033[92m[OK - HOẠT ĐỘNG]\033[0m")
             print(f"  • Tần số quét      : {self.scan_hz:.1f} Hz")

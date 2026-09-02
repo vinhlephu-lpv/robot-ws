@@ -1,14 +1,13 @@
 #!/usr/bin/env bash
 # ============================================================
 # 1-Click: Khởi Động Toàn Bộ Xe Thật (Raspberry Pi)
-# Sensors: RPLIDAR C1 + Astra Mini S + ESP32 Encoder
+# Sensors: RPLIDAR C1 + USB Webcam + ESP32 Encoder
 # Motors:  BTS7960 + CNN Driver
 # ============================================================
 set -e
 
 source /opt/ros/jazzy/setup.bash 2>/dev/null || source /opt/ros/humble/setup.bash 2>/dev/null
 [ -f "/tmp/sllidar_ws/install/setup.bash" ] && source /tmp/sllidar_ws/install/setup.bash
-[ -f "/tmp/astra_ws/install/setup.bash" ] && source /tmp/astra_ws/install/setup.bash
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WS_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
@@ -31,7 +30,7 @@ echo "============================================================"
 echo "  REAL ROBOT BRINGUP"
 echo "============================================================"
 echo "  LiDAR:  $LIDAR_PORT (RPLIDAR C1, 460800 baud)"
-echo "  Camera: Astra Mini S (1280x720)"
+echo "  Camera: USB Webcam (/dev/video0)"
 echo "  Motor:  BTS7960 (GPIO)"
 echo "  Ctrl+C to stop."
 echo "============================================================"

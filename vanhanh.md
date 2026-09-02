@@ -1,7 +1,7 @@
 # 🚀 HƯỚNG DẪN VẬN HÀNH TOÀN DIỆN XE TỰ HÀNH TRÊN RASPBERRY PI (XE THẬT)
 
 > **Tài liệu quy trình chuẩn từ khi vừa Clone code về Pi đến lúc xe lăn bánh ngoài thực tế**  
-> *Hỗ trợ đầy đủ:* LiDAR, Camera Astra, ESP32 Encoders, IMU, GPS và AI CNN Bám luống.
+> *Hỗ trợ đầy đủ:* LiDAR, USB Webcam, ESP32 Encoders, IMU, GPS và AI CNN Bám luống.
 
 ---
 
@@ -25,13 +25,9 @@ real-robot
 > [!NOTE]
 > Lệnh `real-robot` tự động khởi chạy:
 > - LiDAR RPLIDAR C1 (quét 360° 10Hz)
-> - Camera Astra + Bridge nén JPEG gửi qua Wi-Fi (~200 KB/s không làm nghẽn LiDAR)
+> - USB Webcam + Bridge nén JPEG gửi qua Wi-Fi (~200 KB/s không làm nghẽn LiDAR)
 > - ESP32 Hardware Bridge (PID động cơ + đọc 4 Encoder)
 > - Mô hình 3D URDF & Cây toạ độ TF
-
-🔄 Cách revert về Webcam khi cần:
-Khi test: test-cam webcam
-Khi chạy xe: ros2 launch my_robot_bringup real_robot.launch.py camera_driver:=v4l2
 
 ### 💻 Bước 2: Trên Laptop (Mở giao diện quan sát)
 Mở Terminal trên Laptop:

@@ -111,15 +111,7 @@ class CameraRecorderNode(Node):
 
         # Xác định chế độ hoạt động
         if self.mode_param == 'auto':
-            has_astra = False
-            try:
-                out = subprocess.check_output(['lsusb'], text=True, stderr=subprocess.DEVNULL)
-                if '2bc5:' in out:
-                    has_astra = True
-            except Exception:
-                pass
-
-            self.active_mode = 'topic' if has_astra else 'v4l2'
+            self.active_mode = 'v4l2'
         else:
             self.active_mode = self.mode_param
 

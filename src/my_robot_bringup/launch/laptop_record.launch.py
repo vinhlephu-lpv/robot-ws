@@ -3,7 +3,7 @@ Launch file: Thu thập dữ liệu Dataset trực tiếp qua RViz (Chạy trên
 
 Bao gồm:
   - Robot State Publisher + Joint State Publisher + Static Odom TF: Hiển thị mô hình 3D xe trên RViz không lỗi TF.
-  - Orbbec Astra 3D Camera Driver (hoặc USB Webcam V4L2).
+  - USB Webcam V4L2 Driver.
   - Camera Recorder Node: Đọc camera USB, vừa ghi video MP4 vừa tách ảnh frame vào dataset.
   - RViz2: Hiển thị xe 3D và khung camera thời gian thực.
 
@@ -111,16 +111,7 @@ def generate_launch_description():
         condition=IfCondition(LaunchConfiguration('open_rviz'))
     )
 
-    # ── Tự động khởi động driver Camera USB ngoài (Astra Pro / Series) ───────
-    has_astra = False
-    try:
-        out = subprocess.check_output(['lsusb'], text=True, stderr=subprocess.DEVNULL)
-        if '2bc5:' in out:
-            has_astra = True
-    except Exception:
-        pass
-
-    launch_entities = [
+    return LaunchDescription([
         name_arg,
         device_arg,
         width_arg,
@@ -133,52 +124,4 @@ def generate_launch_description():
         joint_state_pub,
         camera_recorder_node,
         rviz2_node,
-    ]
-
-    if has_astra:
-        camera_env = dict(os.environ)
-        for p in ['/home/vinh/astra_ws/install/astra_camera', '/home/vinh/astra_ws/install/astra_camera_msgs']:
-            if os.path.exists(p):
-                camera_env['AMENT_PREFIX_PATH'] = p + ':' + camera_env.get('AMENT_PREFIX_PATH', '')
-
-        astra_ld = '/home/vinh/astra_ws/install/astra_camera_msgs/lib:/home/vinh/astra_ws/install/astra_camera/lib:' + camera_env.get('LD_LIBRARY_PATH', '')
-        camera_env['LD_LIBRARY_PATH'] = astra_ld
-
-        astra_node = Node(
-            package='astra_camera',
-            executable='astra_camera_node',
-            namespace='camera',
-            name='camera',
-            output='screen',
-            env=camera_env,
-            parameters=[{
-                'camera_name': 'camera',
-                'vendor_id': 0,
-                'product_id': 0,
-                'color_width': 640,
-                'color_height': 480,
-                'color_fps': 30,
-                'depth_width': 640,
-                'depth_height': 480,
-                'depth_fps': 30,
-                'enable_color': True,
-                'enable_depth': True,
-                'enable_ir': False,
-                'enable_point_cloud': False,
-                'enable_colored_point_cloud': False,
-                'use_uvc_camera': True,
-                'uvc_vendor_id': 0x2bc5,
-                'uvc_product_id': 0x0501,
-                'uvc_retry_count': 100,
-                'uvc_camera_format': 'mjpeg',
-                'oni_log_level': 'none',
-                'oni_log_to_console': False,
-                'oni_log_to_file': False,
-                'publish_tf': True,
-                'tf_publish_rate': 10.0,
-                'camera_link_frame_id': 'camera_link',
-            }]
-        )
-        launch_entities.insert(0, astra_node)
-
-    return LaunchDescription(launch_entities)
+    ])

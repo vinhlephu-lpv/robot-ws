@@ -15,11 +15,6 @@ load_ws() {
         source "$WS_DIR/install/setup.bash"
     fi
 
-    if [ -f "$HOME/astra_ws/install/setup.bash" ]; then
-        source "$HOME/astra_ws/install/setup.bash"
-    elif [ -f "/tmp/astra_ws/install/setup.bash" ]; then
-        source "/tmp/astra_ws/install/setup.bash"
-    fi
 
     export ROS_DOMAIN_ID=0
     export ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
@@ -42,7 +37,7 @@ alias reload="reload_func"
 alias capnhat="reload_func"
 alias update-cmd="reload_func"
 
-# Hàm build thông minh (tự động nhận diện distro Jazzy / Humble)
+# Hàm build thông minh (tự động nhận diện distro Jazzy / Humble & tự động nạp phím tắt)
 build_func() {
     cd "$WS_DIR"
     if [ -f "/opt/ros/jazzy/setup.bash" ]; then
@@ -50,9 +45,19 @@ build_func() {
     elif [ -f "/opt/ros/humble/setup.bash" ]; then
         source /opt/ros/humble/setup.bash
     fi
-    colcon build --symlink-install --packages-ignore astra_camera astra_camera_msgs "$@"
-    if [ -f "$WS_DIR/install/setup.bash" ]; then
-        source "$WS_DIR/install/setup.bash"
+    colcon build --symlink-install "$@"
+    local ret=$?
+    if [ $ret -eq 0 ]; then
+        if [ -f "$WS_DIR/install/setup.bash" ]; then
+            source "$WS_DIR/install/setup.bash"
+        fi
+        if [ -f "$WS_DIR/aliases.sh" ]; then
+            source "$WS_DIR/aliases.sh"
+        fi
+        echo "✅ [BUILD THÀNH CÔNG] Đã tự động cập nhật & nạp toàn bộ lệnh tắt mới nhất (rviz, quay-rviz, real-robot, wasd,...)!"
+    else
+        echo "❌ [BUILD THẤT BẠI] Vui lòng kiểm tra lại lỗi code ở trên."
+        return $ret
     fi
 }
 alias build="build_func"
@@ -66,8 +71,18 @@ build_all_func() {
         source /opt/ros/humble/setup.bash
     fi
     colcon build --symlink-install "$@"
-    if [ -f "$WS_DIR/install/setup.bash" ]; then
-        source "$WS_DIR/install/setup.bash"
+    local ret=$?
+    if [ $ret -eq 0 ]; then
+        if [ -f "$WS_DIR/install/setup.bash" ]; then
+            source "$WS_DIR/install/setup.bash"
+        fi
+        if [ -f "$WS_DIR/aliases.sh" ]; then
+            source "$WS_DIR/aliases.sh"
+        fi
+        echo "✅ [BUILD-ALL THÀNH CÔNG] Đã tự động cập nhật & nạp toàn bộ lệnh tắt mới nhất!"
+    else
+        echo "❌ [BUILD-ALL THẤT BẠI] Vui lòng kiểm tra lại lỗi code ở trên."
+        return $ret
     fi
 }
 alias build-all="build_all_func"
@@ -76,10 +91,11 @@ alias build-all="build_all_func"
 git_sync_func() {
     cd "$WS_DIR"
     echo "📥 Đang kéo mã nguồn mới nhất từ GitHub..."
-    git pull origin main
-    echo "🔨 Đang biên dịch lại Workspace..."
-    build_func
-    echo "✅ Đã đồng bộ và nạp lại toàn bộ lệnh thành công!"
+    local branch
+    branch=$(git branch --show-current 2>/dev/null || echo "main")
+    git pull origin "$branch" 2>/dev/null || git pull origin main 2>/dev/null || git pull || true
+    echo "🔨 Đang biên dịch lại Workspace & cập nhật phím tắt..."
+    build_func "$@"
 }
 alias git-sync="git_sync_func"
 alias dongbo="git_sync_func"
@@ -102,7 +118,7 @@ alias lai-xe="teleop"
 alias wasd="teleop"
 alias teleop-wasd="teleop"
 
-# Mở RViz + Camera USB (Hiển thị mô hình xe 3D + Khung hình Astra Camera)
+# Mở RViz + Camera USB (Hiển thị mô hình xe 3D + Khung hình USB Webcam)
 rviz_view_func() {
     load_ws
     mkdir -p "$WS_DIR/dataset/videos" "$WS_DIR/dataset/imgs"
@@ -166,7 +182,6 @@ real-record() {
 
 # Lệnh MỞ RVIZ + XEM XE 3D + WEBCAM USB DVD20 (1080p Full HD @ 60 FPS) + QUAY VIDEO TÁCH FRAME DATASET RIÊNG (Chạy trên Laptop)
 rviz-record() {
-    killall -9 astra_camera_node 2>/dev/null || true
     load_ws
     local vname="${1:-}"
     if [ -n "$vname" ]; then
@@ -181,6 +196,8 @@ rviz-record() {
 alias record-rviz="rviz-record"
 alias laptop-record="rviz-record"
 alias quay-rviz="rviz-record"
+alias quay="rviz-record"
+alias quay-video="rviz-record"
 
 # Lệnh tải video từ Pi xuống Laptop (Chạy trên Laptop)
 get-video() {

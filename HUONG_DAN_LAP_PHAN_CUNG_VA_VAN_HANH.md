@@ -202,4 +202,4 @@ source ~/.bashrc
 ### 3. Cổng USB trên Raspberry Pi:
 * **LiDAR RPLIDAR C1:** Cắm cổng USB $\to$ `/dev/ttyUSB0` (460800 baud)
 * **ESP32 Controller:** Cắm cổng USB $\to$ `/dev/ttyUSB1` (115200 baud)
-* **Camera Astra Mini S:** Cắm cổng **USB 3.0 màu xanh** $\to$ `/dev/video0`
+* **USB Webcam:** Cắm cổng **USB 3.0 màu xanh** $\to$ `/dev/video0`

@@ -45,7 +45,7 @@ graph TD
     WiFi -.->|HTTP JSON / Status| Bridge
 ```
 
-* **Raspberry Pi (Não bộ cấp cao):** Chạy hệ điều hành ROS 2, chịu trách nhiệm xử lý thuật toán nặng (AI CNN bám luống, xử lý tia LiDAR RPLIDAR C1, Camera Astra, thuật toán SLAM Toolbox vẽ bản đồ và Nav2 dẫn đường).
+* **Raspberry Pi (Não bộ cấp cao):** Chạy hệ điều hành ROS 2, chịu trách nhiệm xử lý thuật toán nặng (AI CNN bám luống, xử lý tia LiDAR RPLIDAR C1, USB Webcam, thuật toán SLAM Toolbox vẽ bản đồ và Nav2 dẫn đường).
 * **ESP32 (Bộ điều khiển cấp thấp thời gian thực):** Chịu trách nhiệm ngắt phần cứng tần số cao, đọc 4 encoder quang học, chạy 4 vòng lặp kín PID điều tốc và xuất xung PWM điều khiển 4 mạch cầu H BTS7960.
 
 ---
@@ -151,7 +151,7 @@ graph TD
     base_footprint["base_footprint (Tâm đáy thân xe di động)"]
     base_link["base_link (Thân xe)"]
     laser_frame["laser_frame (Cảm biến RPLIDAR C1)"]
-    camera_link["camera_link (Camera Astra Mini S)"]
+    camera_link["camera_link (USB Webcam)"]
 
     map -->|SLAM Toolbox hiệu chỉnh trôi sai số| odom
     odom -->|TF ODOM do esp32_bridge broadcast| base_footprint

@@ -6,7 +6,6 @@ set -e
 
 source /opt/ros/jazzy/setup.bash 2>/dev/null || source /opt/ros/humble/setup.bash 2>/dev/null
 [ -f "/tmp/sllidar_ws/install/setup.bash" ] && source /tmp/sllidar_ws/install/setup.bash
-[ -f "/tmp/astra_ws/install/setup.bash" ] && source /tmp/astra_ws/install/setup.bash
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WS_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"

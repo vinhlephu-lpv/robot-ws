@@ -7,8 +7,6 @@ log/
 __pycache__/
 *.py[cod]
 *$py.class
-# Keep OpenNI2 vendor binaries
-!src/astra_camera/openni2_redist/**/*.so
 .pytest_cache/
 
 # IDE & OS files

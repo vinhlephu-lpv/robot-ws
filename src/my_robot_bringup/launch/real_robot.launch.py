@@ -5,7 +5,7 @@ Bao gồm:
   - Joint State Publisher
   - RPLIDAR C1 (sllidar_ros2, laser_frame, 460800 baud)
   - Static Odom TF (hoặc ESP32 Hardware Bridge nếu enable_esp32:=true)
-  - Astra Mini S Camera (tùy chọn enable_camera:=true)
+  - USB Webcam Camera (tùy chọn enable_camera:=true qua v4l2_camera)
   - CNN Driver (tùy chọn enable_cnn:=true)
   - RViz2 (tùy chọn enable_rviz:=true)
 
@@ -42,7 +42,7 @@ def generate_launch_description():
 
     camera_device_arg = DeclareLaunchArgument(
         'camera_device', default_value='/dev/video0',
-        description='Astra Mini S / USB camera device')
+        description='USB camera device path (/dev/video0)')
 
     esp32_port_arg = DeclareLaunchArgument(
         'esp32_port', default_value='/dev/esp32',
@@ -54,11 +54,7 @@ def generate_launch_description():
 
     enable_camera_arg = DeclareLaunchArgument(
         'enable_camera', default_value='true',
-        description='Enable Astra camera node')
-
-    enable_depth_arg = DeclareLaunchArgument(
-        'enable_depth', default_value='false',
-        description='Enable depth stream (false saves USB bandwidth and maximizes color 30 FPS)')
+        description='Enable USB camera node')
 
     color_width_arg = DeclareLaunchArgument(
         'color_width', default_value='640',
@@ -75,14 +71,6 @@ def generate_launch_description():
     enable_rviz_arg = DeclareLaunchArgument(
         'enable_rviz', default_value='false',
         description='Enable RViz2 visualization')
-
-    camera_driver_arg = DeclareLaunchArgument(
-        'camera_driver', default_value='astra',
-        description='Camera driver: astra (Orbbec Astra Pro/Series 3D) or v4l2 (USB Webcam /dev/video0)')
-
-    enable_point_cloud_arg = DeclareLaunchArgument(
-        'enable_point_cloud', default_value='false',
-        description='Enable 3D point cloud generation (/camera/depth/points)')
 
     record_arg = DeclareLaunchArgument(
         'record', default_value='false',
@@ -148,7 +136,7 @@ def generate_launch_description():
         }]
     )
 
-    # ── Camera Driver (V4L2 USB Webcam DVD20) ─────────────────────────
+    # ── Camera Driver (V4L2 USB Webcam) ──────────────────────────────
     v4l2_camera_node = Node(
         package='v4l2_camera',
         executable='v4l2_camera_node',
@@ -165,63 +153,7 @@ def generate_launch_description():
             ('image_raw', '/camera/color/image_raw'),
             ('camera_info', '/camera/color/camera_info'),
         ],
-        condition=IfCondition(
-            PythonExpression(["'", LaunchConfiguration('enable_camera'), "' == 'true' and '", LaunchConfiguration('camera_driver'), "' in ['v4l2', 'webcam']"])
-        )
-    )
-
-    # ── Camera Driver (Orbbec Astra Pro / Series 3D Camera via OpenNI2 & UVC) ───
-    camera_env = dict(os.environ)
-    try:
-        from ament_index_python.packages import get_package_prefix
-        pkg_astra_prefix = get_package_prefix('astra_camera')
-        openni2_drivers_dir = os.path.join(pkg_astra_prefix, 'lib', 'OpenNI2', 'Drivers')
-        openni2_lib_dir = os.path.join(pkg_astra_prefix, 'lib')
-        if os.path.exists(openni2_drivers_dir):
-            camera_env['OPENNI2_REDIST'] = openni2_drivers_dir
-            camera_env['OPENNI2_DRIVERS_PATH'] = openni2_drivers_dir
-        if os.path.exists(openni2_lib_dir):
-            camera_env['LD_LIBRARY_PATH'] = f"{openni2_lib_dir}:{camera_env.get('LD_LIBRARY_PATH', '')}"
-    except Exception:
-        pass
-
-    camera_node = Node(
-        package='astra_camera',
-        executable='astra_camera_node',
-        namespace='camera',
-        name='camera',
-        output='screen',
-        env=camera_env,
-        parameters=[{
-            'camera_name': 'camera',
-            'vendor_id': 0,
-            'product_id': 0,
-            'color_width': LaunchConfiguration('color_width'),
-            'color_height': LaunchConfiguration('color_height'),
-            'color_fps': 30,
-            'depth_width': 640,
-            'depth_height': 480,
-            'depth_fps': 30,
-            'enable_color': True,
-            'enable_depth': LaunchConfiguration('enable_depth'),
-            'enable_ir': False,
-            'enable_point_cloud': LaunchConfiguration('enable_point_cloud'),
-            'enable_colored_point_cloud': False,
-            'use_uvc_camera': True,
-            'uvc_vendor_id': 0x2bc5,
-            'uvc_product_id': 0x0501,
-            'uvc_retry_count': 100,
-            'uvc_camera_format': 'mjpeg',
-            'oni_log_level': 'none',
-            'oni_log_to_console': False,
-            'oni_log_to_file': False,
-            'publish_tf': True,
-            'tf_publish_rate': 10.0,
-            'camera_link_frame_id': 'camera_link',
-        }],
-        condition=IfCondition(
-            PythonExpression(["'", LaunchConfiguration('enable_camera'), "' == 'true' and '", LaunchConfiguration('camera_driver'), "' == 'astra'"])
-        )
+        condition=IfCondition(LaunchConfiguration('enable_camera'))
     )
 
     # ── WiFi Camera Bridge (Nén JPEG gửi qua Wi-Fi) ─────────────────
@@ -353,13 +285,10 @@ def generate_launch_description():
         esp32_port_arg,
         enable_esp32_arg,
         enable_camera_arg,
-        enable_depth_arg,
-        enable_point_cloud_arg,
         color_width_arg,
         color_height_arg,
         enable_cnn_arg,
         enable_rviz_arg,
-        camera_driver_arg,
         record_arg,
         record_name_arg,
         enable_imu_arg,
@@ -370,7 +299,6 @@ def generate_launch_description():
         static_odom_tf,
         lidar_node,
         v4l2_camera_node,
-        camera_node,
         wifi_cam_bridge,
         esp32_bridge,
         imu_node,
