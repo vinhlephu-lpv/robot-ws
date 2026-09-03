@@ -38,6 +38,12 @@ amcl:
     z_rand: 0.5
     z_short: 0.05
     scan_topic: /scan
+    set_initial_pose: true
+    initial_pose:
+      x: 0.0
+      y: 0.0
+      z: 0.0
+      yaw: 0.0
 
 bt_navigator:
   ros__parameters:
@@ -185,7 +191,12 @@ global_costmap:
       origin_x: -5.0
       origin_y: -10.0
       track_unknown_space: true
-      plugins: ["obstacle_layer", "inflation_layer"]
+      plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
+      static_layer:
+        plugin: "nav2_costmap_2d::StaticLayer"
+        map_subscribe_transient_local: True
+        enabled: true
+        subscribe_to_updates: true
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
         enabled: True
@@ -203,7 +214,7 @@ global_costmap:
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 7.0
-        inflation_radius: 0.28
+        inflation_radius: 0.32
       always_send_full_costmap: True
 
 local_costmap:
@@ -238,7 +249,7 @@ local_costmap:
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 7.0
-        inflation_radius: 0.28
+        inflation_radius: 0.32
       always_send_full_costmap: True
 
 velocity_smoother:
