@@ -458,3 +458,16 @@ stop_robot_func() {
 alias stop-robot="stop_robot_func"
 alias stop="stop_robot_func"
 alias dung="stop_robot_func"
+
+# Lệnh HỦY DẪN ĐƯỜNG NAV2 (Hủy mục tiêu điểm đến phím G & phanh dừng xe)
+cancel_nav_func() {
+    echo "🛑 Đang hủy mục tiêu dẫn đường Nav2 & dừng xe..."
+    ros2 service call /navigate_to_pose/_action/cancel_goal action_msgs/srv/CancelGoal "{goal_info: {goal_id: {uuid: [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]}, stamp: {sec: 0, nanosec: 0}}}" 2>/dev/null || true
+    ros2 service call /navigate_through_poses/_action/cancel_goal action_msgs/srv/CancelGoal "{goal_info: {goal_id: {uuid: [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]}, stamp: {sec: 0, nanosec: 0}}}" 2>/dev/null || true
+    ros2 topic pub --once /cmd_vel geometry_msgs/msg/Twist "{linear: {x: 0.0}, angular: {z: 0.0}}" 2>/dev/null || true
+    echo "✅ Đã hủy lệnh Nav2! Xe đã dừng an toàn."
+}
+alias huy="cancel_nav_func"
+alias huy-nav="cancel_nav_func"
+alias stop-nav="cancel_nav_func"
+alias cancel-nav="cancel_nav_func"
