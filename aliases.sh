@@ -446,3 +446,15 @@ unalias robot-help 2>/dev/null || true
 alias ros-help="ros_help_func"
 alias robot-help="ros_help_func"
 alias help-robot="ros_help_func"
+
+# Lệnh DỪNG KHẨN CẤP & DỌN SẠCH TIẾN TRÌNH ROBOT (Dùng khi Ctrl+C hoặc xe bị nhiễu)
+stop_robot_func() {
+    echo "🛑 Đang gửi lệnh phanh khẩn cấp & dừng toàn bộ động cơ..."
+    ros2 topic pub --once /cmd_vel geometry_msgs/msg/Twist "{linear: {x: 0.0}, angular: {z: 0.0}}" 2>/dev/null || true
+    echo "🧹 Đang dọn sạch các tiến trình ROS 2 còn sót lại..."
+    killall -9 rplidar_node esp32_bridge imu_driver costmap_node async_slam_toolbox_node 2>/dev/null || true
+    echo "✅ Toàn bộ hệ thống Robot đã dừng an toàn và giải phóng cổng Serial!"
+}
+alias stop-robot="stop_robot_func"
+alias stop="stop_robot_func"
+alias dung="stop_robot_func"

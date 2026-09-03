@@ -80,6 +80,7 @@ class ESP32Bridge(Node):
 
         self.target_rpm_left = 0.0
         self.target_rpm_right = 0.0
+        self._stop_sent_count = 0
         self._serial_rx_buffer = ''
 
         # ── Loop Timer (20 Hz for Odom processing & continuous ESP32 streaming) ──
@@ -124,11 +125,20 @@ class ESP32Bridge(Node):
 
         # Direct write to ESP32 immediately on cmd_vel arrival
         if self.mode == 'serial' and self.ser and self.ser.is_open:
-            cmd_str = f'V {self.target_rpm_left:.1f} {self.target_rpm_right:.1f}\n'
-            try:
-                self.ser.write(cmd_str.encode('utf-8'))
-            except Exception as e:
-                self.get_logger().warn(f'Serial write error: {e}')
+            is_zero = (abs(self.target_rpm_left) < 0.1 and abs(self.target_rpm_right) < 0.1)
+            if not is_zero:
+                self._stop_sent_count = 0
+                cmd_str = f'V {self.target_rpm_left:.1f} {self.target_rpm_right:.1f}\n'
+                try:
+                    self.ser.write(cmd_str.encode('utf-8'))
+                except Exception as e:
+                    self.get_logger().warn(f'Serial write error: {e}')
+            elif self._stop_sent_count < 3:
+                self._stop_sent_count += 1
+                try:
+                    self.ser.write(b'V 0.0 0.0\n')
+                except Exception:
+                    pass
 
     def update_loop(self):
         now = self.get_clock().now()
@@ -138,13 +148,23 @@ class ESP32Bridge(Node):
         if dt <= 0:
             return
 
-        # Phát liên tục 20 Hz duy trì lệnh nuôi Watchdog ESP32 mượt mà
+        # Phát nuôi Watchdog ESP32 chỉ khi xe đang di chuyển hoặc chuyển trạng thái dừng
         if self.mode == 'serial' and self.ser and self.ser.is_open:
-            cmd_str = f'V {self.target_rpm_left:.1f} {self.target_rpm_right:.1f}\n'
-            try:
-                self.ser.write(cmd_str.encode('utf-8'))
-            except Exception as e:
-                pass
+            is_zero = (abs(self.target_rpm_left) < 0.1 and abs(self.target_rpm_right) < 0.1)
+            if not is_zero:
+                self._stop_sent_count = 0
+                cmd_str = f'V {self.target_rpm_left:.1f} {self.target_rpm_right:.1f}\n'
+                try:
+                    self.ser.write(cmd_str.encode('utf-8'))
+                except Exception:
+                    pass
+            elif self._stop_sent_count < 3:
+                # Chỉ gửi lệnh dừng 3 lần rồi im lặng, không spam liên tục 20Hz khi đứng yên
+                self._stop_sent_count += 1
+                try:
+                    self.ser.write(b'V 0.0 0.0\n')
+                except Exception:
+                    pass
 
         v_l = 0.0
         v_r = 0.0
@@ -282,6 +302,20 @@ class ESP32Bridge(Node):
             t.transform.rotation.z = qz
             t.transform.rotation.w = qw
             self.tf_broadcaster.sendTransform(t)
+
+    def destroy_node(self):
+        """Clean shutdown: brake motors to 0 and safely close serial port on Ctrl+C."""
+        try:
+            if self.mode == 'serial' and self.ser and self.ser.is_open:
+                for _ in range(2):
+                    self.ser.write(b'V 0.0 0.0\n')
+                    time.sleep(0.01)
+                self.ser.write(b'STOP\n')
+                self.ser.flush()
+                self.ser.close()
+        except Exception:
+            pass
+        super().destroy_node()
 
 
 def main(args=None):
