@@ -118,7 +118,7 @@ def main():
     pub = node.create_publisher(Twist, '/cmd_vel', 10)
 
     linear_speed = 0.25   # m/s (Tốc độ 0.25 m/s thoát máy, lướt êm)
-    angular_speed = 0.55  # rad/s
+    angular_speed = 0.85  # rad/s (Tốc độ vào cua cao, thắng ma sát trượt bánh xe)
 
     target_x = 0.0
     target_th = 0.0

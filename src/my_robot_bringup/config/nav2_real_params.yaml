@@ -90,19 +90,17 @@ controller_server:
       min_lookahead_dist: 0.18
       max_lookahead_dist: 0.42
       lookahead_time: 0.8
-      rotate_to_heading_angular_vel: 0.55
+      rotate_to_heading_angular_vel: 0.85
       use_velocity_scaled_lookahead_dist: true
       min_approach_linear_velocity: 0.15
       approach_velocity_scaling_dist: 0.4
       max_allowed_time_to_collision_up_to_fast_stop: 2.0
       use_collision_detection: true
       use_cost_regulated_linear_velocity_scaling: false
-      use_regulated_linear_velocity_scaling: true
-      regulated_linear_scaling_min_radius: 0.6
-      regulated_linear_scaling_min_speed: 0.15
-      use_rotate_to_heading: false
-      rotate_to_heading_min_angle: 0.785
-      max_angular_accel: 2.5
+      use_regulated_linear_velocity_scaling: false
+      use_rotate_to_heading: true
+      rotate_to_heading_min_angle: 0.52
+      max_angular_accel: 3.5
       max_linear_accel: 1.0
       max_linear_decel: 1.0
       allow_reversing: false
@@ -167,9 +165,9 @@ behavior_server:
     transform_tolerance: 0.5
     use_sim_time: false
     simulate_ahead_time: 2.0
-    max_rotational_vel: 0.5
-    min_rotational_vel: 0.25
-    rotational_acc_lim: 3.2
+    max_rotational_vel: 0.85
+    min_rotational_vel: 0.40
+    rotational_acc_lim: 3.5
 
 global_costmap:
   global_costmap:
