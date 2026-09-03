@@ -117,9 +117,10 @@ class ESP32Bridge(Node):
         self.target_rpm_left = (v_left * 60.0) / self.wheel_circ
         self.target_rpm_right = (v_right * 60.0) / self.wheel_circ
 
-        # Store for mock odometry
-        self.vx = v
-        self.vth = w
+        # Store for mock odometry only when NOT in real hardware serial mode
+        if self.mode != 'serial':
+            self.vx = v
+            self.vth = w
 
         # Direct write to ESP32 immediately on cmd_vel arrival
         if self.mode == 'serial' and self.ser and self.ser.is_open:
@@ -154,6 +155,7 @@ class ESP32Bridge(Node):
                 if self.ser.in_waiting > 0:
                     raw_data = self.ser.read(self.ser.in_waiting).decode('utf-8', errors='ignore')
                     self._serial_rx_buffer += raw_data
+                    odom_received = False
 
                     while '\n' in self._serial_rx_buffer:
                         line, self._serial_rx_buffer = self._serial_rx_buffer.split('\n', 1)
@@ -161,7 +163,7 @@ class ESP32Bridge(Node):
                         if not line:
                             continue
 
-                        # 1. Giao thức ODOM: "ODOM <v_left> <v_right>" (m/s)
+                        # 1. Giao thức ODOM chuẩn Kalman từ ESP32: "ODOM <v_left> <v_right>" (m/s)
                         if line.startswith('ODOM') or line.startswith('O '):
                             parts = line.split()
                             if len(parts) >= 3:
@@ -170,11 +172,12 @@ class ESP32Bridge(Node):
                                     v_r = float(parts[2])
                                     self.vx = (v_r + v_l) / 2.0
                                     self.vth = (v_r - v_l) / self.wheel_base
+                                    odom_received = True
                                 except ValueError:
                                     pass
 
-                        # 2. Giao thức ENC: "ENC <tick_FL> <tick_RL> <tick_FR> <tick_RR> <dt_ms>"
-                        elif line.startswith('ENC'):
+                        # 2. Giao thức ENC: Chỉ dùng dự phòng nếu CHƯA nhận được bản tin ODOM
+                        elif line.startswith('ENC') and not odom_received:
                             parts = line.split()
                             try:
                                 if len(parts) >= 6:

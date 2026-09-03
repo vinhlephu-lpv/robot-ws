@@ -124,9 +124,10 @@ rviz_view_func() {
     mkdir -p "$WS_DIR/dataset/videos" "$WS_DIR/dataset/imgs"
     ros2 launch my_robot_bringup laptop_record.launch.py "$@"
 }
-alias rviz="rviz_view_func"
+alias rviz-record="rviz_view_func"
 alias rviz-cam="rviz_view_func"
 alias rviz-only="load_ws && rviz2 -d \"$WS_DIR/src/my_robot_description/rviz/display.rviz\""
+alias rviz="rviz-only"
 
 # Mở RViz nhận stream WiFi nhẹ từ Pi
 laptop_view_func() {
