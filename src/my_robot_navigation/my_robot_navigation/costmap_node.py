@@ -18,8 +18,8 @@ class CostmapNode(Node):
         super().__init__('costmap_node')
 
         # Declare parameters
-        self.declare_parameter('inscribed_radius', 0.10)      # m - robot inner collision boundary
-        self.declare_parameter('inflation_radius', 0.20)      # m - outer safety buffer halo (0.2m)
+        self.declare_parameter('inscribed_radius', 0.35)      # m - robot physical radius (35cm)
+        self.declare_parameter('inflation_radius', 0.50)      # m - robot (0.35m) + safety buffer (0.15m) = 0.50m
         self.declare_parameter('cost_scaling_factor', 4.0)    # exponential decay steepness
         self.declare_parameter('obstacle_threshold', 60)      # minimum SLAM confidence (0-100) to treat as obstacle
         if not self.has_parameter('use_sim_time'):
