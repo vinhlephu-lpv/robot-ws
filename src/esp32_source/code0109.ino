@@ -14,8 +14,8 @@
 #define RAMP_INTERVAL_MS        25        // Khởi động mềm mỗi 25ms (40 Hz)
 #define DEBUG_PRINT_INTERVAL_MS 500       // In debug Serial mỗi 500ms
 
-// Ngưỡng Deadzone & Giới hạn gia tốc PWM (Tối thiểu 28 PWM để thắng ma sát tĩnh hộp số)
-#define MIN_PWM                 28        // 28: Ngưỡng PWM tối thiểu thắng ma sát hộp số (tương đương ~0.20-0.25 m/s)
+// Ngưỡng Deadzone & Giới hạn gia tốc PWM (Cho phép toàn dải 0-255 PWM để chạy cực êm ở tốc độ chậm 0.10-0.15m/s)
+#define MIN_PWM                 0         // 0: Cho phép toàn dải từ 0 đến 255 PWM để đáp ứng tốc độ cực chậm (0.05 - 0.15 m/s)
 #define MAX_PWM_CHANGE_UP       55        // Tăng từ 35 lên 55: Bơm lực cực nhanh khi khởi động và leo cản dốc
 #define MAX_PWM_CHANGE_DOWN     25        // Giảm tốc mượt mà bảo vệ cơ cấu nhông
 #define RAMP_STEP_MAX           12.0f     // Tăng từ 8.0f lên 12.0f: Bơm gia tốc nhanh
@@ -859,9 +859,6 @@ void handleCommand(String command) {
           wpid[i].enabled = pidGlobalEnabled;
           int sign = (r[i] >= 0.0f) ? 1 : -1;
           int pwm = (int)(sign * ((fabsf(r[i]) / 220.0f) * 255.0f));
-          if (fabsf(r[i]) > 0.5f && abs(pwm) < MIN_PWM) {
-            pwm = sign * MIN_PWM;
-          }
           slew[i].target = pwm;
         }
       }

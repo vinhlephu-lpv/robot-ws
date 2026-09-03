@@ -78,7 +78,13 @@ def generate_launch_description():
         executable='costmap_node',
         name='costmap_node',
         output='screen',
-        parameters=[{'use_sim_time': False}],
+        parameters=[{
+            'inscribed_radius': 0.10,
+            'inflation_radius': 0.20,
+            'cost_scaling_factor': 4.0,
+            'obstacle_threshold': 60,
+            'use_sim_time': False
+        }],
         condition=IfCondition(LaunchConfiguration('enable_costmap'))
     )
 
