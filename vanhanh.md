@@ -290,21 +290,43 @@ graph TD
 
 ---
 
-### 📍 KỊCH BẢN C: Tự hành thông minh Nav2 theo bản đồ đã lưu
+### 📍 KỊCH BẢN C1: Tự hành Nav2 theo bản đồ đã lưu (AMCL Map-Based)
 1. **Trên Pi (SSH):**
    ```bash
-   real-nav map:=/home/vinh/robot-ws/maps/ban_do_vuon_bap.yaml
+   real-nav ban_do_vuon_bap
+   # Hoặc tự động nạp bản đồ mới nhất: real-nav
+   # Hoặc truyền file đầy đủ: real-nav map:=/path/to/map.yaml
    ```
 2. **Trên Laptop:**
-   - Mở `rviz`.
+   - Mở `rviz-only`.
    - Dùng công cụ **2D Pose Estimate** trên thanh menu RViz chấm vào vị trí hiện tại của xe để khởi tạo vị trí ban đầu (AMCL Localization).
    - Nhấn phím **`G`** (hoặc nút **Nav2 Goal**), click chuột vào vị trí bất kỳ trên bản đồ $\to$ Xe sẽ tự động tính đường uốn lượn né chướng ngại vật và chạy đến đích.
    - Khi cần hủy: Gõ `cancel` trên terminal hoặc bấm **Cancel Nav** trên RViz.
 
 ---
 
+### 🌐 KỊCH BẢN C2: Vừa chạy SLAM trên Pi vừa Nav2 tự hành trên Laptop (Live SLAM-Sync Navigation)
+*(Không cần nạp file map trước, tận dụng CPU của Laptop để chạy A*, Pure Pursuit và Costmaps né vật cản)*
+1. **Trên Pi (SSH - 1 Terminal):**
+   ```bash
+   real-slam
+   ```
+   *(Bật LiDAR C1 + ESP32 + SLAM Toolbox vẽ map và phát tọa độ liên tục).*
+2. **Trên Laptop (2 Terminal):**
+   - **Terminal 1:** Mở RViz điều khiển:
+     ```bash
+     rviz-only
+     ```
+   - **Terminal 2:** Bật Nav2 Navigation Stack trên Laptop:
+     ```bash
+     pc-nav
+     ```
+   - **Cách điều khiển:** Bấm phím **`G`** (hoặc nút **Nav2 Goal**) trên RViz và click điểm đích $\to$ Thuật toán **A\*** lập đường đi, **Regulated Pure Pursuit** bám waypoint, **Costmap** 2 tầng vẽ vật cản thời gian thực và xe tự né chướng ngại vật!
+
+---
+
 ### 🌽 KỊCH BẢN D: Tự lái bám hàng bắp bằng AI CNN & Quay đầu U-Turn
-1. Đảm bảo file model ONNX đã có tại `models/crop_row_cnn_best_test.onnx`.
+1. Đảm bảo file model ONNX đã có tại `models/crop_row_cnn_best_final.onnx`.
 2. Đặt xe vào đầu luống bắp, hướng camera dọc theo rãnh giữa 2 hàng bắp.
 3. **Trên Pi (SSH):** Chạy lệnh:
    ```bash

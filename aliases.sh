@@ -167,7 +167,38 @@ alias test-slam="load_ws && bash \"$WS_DIR/src/my_sensor_test/scripts/run_test_s
 # 4. Các lệnh chạy trên Robot Thật (Raspberry Pi)
 alias real-robot="load_ws && ros2 launch my_robot_bringup real_robot.launch.py"
 alias real-slam="load_ws && ros2 launch my_robot_bringup real_slam.launch.py"
-alias real-nav="load_ws && ros2 launch my_robot_bringup real_nav.launch.py"
+
+# Lệnh TỰ HÀNH XE THẬT THEO BẢN ĐỒ ĐÃ LƯU (Tự động nhận map mới nhất hoặc chỉ định tên map)
+unalias real-nav 2>/dev/null || true
+real_nav_func() {
+    load_ws
+    local map_arg="${1:-}"
+    if [ -z "$map_arg" ]; then
+        local latest_map=$(ls -t "$WS_DIR/maps/"*.yaml 2>/dev/null | head -n 1)
+        if [ -n "$latest_map" ]; then
+            echo "🗺️ Tự động nạp bản đồ mới nhất: $latest_map"
+            ros2 launch my_robot_bringup real_nav.launch.py map:="$latest_map"
+        else
+            echo "❌ Chưa tìm thấy bản đồ nào trong thư mục maps/! Hãy chạy real-slam trước rồi dùng savemap."
+        fi
+    elif [[ "$map_arg" == map:=* ]]; then
+        ros2 launch my_robot_bringup real_nav.launch.py "$@"
+    else
+        if [ -f "$WS_DIR/maps/$map_arg.yaml" ]; then
+            echo "🗺️ Nạp bản đồ: $WS_DIR/maps/$map_arg.yaml"
+            ros2 launch my_robot_bringup real_nav.launch.py map:="$WS_DIR/maps/$map_arg.yaml"
+        elif [ -f "$map_arg" ]; then
+            echo "🗺️ Nạp bản đồ: $map_arg"
+            ros2 launch my_robot_bringup real_nav.launch.py map:="$map_arg"
+        else
+            echo "❌ Không tìm thấy bản đồ '$map_arg' trong $WS_DIR/maps/"
+        fi
+    fi
+}
+alias real-nav="real_nav_func"
+
+alias pc-nav="load_ws && ros2 launch my_robot_bringup pc_nav.launch.py"
+alias nav-slam="load_ws && ros2 launch my_robot_bringup pc_nav.launch.py"
 
 # Lệnh kích hoạt xe THẬT CÓ QUAY VIDEO THÔ (100% Raw, không hiện gì trên màn hình)
 real-record() {
@@ -369,14 +400,15 @@ cat << 'EOF'
   clean-video        : Dọn dẹp các video cũ giải phóng ổ đĩa
   extract-dataset <f>: Cắt video thành bộ ảnh sạch (JPG) để gán nhãn train CNN
   rviz               : Mở giao diện RViz2 đồ họa thuần túy
+  rviz-only          : Mở giao diện RViz2 cấu hình chuẩn cho xe thật
+  pc-nav (nav-slam)  : Bật Nav2 trên Laptop kết hợp với SLAM trực tiếp từ Pi
   cancel             : Hủy mục tiêu dẫn đường Nav2
 
 🍓 [TRÊN RASPBERRY PI] (Khởi động phần cứng xe & Quay video)
   real-robot         : BẬT XE THẬT (Tự động chạy Madgwick + EKF chuẩn xác)
   real-record [tên]  : BẬT XE THẬT + QUAY VIDEO THÔ (100% Raw, lưu MP4 vào Pi)
   real-slam          : Bật Xe Thật + SLAM Toolbox vẽ bản đồ
-  real-nav           : Bật Xe Thật + Nav2 dẫn đường tự né vật cản
-                       (Ví dụ: real-nav map:=/path/to/map.yaml)
+  real-nav [tên_map] : Bật Xe Thật + Nav2 tự né vật cản (Tự động nạp map mới nhất)
   savemap <tên_map>  : Lưu bản đồ SLAM vừa quét xong vào thư mục maps/
 
 🔍 [KIỂM TRA CẢM BIẾN] (1-Click Test trên Pi / Laptop)
@@ -407,8 +439,9 @@ cat << 'EOF'
 ================================================================================
 EOF
 }
-ros-help() {
-    ros_help_func "$@"
-}
-alias robot-help="ros-help"
-alias help-robot="ros-help"
+unalias ros-help 2>/dev/null || true
+unalias help-robot 2>/dev/null || true
+unalias robot-help 2>/dev/null || true
+alias ros-help="ros_help_func"
+alias robot-help="ros_help_func"
+alias help-robot="ros_help_func"

@@ -44,6 +44,9 @@ class CnnDriverNode(Node):
 
         # ── Parameters ────────────────────────────────────────────────
         self.declare_parameter('model_path', '')
+        self.declare_parameter('input_height', 512)
+        self.declare_parameter('input_width', 512)
+        self.declare_parameter('num_threads', 0)
         self.declare_parameter('mask_threshold', 0.04)
         self.declare_parameter('linear_speed', 0.20)
         self.declare_parameter('turn_linear_speed', 0.18)
@@ -78,9 +81,13 @@ class CnnDriverNode(Node):
         self.declare_parameter('enable_file_logging', True)
         self.declare_parameter('log_output_dir', default_log_dir)
         self.declare_parameter('terminal_log_interval', 1.0)
+        self.declare_parameter('save_debug_imgs', False)
 
         p = self.get_parameter
         self.model_path               = p('model_path').value
+        self.input_height             = p('input_height').value
+        self.input_width              = p('input_width').value
+        self.num_threads              = p('num_threads').value
         self.mask_threshold           = p('mask_threshold').value
         self.linear_speed             = p('linear_speed').value
         self.turn_linear_speed        = p('turn_linear_speed').value
@@ -111,6 +118,7 @@ class CnnDriverNode(Node):
         self.enable_file_logging     = p('enable_file_logging').value
         self.log_output_dir          = p('log_output_dir').value
         self.terminal_log_interval   = p('terminal_log_interval').value
+        self.save_debug_imgs         = p('save_debug_imgs').value
         self._last_terminal_log_time = 0.0
 
         if self.enable_file_logging:
@@ -131,7 +139,7 @@ class CnnDriverNode(Node):
                 try:
                     from ament_index_python.packages import get_package_share_directory
                     share_dir = get_package_share_directory('my_robot_controller')
-                    fallback_share = os.path.join(share_dir, 'models', 'crop_row_cnn_best_test.onnx')
+                    fallback_share = os.path.join(share_dir, 'models', 'crop_row_cnn_best_final.onnx')
                     if os.path.exists(fallback_share):
                         self.model_path = fallback_share
                         self.get_logger().info(f"Using model from my_robot_controller share: {self.model_path}")
@@ -143,7 +151,7 @@ class CnnDriverNode(Node):
                     try:
                         from ament_index_python.packages import get_package_share_directory
                         share_dir = get_package_share_directory('luanvan_control')
-                        fallback_share = os.path.join(share_dir, 'models', 'crop_row_cnn_best_test.onnx')
+                        fallback_share = os.path.join(share_dir, 'models', 'crop_row_cnn_best_final.onnx')
                         if os.path.exists(fallback_share):
                             self.model_path = fallback_share
                             self.get_logger().info(f"Using model from luanvan_control share: {self.model_path}")
@@ -153,7 +161,7 @@ class CnnDriverNode(Node):
             if not self.model_path or not os.path.exists(self.model_path):
                 # 3. Fallback to relative path from source files
                 current_dir = os.path.dirname(os.path.abspath(__file__))
-                fallback_source = os.path.abspath(os.path.join(current_dir, '..', 'models', 'crop_row_cnn_best_test.onnx'))
+                fallback_source = os.path.abspath(os.path.join(current_dir, '..', 'models', 'crop_row_cnn_best_final.onnx'))
                 if os.path.exists(fallback_source):
                     self.model_path = fallback_source
                     self.get_logger().info(f"Using model from source: {self.model_path}")
@@ -165,7 +173,9 @@ class CnnDriverNode(Node):
         self.inference = InferenceHandler(
             model_path=self.model_path,
             mask_threshold=self.mask_threshold,
-            use_hsv_mask=self.use_hsv_mask
+            input_size=(self.input_height, self.input_width),
+            use_hsv_mask=self.use_hsv_mask,
+            num_threads=self.num_threads
         )
         self.lidar_processor = LidarProcessor()
         self.eor_detector = EndOfRowDetector(
@@ -461,8 +471,8 @@ class CnnDriverNode(Node):
     def image_callback(self, msg: Image):
         try:
             bgr_image = self.convert_image(msg)
-            # Debug: Save the first image to verify camera is working
-            if not hasattr(self, '_debug_image_saved'):
+            # Debug: Save the first image to verify camera is working (if enabled)
+            if self.save_debug_imgs and not hasattr(self, '_debug_image_saved'):
                 os.makedirs(self.output_dir, exist_ok=True)
                 cv2.imwrite(os.path.join(self.output_dir, 'camera_test.png'), bgr_image)
                 self.get_logger().debug("--- Saved camera_test.png ---")
@@ -501,52 +511,53 @@ class CnnDriverNode(Node):
 
         current_state = self.fsm.get_state()
 
-        # Save diagnostic frame every 3 seconds (sim time)
-        now_sec = now.nanoseconds / 1e9
-        if now_sec - self.last_img_save_time >= 3.0:
-            self.last_img_save_time = now_sec
-            try:
-                os.makedirs(self.output_dir, exist_ok=True)
-                if hasattr(self.inference, 'latest_mask') and self.inference.latest_mask is not None:
-                    # Resize mask to match BGR image height and width
-                    mask_resized = cv2.resize(self.inference.latest_mask, (bgr_image.shape[1], bgr_image.shape[0]))
-                    
-                    # Convert single-channel mask (0.0 to 1.0) to binary mask (0 or 255)
-                    binary_mask = (mask_resized >= self.inference.mask_threshold).astype(np.uint8) * 255
-                    binary_mask_colored = cv2.cvtColor(binary_mask, cv2.COLOR_GRAY2BGR)
-                    
-                    # Create overlay image: cyan highlight for segmented areas
-                    overlay_image = bgr_image.copy()
-                    overlay_image[binary_mask > 128] = [255, 255, 0] # Cyan BGR
-                    blend_image = cv2.addWeighted(bgr_image, 0.6, overlay_image, 0.4, 0)
-                    
-                    # Draw guidance lines on blend_image
-                    h, w = bgr_image.shape[:2]
-                    image_center = (w - 1) / 2.0
-                    
-                    # 1. Lime dashed line for image center
-                    for y_start in range(0, h, 20):
-                        cv2.line(blend_image, (int(image_center), y_start), (int(image_center), min(y_start + 10, h)), (0, 255, 0), 2)
-                    
-                    # 2. Deepskyblue target line for lane center
-                    lane_center_raw = lane_center * (w / self.inference.input_size[1])
-                    lane_center_raw = np.clip(lane_center_raw, 0.0, w - 1.0)
-                    line_top = int(h * 0.6)
-                    cv2.line(blend_image, (int(lane_center_raw), h - 1), (int(lane_center_raw), line_top), (255, 191, 0), 3)
-                    
-                    # Concatenate horizontally: BGR, Mask, Overlay
-                    canvas = np.hstack((bgr_image, binary_mask_colored, blend_image))
-                    
-                    # Add text details for easier debugging
-                    cv2.putText(canvas, f"State: {current_state} | Conf: {confidence:.2f} | Dist: {self.distance_traveled:.2f}m | Steer: {self.smoothed_angle_deg:.2f} deg", 
-                                (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2, cv2.LINE_AA)
-                    
-                    # Save the image
-                    filename = os.path.join(self.output_dir, f"frame_{int(now_sec)}.png")
-                    cv2.imwrite(filename, canvas)
-                    self.get_logger().debug(f"--- Saved diagnostic frame: {filename} ---")
-            except Exception as save_err:
-                self.get_logger().error(f"Failed to save diagnostic frame: {save_err}")
+        # Save diagnostic frame every 3 seconds (sim time, if enabled)
+        if self.save_debug_imgs:
+            now_sec = now.nanoseconds / 1e9
+            if now_sec - self.last_img_save_time >= 3.0:
+                self.last_img_save_time = now_sec
+                try:
+                    os.makedirs(self.output_dir, exist_ok=True)
+                    if hasattr(self.inference, 'latest_mask') and self.inference.latest_mask is not None:
+                        # Resize mask to match BGR image height and width
+                        mask_resized = cv2.resize(self.inference.latest_mask, (bgr_image.shape[1], bgr_image.shape[0]))
+                        
+                        # Convert single-channel mask (0.0 to 1.0) to binary mask (0 or 255)
+                        binary_mask = (mask_resized >= self.inference.mask_threshold).astype(np.uint8) * 255
+                        binary_mask_colored = cv2.cvtColor(binary_mask, cv2.COLOR_GRAY2BGR)
+                        
+                        # Create overlay image: cyan highlight for segmented areas
+                        overlay_image = bgr_image.copy()
+                        overlay_image[binary_mask > 128] = [255, 255, 0] # Cyan BGR
+                        blend_image = cv2.addWeighted(bgr_image, 0.6, overlay_image, 0.4, 0)
+                        
+                        # Draw guidance lines on blend_image
+                        h, w = bgr_image.shape[:2]
+                        image_center = (w - 1) / 2.0
+                        
+                        # 1. Lime dashed line for image center
+                        for y_start in range(0, h, 20):
+                            cv2.line(blend_image, (int(image_center), y_start), (int(image_center), min(y_start + 10, h)), (0, 255, 0), 2)
+                        
+                        # 2. Deepskyblue target line for lane center
+                        lane_center_raw = lane_center * (w / self.inference.input_size[1])
+                        lane_center_raw = np.clip(lane_center_raw, 0.0, w - 1.0)
+                        line_top = int(h * 0.6)
+                        cv2.line(blend_image, (int(lane_center_raw), h - 1), (int(lane_center_raw), line_top), (255, 191, 0), 3)
+                        
+                        # Concatenate horizontally: BGR, Mask, Overlay
+                        canvas = np.hstack((bgr_image, binary_mask_colored, blend_image))
+                        
+                        # Add text details for easier debugging
+                        cv2.putText(canvas, f"State: {current_state} | Conf: {confidence:.2f} | Dist: {self.distance_traveled:.2f}m | Steer: {self.smoothed_angle_deg:.2f} deg", 
+                                    (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2, cv2.LINE_AA)
+                        
+                        # Save the image
+                        filename = os.path.join(self.output_dir, f"frame_{int(now_sec)}.png")
+                        cv2.imwrite(filename, canvas)
+                        self.get_logger().debug(f"--- Saved diagnostic frame: {filename} ---")
+                except Exception as save_err:
+                    self.get_logger().error(f"Failed to save diagnostic frame: {save_err}")
 
         # Check if we have entered the row dynamically (arm when settled inside the lane)
         if current_state == FSMState.TRACKING and not self.inside_row:

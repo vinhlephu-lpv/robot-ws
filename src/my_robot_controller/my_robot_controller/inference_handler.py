@@ -4,61 +4,103 @@ import numpy as np
 
 
 class InferenceHandler:
-    def __init__(self, model_path: str, mask_threshold: float = 0.35, input_size: tuple = (384, 384), use_hsv_mask: bool = False):
+    def __init__(
+        self,
+        model_path: str,
+        mask_threshold: float = 0.35,
+        input_size: tuple[int, int] = (512, 512),
+        use_hsv_mask: bool = False,
+        num_threads: int = 0
+    ):
         self.model_path = model_path
-        self.mask_threshold = mask_threshold  # kept for compatibility, not used in dynamic mode
+        self.mask_threshold = mask_threshold  # kept for compatibility, used in binary segmentation
         self.input_size = input_size
         self.use_hsv_mask = use_hsv_mask
+        self.num_threads = num_threads
         self.session = None
+        self.input_name = None
+        self.output_names = None
+        self.latest_mask = None
+
+        # Pre-allocated memory buffers for optimal throughput
+        self._input_buffer = np.zeros((1, 3, self.input_size[0], self.input_size[1]), dtype=np.float32)
+        self._scale_inv_255 = np.float32(1.0 / 255.0)
+        self._morph_kernel = np.ones((3, 3), dtype=np.uint8)
+
         if not self.use_hsv_mask:
             self.load_model()
 
     def load_model(self):
         import onnxruntime
         print(f"[InferenceHandler] Loading ONNX model from {self.model_path}")
-        providers = ['CPUExecutionProvider']
-        if 'CUDAExecutionProvider' in onnxruntime.get_available_providers():
-            providers.insert(0, 'CUDAExecutionProvider')
-        self.session = onnxruntime.InferenceSession(self.model_path, providers=providers)
-        print(f"[InferenceHandler] Model loaded successfully. Providers: {self.session.get_providers()}")
+
+        available = onnxruntime.get_available_providers()
+        providers = []
+        for ep in ['CUDAExecutionProvider', 'TensorrtExecutionProvider', 'OpenVINOExecutionProvider']:
+            if ep in available:
+                providers.append(ep)
+        providers.append('CPUExecutionProvider')
+
+        # Session optimization options
+        so = onnxruntime.SessionOptions()
+        so.graph_optimization_level = onnxruntime.GraphOptimizationLevel.ORT_ENABLE_ALL
+        so.execution_mode = onnxruntime.ExecutionMode.ORT_SEQUENTIAL
+        so.enable_mem_pattern = True
+        so.enable_cpu_mem_arena = True
+
+        # CPU Thread configuration
+        if self.num_threads > 0:
+            so.intra_op_num_threads = self.num_threads
+        else:
+            cpu_cnt = os.cpu_count() or 4
+            # On 4-core systems (e.g. Raspberry Pi), use 3 threads leaving 1 for ROS & LiDAR.
+            # On 6-12+ core systems, cap at 6 to avoid diminishing returns.
+            if cpu_cnt <= 4:
+                so.intra_op_num_threads = max(1, cpu_cnt - 1)
+            else:
+                so.intra_op_num_threads = min(cpu_cnt // 2, 6)
+        so.inter_op_num_threads = 1
+
+        self.session = onnxruntime.InferenceSession(self.model_path, sess_options=so, providers=providers)
+        self.input_name = self.session.get_inputs()[0].name
+        self.output_names = [self.session.get_outputs()[0].name]
+        print(f"[InferenceHandler] Model loaded successfully. Providers: {self.session.get_providers()} | Threads: {so.intra_op_num_threads} | Input: {self.input_size}")
 
     def preprocess_image(self, bgr_image: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        """Converts BGR image to normalized RGB tensor."""
+        """Converts BGR image to normalized RGB tensor using pre-allocated buffer."""
         rgb = cv2.cvtColor(bgr_image, cv2.COLOR_BGR2RGB)
         resized = cv2.resize(rgb, (self.input_size[1], self.input_size[0]), interpolation=cv2.INTER_LINEAR)
-        img = resized.astype(np.float32) / 255.0
-        img = np.transpose(img, (2, 0, 1))   # HWC -> CHW
-        input_tensor = np.expand_dims(img, axis=0)  # CHW -> BCHW
-        return input_tensor, rgb
+        float_img = resized.astype(np.float32) * self._scale_inv_255
+        self._input_buffer[0] = np.transpose(float_img, (2, 0, 1))
+        return self._input_buffer, rgb
 
-    def predict_mask(self, input_tensor: np.ndarray, enable_tta: bool = True) -> np.ndarray:
-        """Runs model inference and applies Sigmoid to get probability mask."""
-        ort_inputs = {self.session.get_inputs()[0].name: input_tensor}
-        ort_outs = self.session.run(None, ort_inputs)
+    def predict_mask(self, input_tensor: np.ndarray, enable_tta: bool = False) -> np.ndarray:
+        """Runs model inference and applies numerically stable Sigmoid to get probability mask."""
+        ort_outs = self.session.run(self.output_names, {self.input_name: input_tensor})
         logits = ort_outs[0][0, 0]   # (H, W)
-        probs = 1.0 / (1.0 + np.exp(-logits))
+        # Fast numerically stable Sigmoid
+        probs = 1.0 / (1.0 + np.exp(-np.clip(logits, -20.0, 20.0)))
 
         if enable_tta:
             input_tensor_flip = np.flip(input_tensor, axis=3)
-            ort_inputs_flip = {self.session.get_inputs()[0].name: input_tensor_flip}
-            ort_outs_flip = self.session.run(None, ort_inputs_flip)
+            ort_outs_flip = self.session.run(self.output_names, {self.input_name: input_tensor_flip})
             logits_flip = ort_outs_flip[0][0, 0]
-            probs_flip = 1.0 / (1.0 + np.exp(-logits_flip))
+            probs_flip = 1.0 / (1.0 + np.exp(-np.clip(logits_flip, -20.0, 20.0)))
             probs_flip = np.flip(probs_flip, axis=1)
             probs = 0.5 * (probs + probs_flip)
 
         return probs
 
     # ------------------------------------------------------------------
-    # Optimized Lane Tracking & Confidence (from Train CNN Main/inference.py)
+    # Optimized Lane Tracking & Confidence
     # ------------------------------------------------------------------
     def find_lane_center(self, mask: np.ndarray) -> float:
-        """Finds the X coordinate of the lane center using row scanning."""
+        """Finds the X coordinate of the lane center using optimized row scanning."""
         if mask.ndim == 3:
             mask = mask[..., 0]
 
         h, w = mask.shape
-        image_center = (w - 1) / 2.0
+        image_center = (w - 1) * 0.5
 
         # Bottom ROI (40% height)
         roi_ratio = 0.4
@@ -66,16 +108,16 @@ class InferenceHandler:
         roi = mask[y0:, :]
 
         binary = (roi >= self.mask_threshold).astype(np.uint8)
-
-        # Close morphological gaps
-        kernel = np.ones((3, 3), dtype=np.uint8)
-        binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel, iterations=1)
+        binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, self._morph_kernel, iterations=1)
 
         centers: list[float] = []
         min_lane_width = max(12, int(0.06 * w))
         center_idx = int(round(image_center))
 
-        for row in binary:
+        # Sample every 2nd row for 2x speedup with high fidelity at 512x512
+        sampled_rows = binary[::2] if h >= 384 else binary
+
+        for row in sampled_rows:
             cols = np.flatnonzero(row > 0)
             if cols.size < 2:
                 continue
@@ -88,38 +130,23 @@ class InferenceHandler:
                 left = float(left_cols[-1])
                 right = float(right_cols[0])
                 if (right - left) >= min_lane_width:
-                    centers.append((left + right) / 2.0)
+                    centers.append((left + right) * 0.5)
                     continue
 
-            has_row = row.astype(bool)
-            best_seg = None  # (width, -dist_to_center, center_x)
+            # Fast run-length segment detection bounded by crops
+            diffs = np.diff(np.pad(row.astype(np.int16), (1, 1), 'constant', constant_values=1))
+            starts = np.where(diffs == -1)[0]
+            ends = np.where(diffs == 1)[0] - 1
+            valid = (starts > 0) & (ends < w - 1)
 
-            j = 0
-            while j < w:
-                if has_row[j]:
-                    j += 1
-                    continue
-
-                start = j
-                while j < w and not has_row[j]:
-                    j += 1
-                end = j - 1
-
-                # Must be bounded by crops on both sides
-                if start == 0 or end == w - 1:
-                    continue
-                if not (has_row[start - 1] and has_row[end + 1]):
-                    continue
-
-                center_x = (start + end) / 2.0
-                width = end - start + 1
-                dist_to_center = abs(center_x - image_center)
-                key = (width, -dist_to_center, center_x)
-                if best_seg is None or key > best_seg:
-                    best_seg = key
-
-            if best_seg is not None:
-                centers.append(best_seg[2])
+            if np.any(valid):
+                v_starts = starts[valid]
+                v_ends = ends[valid]
+                widths = v_ends - v_starts + 1
+                centers_x = (v_starts + v_ends) * 0.5
+                dists = np.abs(centers_x - image_center)
+                best_idx = np.lexsort((dists, -widths))[0]
+                centers.append(float(centers_x[best_idx]))
 
         if centers:
             return float(np.clip(np.median(centers), 0.0, w - 1.0))
@@ -130,7 +157,7 @@ class InferenceHandler:
         if len(cols) >= 2:
             left = float(cols[0])
             right = float(cols[-1])
-            return (left + right) / 2.0
+            return (left + right) * 0.5
 
         return image_center
 
@@ -138,7 +165,7 @@ class InferenceHandler:
         """Translates offset of lane center to steering angle (in degrees)."""
         _, w = mask.shape[:2]
         lane_center = self.find_lane_center(mask)
-        image_center = (w - 1) / 2.0
+        image_center = (w - 1) * 0.5
 
         offset = (lane_center - image_center) / max(image_center, 1.0)
         angle = float(np.clip(offset * max_angle_deg, -max_angle_deg, max_angle_deg))
@@ -154,15 +181,15 @@ class InferenceHandler:
         roi = mask_prob[y0:, :]
         
         binary = (roi >= self.mask_threshold).astype(np.uint8)
-        kernel = np.ones((3, 3), dtype=np.uint8)
-        binary_closed = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel, iterations=1)
+        binary_closed = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, self._morph_kernel, iterations=1)
         
         valid_rows = 0
-        total_rows = binary_closed.shape[0]
-        center_idx = int(w / 2)
+        sampled_rows = binary_closed[::2] if h >= 384 else binary_closed
+        total_rows = sampled_rows.shape[0]
+        center_idx = int(w * 0.5)
         min_lane_width = max(12, int(0.06 * w))
         
-        for row in binary_closed:
+        for row in sampled_rows:
             cols = np.flatnonzero(row > 0)
             if cols.size < 2:
                 continue
@@ -172,37 +199,19 @@ class InferenceHandler:
             
             # Check 1: Lane contains the image center
             if left_cols.size > 0 and right_cols.size > 0:
-                left = float(left_cols[-1])
-                right = float(right_cols[0])
-                if (right - left) >= min_lane_width:
+                if (float(right_cols[0]) - float(left_cols[-1])) >= min_lane_width:
                     valid_rows += 1
                     continue
             
-            # Check 2: Shifted lane (lane doesn't contain center, but we find a valid crop-bounded empty space)
-            has_row = row.astype(bool)
-            j = 0
-            best_seg_width = 0
-            while j < w:
-                if has_row[j]:
-                    j += 1
-                    continue
-                start = j
-                while j < w and not has_row[j]:
-                    j += 1
-                end = j - 1
-                
-                # Must be bounded by crop pixels on both sides
-                if start == 0 or end == w - 1:
-                    continue
-                if not (has_row[start - 1] and has_row[end + 1]):
-                    continue
-                    
-                width = end - start + 1
-                if width > best_seg_width:
-                    best_seg_width = width
-            
-            if best_seg_width >= min_lane_width:
-                valid_rows += 1
+            # Check 2: Shifted lane
+            diffs = np.diff(np.pad(row.astype(np.int16), (1, 1), 'constant', constant_values=1))
+            starts = np.where(diffs == -1)[0]
+            ends = np.where(diffs == 1)[0] - 1
+            valid = (starts > 0) & (ends < w - 1)
+            if np.any(valid):
+                widths = ends[valid] - starts[valid] + 1
+                if np.max(widths) >= min_lane_width:
+                    valid_rows += 1
                     
         # Confidence Score: 1.0 if valid lane is detected on >50% of ROI rows
         row_score = valid_rows / (total_rows * 0.5 + 1e-6)
@@ -221,34 +230,34 @@ class InferenceHandler:
             lower_green = np.array([35, 30, 30])
             upper_green = np.array([85, 255, 255])
             mask = cv2.inRange(hsv, lower_green, upper_green)
-            mask_prob = (mask / 255.0).astype(np.float32)
+            mask_prob = (mask * self._scale_inv_255).astype(np.float32)
             mask_prob = cv2.resize(mask_prob, (self.input_size[1], self.input_size[0]), interpolation=cv2.INTER_LINEAR)
+            confidence = self.compute_row_confidence(mask_prob)
         else:
             input_tensor, _ = self.preprocess_image(bgr_image)
             mask_prob = self.predict_mask(input_tensor, enable_tta=False)
+            confidence = self.compute_row_confidence(mask_prob)
             
             # Domain Adaptation Check: if CNN confidence is low (due to Gazebo domain gap), fallback to HSV green segmentation
-            confidence = self.compute_row_confidence(mask_prob)
             if confidence < 0.30:
                 hsv = cv2.cvtColor(bgr_image, cv2.COLOR_BGR2HSV)
                 lower_green = np.array([35, 30, 30])
                 upper_green = np.array([85, 255, 255])
                 mask_hsv = cv2.inRange(hsv, lower_green, upper_green)
-                hsv_prob = (mask_hsv / 255.0).astype(np.float32)
+                hsv_prob = (mask_hsv * self._scale_inv_255).astype(np.float32)
                 hsv_prob = cv2.resize(hsv_prob, (self.input_size[1], self.input_size[0]), interpolation=cv2.INTER_LINEAR)
                 
                 hsv_conf = self.compute_row_confidence(hsv_prob)
                 if hsv_conf > confidence:
                     mask_prob = hsv_prob
+                    confidence = hsv_conf
 
-        confidence = self.compute_row_confidence(mask_prob)
-        heading_error = self.compute_steering_angle(mask_prob, max_angle_deg=max_angle_deg)
+        # Lane center and heading error without duplicate computations
         lane_center = self.find_lane_center(mask_prob)
-        
         _, w = mask_prob.shape[:2]
-        image_center = (w - 1) / 2.0
+        image_center = (w - 1) * 0.5
         lane_offset = (lane_center - image_center) / max(image_center, 1.0)
+        heading_error = float(np.clip(lane_offset * max_angle_deg, -max_angle_deg, max_angle_deg))
         
         self.latest_mask = mask_prob
-        
         return heading_error, lane_offset, lane_center, confidence

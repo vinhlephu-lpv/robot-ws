@@ -40,7 +40,11 @@ def generate_launch_description():
         'enable_costmap', default_value='true',
         description='Enable real-time costmap inflation node')
 
-    # ── Include Real Robot Bringup (URDF 3D model + TF + LiDAR C1 + RViz) ───
+    enable_rviz_arg = DeclareLaunchArgument(
+        'enable_rviz', default_value='false',
+        description='Enable RViz2 on Pi (default false for headless SSH)')
+
+    # ── Include Real Robot Bringup (URDF 3D model + TF + LiDAR C1 + IMU + Madgwick + EKF) ───
     real_robot_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(pkg_bringup, 'launch', 'real_robot.launch.py')
@@ -50,7 +54,10 @@ def generate_launch_description():
             'enable_esp32': LaunchConfiguration('enable_esp32'),
             'enable_camera': 'false',
             'enable_cnn': 'false',
-            'enable_rviz': 'true',
+            'enable_rviz': LaunchConfiguration('enable_rviz'),
+            'enable_imu': 'true',
+            'enable_madgwick': 'true',
+            'enable_ekf': 'true',
         }.items()
     )
 
@@ -79,6 +86,7 @@ def generate_launch_description():
         serial_port_arg,
         enable_esp32_arg,
         enable_costmap_arg,
+        enable_rviz_arg,
         real_robot_launch,
         slam_launch,
         costmap_node,

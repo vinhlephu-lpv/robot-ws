@@ -6,7 +6,10 @@
 cnn_driver_node:
   ros__parameters:
     # Đường dẫn model ONNX (copy file này sang Pi)
-    model_path: 'models/crop_row_cnn_best_test.onnx'
+    model_path: 'models/crop_row_cnn_best_final.onnx'
+    input_height: 512
+    input_width: 512
+    save_debug_imgs: false
 
     # Không sử dụng mặt nạ HSV trên xe thật (dùng model ONNX)
     use_hsv_mask: false

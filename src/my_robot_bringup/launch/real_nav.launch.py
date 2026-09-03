@@ -34,13 +34,20 @@ def generate_launch_description():
         'map', default_value='',
         description='Full path to map yaml file')
 
-    # ── Include Real Robot Bringup ───────────────────────────────────
+    # ── Include Real Robot Bringup (LiDAR + ESP32 + IMU + Madgwick + EKF) ─
     real_robot_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(pkg_bringup, 'launch', 'real_robot.launch.py')
         ),
         launch_arguments={
             'serial_port': LaunchConfiguration('serial_port'),
+            'enable_esp32': 'true',
+            'enable_camera': 'false',
+            'enable_cnn': 'false',
+            'enable_rviz': 'false',
+            'enable_imu': 'true',
+            'enable_madgwick': 'true',
+            'enable_ekf': 'true',
         }.items()
     )
 
