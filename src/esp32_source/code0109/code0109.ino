@@ -61,7 +61,7 @@
 #define INV_DRV1     1   // Bánh trái trước: Tiến
 #define INV_DRV2     1   // Bánh trái sau: Tiến
 #define INV_DRV3    -1   // Bánh phải trước: Đảo chiều để quay cùng chiều tiến với bánh trái
-#define INV_DRV4    -1   // Bánh phải sau: Đảo chiều đồng bộ bánh phải trước (đổi thành 1 nếu motor 4 đã đảo dây phần cứng)
+#define INV_DRV4     1   // Bánh phải sau: Đổi thành 1 để quay cùng chiều TIẾN với các bánh khác
 
 #define RGB_LED_PIN 48   // Chân LED RGB tích hợp ESP32-S3
 
