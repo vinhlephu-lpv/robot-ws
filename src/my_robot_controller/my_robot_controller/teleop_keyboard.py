@@ -117,8 +117,8 @@ def main():
     node = rclpy.create_node('teleop_keyboard_node')
     pub = node.create_publisher(Twist, '/cmd_vel', 10)
 
-    linear_speed = 0.27   # m/s (Tăng thêm 0.07 m/s giúp xe chạy lướt mượt hơn)
-    angular_speed = 0.65  # rad/s
+    linear_speed = 0.20   # m/s (Tốc độ đầm chắc, giảm thiểu tối đa trượt bánh)
+    angular_speed = 0.50  # rad/s (Xoay êm ái, bảo vệ góc IMU)
 
     target_x = 0.0
     target_th = 0.0
