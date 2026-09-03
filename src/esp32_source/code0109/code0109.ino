@@ -16,7 +16,7 @@
 
 // Ngưỡng Deadzone & Giới hạn gia tốc PWM
 #define MIN_PWM                 0         // 0: Cho phép toàn dải từ 0 đến 255 PWM
-#define MAX_PWM_CHANGE_UP       45        // Bơm lực nhanh, mượt mà khi gặp tải
+#define MAX_PWM_CHANGE_UP       45        // Bơm lực nhanh, mượt mà khi tăng tải
 #define MAX_PWM_CHANGE_DOWN     35        // Giảm tốc êm ái bảo vệ cơ cấu nhông hộp số
 #define RAMP_STEP_MAX           12.0f     // Bước ramp tối đa khi chạy Open-loop
 #define RAMP_STEP_MIN           2.0f      // Bước khởi động dứt khoát không bị ì
@@ -105,7 +105,7 @@ EncoderData enc[4] = {
 struct WheelPID {
   float kp, ki, kd;
   float targetRPM;
-  float currentRpmSetpoint;         // Tốc độ đặt tăng giảm mượt mà (Setpoint Profiling)
+  float currentRpmSetpoint;         // Tốc độ đặt tăng giảm mượt mà có dấu (Signed Setpoint Profiling)
   float integral;
   float lastError;
   float filteredDeriv;
@@ -119,8 +119,8 @@ struct WheelPID {
 #define PID_KI              1.150f  // Hệ số Ki: Duy trì mô-men xoắn liên tục, bù triệt để ma sát cơ khí hộp số 775
 #define PID_KD              0.050f  // Hệ số Kd: Giảm chấn dập tắt dao động và triệt tiêu rung giật
 #define K_SYNC_CROSS_WHEEL  0.750f  // Hệ số bù đồng tốc liên bánh xe tỷ lệ (Proportional trim)
-#define K_LR_BALANCE        1.200f  // Khóa cân bằng cụm Trái - Phải mượt mà, chống xẹo xe
-#define K_SIDE_SYNC         0.400f  // Khóa đồng tốc giữa 2 bánh trước - sau cùng bên
+#define K_LR_BALANCE        1.200f  // Khóa cân bằng cụm Trái - Phải mượt mà khi chạy thẳng / lùi
+#define K_SIDE_SYNC         0.500f  // Khóa đồng tốc giữa 2 bánh trước - sau cùng bên (luôn bật)
 
 WheelPID wpid[4] = {
   {PID_KP, PID_KI, PID_KD, 0, 0, 0, 0, 0, 0, 0, true}, // Bánh 1: Trái trước
@@ -328,7 +328,7 @@ void calculateSpeed() {
     }
 
     // 2. BỘ LỌC CHỐNG TRÔI ẢO KHI DỪNG (Deadband Zero-Motion Suppression):
-    if (!isMoving && wpid[i].targetRPM <= 0.1f && labs(pulses) <= 1) {
+    if (!isMoving && fabsf(wpid[i].currentRpmSetpoint) <= 0.2f && labs(pulses) <= 1) {
       pulses = 0;
     }
 
@@ -451,7 +451,7 @@ void updateWheelHealth() {
 #endif
     float rpm = fabsf(enc[i].rpm);
     int   pwm = abs(slew[i].target);
-    float tgt = wpid[i].targetRPM;
+    float tgt = fabsf(wpid[i].targetRPM);
 
     // 1. Phát hiện kẹt cứng / hỏng encoder (Chống chattering rung giật cờ stall)
     if (wHealth[i].isStalled) {
@@ -528,13 +528,13 @@ void updatePID(float dt) {
   float avgRight = (actualRPM[2] + actualRPM[3]) / 2.0f;
   float avgTotal = (avgLeft + avgRight) / 2.0f;
 
-  // Chỉ kích hoạt bù đồng tốc vi sai khi cả 4 bánh cùng được bật chạy đồng thời:
+  // Kiểm tra trạng thái chạy thẳng / lùi thẳng để kích hoạt khóa hướng Heading Lock:
   bool isAllWheelsActive = (wpid[0].enabled && wpid[1].enabled && wpid[2].enabled && wpid[3].enabled);
   bool isStraight = isAllWheelsActive && 
                     (currentDirection == "FORWARD" || currentDirection == "BACKWARD" ||
                     (currentDirection == "ROS" && fabsf(rosTargetRpmSigned[0] - rosTargetRpmSigned[2]) < 1.0f));
 
-  // KHÓA ĐỒNG TỐC VI SAI TRÁI - PHẢI TỨC THỜI (Active Left-Right Heading Lock):
+  // KHÓA ĐỒNG TỐC VI SAI TRÁI - PHẢI TỨC THỜI (Active Left-Right Heading Lock khi chạy thẳng / lùi):
   float lrDiff = 0.0f;
   if (isStraight && isMoving) {
     lrDiff = avgLeft - avgRight;
@@ -559,19 +559,38 @@ void updatePID(float dt) {
       continue;
     }
 
-    float rpm_act     = actualRPM[i];
-    float finalTarget = wpid[i].targetRPM;
-    bool  isLeft      = (i == 0 || i == 1);
+    float rpm_act = actualRPM[i];
+    bool  isLeft  = (i == 0 || i == 1);
 
-    // BỘ TẠO QUỸ ĐẠO RPM MỤC TIÊU MƯỢT MÀ (Setpoint Profiler - Triệt tiêu 100% cú giật khởi động):
-    if (finalTarget > wpid[i].currentRpmSetpoint) {
-      wpid[i].currentRpmSetpoint = min(finalTarget, wpid[i].currentRpmSetpoint + RPM_ACCEL_RATE * dt);
-    } else if (finalTarget < wpid[i].currentRpmSetpoint) {
-      wpid[i].currentRpmSetpoint = max(finalTarget, wpid[i].currentRpmSetpoint - RPM_DECEL_RATE * dt);
+    // XÁC ĐỊNH VẬN TỐC MỤC TIÊU CÓ DẤU CHO TỪNG BÁNH XE (TIẾN, LÙI, XOAY TRÁI, XOAY PHẢI, ROS):
+    float target_signed = 0.0f;
+    if (currentDirection == "FORWARD") {
+      target_signed = wpid[i].targetRPM;
+    } else if (currentDirection == "BACKWARD") {
+      target_signed = -wpid[i].targetRPM;
+    } else if (currentDirection == "LEFT") {
+      target_signed = isLeft ? -wpid[i].targetRPM : wpid[i].targetRPM;
+    } else if (currentDirection == "RIGHT") {
+      target_signed = isLeft ? wpid[i].targetRPM : -wpid[i].targetRPM;
+    } else if (currentDirection == "ROS") {
+      target_signed = rosTargetRpmSigned[i];
+    } else {
+      target_signed = 0.0f;
     }
-    float setpoint = wpid[i].currentRpmSetpoint;
 
-    if (setpoint <= 0.2f && finalTarget <= 0.1f) {
+    // BỘ TẠO QUỸ ĐẠO RPM CÓ DẤU (Signed Setpoint Profiler):
+    // Khi đổi chiều (Tiến sang Lùi hoặc ngược lại), setpoint tự động giảm mượt về 0 rồi mới đổi cực motor, triệt tiêu 100% giật cục:
+    if (target_signed > wpid[i].currentRpmSetpoint) {
+      wpid[i].currentRpmSetpoint = min(target_signed, wpid[i].currentRpmSetpoint + RPM_ACCEL_RATE * dt);
+    } else if (target_signed < wpid[i].currentRpmSetpoint) {
+      wpid[i].currentRpmSetpoint = max(target_signed, wpid[i].currentRpmSetpoint - RPM_DECEL_RATE * dt);
+    }
+
+    float setpoint_signed = wpid[i].currentRpmSetpoint;
+    float setpoint_mag    = fabsf(setpoint_signed);
+    int   sign            = (setpoint_signed >= 0.0f) ? 1 : -1;
+
+    if (setpoint_mag <= 0.2f && fabsf(target_signed) <= 0.1f) {
       wpid[i].pwmOutput = 0;
       wpid[i].integral = 0.0f;
       wpid[i].currentRpmSetpoint = 0.0f;
@@ -580,19 +599,19 @@ void updatePID(float dt) {
     }
 
     // 1. Lực bù ma sát khô Coulomb (Thắng ma sát tĩnh nhông hộp số 775 ở mọi dải tốc độ):
-    float coulomb_ff = (setpoint > 0.3f) ? K_COULOMB_FRICTION : 0.0f;
+    float coulomb_ff = (setpoint_mag > 0.3f) ? K_COULOMB_FRICTION : 0.0f;
 
     // 2. Feedforward PWM cơ sở tuyến tính 0-255:
-    float ff_pwm = (setpoint / 220.0f) * (255.0f - K_COULOMB_FRICTION);
+    float ff_pwm = (setpoint_mag / 220.0f) * (255.0f - K_COULOMB_FRICTION);
 
     // 3. Sai số bám tốc độ mục tiêu (Tracking Error) của riêng bánh xe:
-    float track_error = setpoint - rpm_act;
+    float track_error = setpoint_mag - rpm_act;
     if (fabsf(track_error) < PID_ERROR_DEADBAND) {
       track_error = 0.0f;
     }
 
-    // 4. KHÂU TÍCH PHÂN (INTEGRAL): CHỈ TÍCH LŨY SAI SỐ BÁM CỦA RIÊNG BÁNH ĐÓ (Triệt tiêu 100% hiện tượng 4 bộ tích phân giằng co lẫn nhau):
-    float maxIntegral = (setpoint <= 65.0f) ? 75.0f : 120.0f;
+    // 4. KHÂU TÍCH PHÂN (INTEGRAL): CHỈ TÍCH LŨY SAI SỐ BÁM CỦA RIÊNG BÁNH ĐÓ:
+    float maxIntegral = (setpoint_mag <= 65.0f) ? 75.0f : 120.0f;
     wpid[i].integral = constrain(wpid[i].integral + track_error * dt, -maxIntegral, maxIntegral);
 
     // 5. Khâu vi phân (Derivative) có lọc thông thấp dập tắt dao động:
@@ -603,43 +622,50 @@ void updatePID(float dt) {
     // 6. Tính toán PID cơ sở:
     float pid_corr = (wpid[i].kp * track_error) + (wpid[i].ki * wpid[i].integral) + (wpid[i].kd * wpid[i].filteredDeriv);
 
-    // 7. Bù đồng tốc liên bánh xe 4 bánh (Cross-Coupling Proportional Trim):
-    float sync_corr = 0.0f;
-    if (isStraight) {
-      float sync_error = (avgTotal - rpm_act);
-      sync_corr = sync_error * K_SYNC_CROSS_WHEEL;
-    }
-
-    // 8. Bù khóa cân bằng Trái - Phải và đồng bộ Trước - Sau cùng bên (Proportional Trim):
-    float balance_corr = 0.0f;
+    // 7. ĐỒNG BỘ 2 BÁNH TRƯỚC - SAU CÙNG MỘT BÊN (Side Sync Trim):
+    // LUÔN LUÔN BẬT dù Tiến, Lùi, Rẽ Trái hay Rẽ Phải để 2 bánh cùng bên quay tuyệt đối đồng đều:
     float side_sync_corr = 0.0f;
-    if (isStraight) {
-      balance_corr = isLeft ? (-lrCorrection) : (lrCorrection);
+    if (isAllWheelsActive && isMoving) {
       float side_diff = isLeft ? (avgLeft - rpm_act) : (avgRight - rpm_act);
       side_sync_corr = side_diff * K_SIDE_SYNC;
     }
 
-    // 9. BÙ MÔ-MEN XOẮN DUY TRÌ LỰC KÉO TỐC ĐỘ THẤP (Khi gặp gờ cản/tải nặng làm tụt tốc):
+    // 8. BÙ KHÓA HƯỚNG TRÁI - PHẢI & ĐỒNG TỐC LIÊN BÁNH: CHỈ KÍCH HOẠT KHI CHẠY THẲNG / LÙI THẲNG:
+    float sync_corr = 0.0f;
+    float balance_corr = 0.0f;
+    if (isStraight && isMoving) {
+      float sync_error = (avgTotal - rpm_act);
+      sync_corr = sync_error * K_SYNC_CROSS_WHEEL;
+      balance_corr = isLeft ? (-lrCorrection) : (lrCorrection);
+    }
+
+    // 9. BÙ MÔ-MEN XOẮN DUY TRÌ LỰC KÉO TỐC ĐỘ THẤP KHI GẶP TẢI NẶNG:
     float torque_boost = 0.0f;
-    if (setpoint < 75.0f && track_error > 2.0f) {
-      float defectRatio = constrain((track_error - 2.0f) / setpoint, 0.0f, 1.0f);
+    if (setpoint_mag < 75.0f && track_error > 2.0f) {
+      float defectRatio = constrain((track_error - 2.0f) / setpoint_mag, 0.0f, 1.0f);
       torque_boost = defectRatio * K_ROUGH_TERRAIN_BOOST;
     }
 
-    // Khâu duy trì từ trường liên tục ở tốc độ chậm (giúp động cơ 775 quay cực khỏe, không bị ì ma sát):
+    // 10. BÙ MÔ-MEN XOẮN XOAY RẼ TẠI CHỖ (Khắc phục ma sát trượt ngang của lốp khi rẽ):
+    float turn_boost = 0.0f;
+    if (!isStraight && isMoving && setpoint_mag > 5.0f && track_error > 1.5f) {
+      turn_boost = constrain(track_error * 0.75f, 0.0f, 16.0f);
+    }
+
+    // Khâu duy trì từ trường liên tục ở tốc độ chậm (động cơ 775 quay cực khỏe, không bị ì ma sát):
     float low_speed_torque_maintain = 0.0f;
-    if (setpoint > 0.5f && setpoint <= 45.0f) {
-      float crawlRatio = (45.0f - setpoint) / 45.0f;
+    if (setpoint_mag > 0.5f && setpoint_mag <= 45.0f) {
+      float crawlRatio = (45.0f - setpoint_mag) / 45.0f;
       low_speed_torque_maintain = crawlRatio * 6.0f; // Duy trì 2 - 6 PWM từ trường liên tục
     }
 
-    // 10. Tổng hợp PWM điều khiển hoàn chỉnh (Toàn dải 0-255):
-    int desired = (int)(ff_pwm + coulomb_ff + pid_corr + sync_corr + balance_corr + side_sync_corr + torque_boost + low_speed_torque_maintain + 0.5f);
+    // 11. Tổng hợp PWM điều khiển hoàn chỉnh (Toàn dải 0-255):
+    int desired = (int)(ff_pwm + coulomb_ff + pid_corr + sync_corr + balance_corr + side_sync_corr + torque_boost + turn_boost + low_speed_torque_maintain + 0.5f);
     desired = constrain(desired, 0, 255);
 
     // Giới hạn trần an toàn theo tốc độ người dùng đặt:
     int userPwmCap = (currentDirection == "ROS") ? 255 : max((int)currentSpeed, 0);
-    if (rpm_act >= setpoint * 0.95f && desired > userPwmCap) {
+    if (rpm_act >= setpoint_mag * 0.95f && desired > userPwmCap) {
       desired = userPwmCap;
     }
 
@@ -658,14 +684,6 @@ void updatePID(float dt) {
       wpid[i].integral = 0.0f;
     }
 
-    // 11. Quy tắc chiều quay 4 bánh (Tank Drive & ROS)
-    int sign = 0;
-    if (currentDirection == "FORWARD")       sign = 1;
-    else if (currentDirection == "BACKWARD") sign = -1;
-    else if (currentDirection == "LEFT")     sign = isLeft ? -1 : 1;
-    else if (currentDirection == "RIGHT")    sign = isLeft ? 1 : -1;
-    else if (currentDirection == "ROS")      sign = (rosTargetRpmSigned[i] >= 0.0f) ? 1 : -1;
-
     slew[i].target = sign * wpid[i].pwmOutput;
   }
 }
@@ -682,7 +700,7 @@ void updateSpeedRamp() {
     float &cur  = slew[i].current;
     int    tgt  = slew[i].target;
 
-    // Khi PID đang điều khiển xe chạy: bám sát target để không trễ pha (vì Setpoint Profiler đã làm mịn rồi)
+    // Khi PID đang điều khiển xe chạy: bám sát target để không trễ pha (vì Signed Setpoint Profiler đã làm mịn rồi)
     if (pidGlobalEnabled && isMoving && currentDirection != "STOP") {
       cur = (float)tgt;
     } else {
@@ -856,6 +874,7 @@ void handleCommand(String command) {
         } else {
           wpid[i].enabled = false;
           wpid[i].targetRPM = 0.0f;
+          wpid[i].currentRpmSetpoint = 0.0f;
           slew[i].target = 0;
           slew[i].current = 0.0f;
         }
@@ -917,7 +936,7 @@ void handleCommand(String command) {
     return;
   }
 
-  // Lệnh vận tốc ROS 2: "V <FL> <RL> <FR> <RR>" hoặc "V <L> <R>" (RPM)
+  // Lệnh vận tốc ROS 2: "V <FL> <RL> <FR> <RR>" hoặc "V <L> <R>" (RPM có dấu)
   if (command.startsWith("V ") || command.startsWith("v ") || command.startsWith("V\t") || command.startsWith("v\t")) {
     float r[4] = {0.0f, 0.0f, 0.0f, 0.0f};
     int parsed = sscanf(command.c_str() + 2, "%f %f %f %f", &r[0], &r[1], &r[2], &r[3]);
@@ -943,7 +962,6 @@ void handleCommand(String command) {
           rosTargetRpmSigned[i] = r[i];
           wpid[i].targetRPM = fabsf(r[i]);
           wpid[i].enabled = pidGlobalEnabled;
-          // QUAN TRỌNG: Chỉ gán slew[i].target thủ công nếu TẮT PID. Khi BẬT PID, để vòng lặp updatePID điều khiển chính xác:
           if (!pidGlobalEnabled) {
             int sign = (r[i] >= 0.0f) ? 1 : -1;
             int pwm = (int)(sign * ((fabsf(r[i]) / 220.0f) * 255.0f));
@@ -1046,7 +1064,6 @@ void handleCommand(String command) {
       for (int i = 0; i < 4; i++) {
         wpid[i].targetRPM = globalTargetRPM;
         wpid[i].integral = 0.0f;
-        wpid[i].currentRpmSetpoint = 0.0f;
       }
       Serial.printf("[RUN] Chay lien tuc: %s | Target: %.1f RPM | MIN_PWM: %d (Nhan STOP de dung)\n", 
                     command.c_str(), globalTargetRPM, MIN_PWM);
