@@ -156,8 +156,8 @@ class EncoderNode(Node):
     def cmd_vel_callback(self, msg: Twist):
         """
         Nhận /cmd_vel (linear.x, angular.z) từ Navigation2 / Teleop.
-        Quy đổi ra RPM 2 vế và cập nhật trạng thái mục tiêu.
-        Lệnh sẽ được gửi duy nhất và đồng bộ trong update_loop (20 Hz) để chống nghẽn Serial.
+        Quy đổi ra RPM 2 vế và cập nhật mục tiêu cho vòng lặp điều khiển 20 Hz.
+        Không gửi trực tiếp ở đây để tránh xung đột bus Serial (Double-Send).
         """
         v = msg.linear.x
         w = msg.angular.z
@@ -180,7 +180,7 @@ class EncoderNode(Node):
                 self.get_logger().warn(f'Lỗi gửi Serial xuống ESP32: {e}')
 
     def update_loop(self):
-        """Vòng lặp chính 20 Hz: Đọc Serial non-blocking, xử lý Odometry và gửi heartbeat điều khiển chuẩn nhịp."""
+        """Vòng lặp chính 20 Hz: Đọc Serial non-blocking, xử lý Odometry và gửi heartbeat điều khiển."""
         now = self.get_clock().now()
 
         # Kiểm tra kết nối lại nếu mất Serial
@@ -188,9 +188,9 @@ class EncoderNode(Node):
             self.init_serial()
             return
 
-        # Duy trì lệnh gửi định kỳ 20 Hz nuôi Watchdog an toàn của ESP32
-        # Nếu quá 0.25s không có lệnh /cmd_vel mới thì lập tức đưa về 0 RPM (dừng dứt khoát, chống trôi lệnh)
-        if time.time() - self.last_cmd_vel_time > 0.25:
+        # Duy trì lệnh gửi định kỳ nuôi Watchdog an toàn của ESP32 (Chu kỳ chuẩn 20 Hz / 50ms)
+        # Nếu quá 0.30s không có lệnh /cmd_vel mới thì tự động về 0 RPM để dừng xe dứt khoát không bị trôi lệnh
+        if time.time() - self.last_cmd_vel_time > 0.30:
             self.target_rpm_left = 0.0
             self.target_rpm_right = 0.0
         self._send_motor_cmd(self.target_rpm_left, self.target_rpm_right)
