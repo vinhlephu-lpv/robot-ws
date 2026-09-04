@@ -206,6 +206,8 @@ alias real-nav="real_nav_func"
 
 alias pc-nav="load_ws && ros2 launch my_robot_bringup pc_nav.launch.py"
 alias nav-slam="load_ws && ros2 launch my_robot_bringup pc_nav.launch.py"
+alias gps-nav="load_ws && ros2 launch my_robot_navigation gps_nav.launch.py"
+alias nav-gps="gps-nav"
 
 # Lệnh kích hoạt xe THẬT CÓ QUAY VIDEO THÔ (100% Raw, không hiện gì trên màn hình)
 real-record() {
