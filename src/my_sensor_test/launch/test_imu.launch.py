@@ -48,10 +48,29 @@ def generate_launch_description():
             'i2c_bus': LaunchConfiguration('i2c_bus'),
             'i2c_address': LaunchConfiguration('i2c_address'),
             'frame_id': 'imu_link',
-            'publish_topic': '/imu',
+            'publish_topic': '/imu/data_internal',
+            'raw_topic': '/imu/data_raw',
             'rate_hz': 50.0,
             'calibrate_samples': 60,
         }]
+    )
+
+    madgwick_node = Node(
+        package='imu_filter_madgwick',
+        executable='imu_filter_madgwick_node',
+        name='imu_filter_madgwick_node',
+        output='screen',
+        parameters=[{
+            'use_mag': False,
+            'publish_tf': False,
+            'world_frame': 'enu',
+            'gain': 0.1,
+            'zeta': 0.0,
+        }],
+        remappings=[
+            ('imu/data_raw', '/imu/data_raw'),
+            ('imu/data', '/imu/data'),
+        ],
     )
 
     return LaunchDescription([
@@ -60,4 +79,5 @@ def generate_launch_description():
         robot_state_pub,
         joint_state_pub,
         imu_driver_node,
+        madgwick_node,
     ])

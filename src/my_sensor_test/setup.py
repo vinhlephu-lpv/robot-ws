@@ -30,6 +30,7 @@ setup(
         'console_scripts': [
             'sensor_diagnostics = my_sensor_test.sensor_diagnostics:main',
             'sensor_visualizer = my_sensor_test.sensor_visualizer:main',
+            'check_imu = my_sensor_test.check_imu:main',
         ],
     },
 )
