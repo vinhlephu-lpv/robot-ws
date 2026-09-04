@@ -382,6 +382,8 @@ alias show-odom="xem-ekf"
 alias check-ekf="load_ws && python3 \"$WS_DIR/src/my_sensor_test/scripts/check_ekf\""
 alias xem-fusion="check-ekf"
 alias test-ekf="check-ekf"
+alias dual-ekf="load_ws && ros2 launch my_robot_bringup dual_ekf.launch.py"
+alias ekf-gps="load_ws && ros2 launch my_robot_bringup dual_ekf.launch.py enable_gps:=true"
 
 # =====================================================
 # BẢNG TRA CỨU LỆNH TẮT NHANH (ros-help)
