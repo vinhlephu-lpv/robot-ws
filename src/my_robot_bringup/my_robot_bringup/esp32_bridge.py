@@ -35,6 +35,9 @@ class ESP32Bridge(Node):
         self.declare_parameter('esp32_ip', '192.168.1.100')
         self.declare_parameter('wheel_diameter', 0.20)  # meters (from codepid2608.ino)
         self.declare_parameter('wheel_base', 0.58)      # meters (distance between left and right wheels)
+        self.declare_parameter('encoder_ppr', 200)      # Pulses per revolution per channel
+        self.declare_parameter('quadrature', 4)         # Quadrature factor (1, 2, or 4 for X4)
+        self.declare_parameter('gear_ratio', 1.0)       # Gearbox ratio (1.0 if encoder is after gearbox)
         self.declare_parameter('odom_topic', '/odom/raw')
         self.declare_parameter('publish_tf', False)
         self.declare_parameter('odom_frame', 'odom')
@@ -45,6 +48,10 @@ class ESP32Bridge(Node):
         self.baud = self.get_parameter('baudrate').value
         self.wheel_d = float(self.get_parameter('wheel_diameter').value)
         self.wheel_base = float(self.get_parameter('wheel_base').value)
+        self.encoder_ppr = int(self.get_parameter('encoder_ppr').value)
+        self.quadrature = int(self.get_parameter('quadrature').value)
+        self.gear_ratio = float(self.get_parameter('gear_ratio').value)
+        self.encoder_cpr = float(self.encoder_ppr * self.quadrature * self.gear_ratio)
         self.odom_topic = self.get_parameter('odom_topic').value
         
         raw_pub_tf = self.get_parameter('publish_tf').value
@@ -57,6 +64,15 @@ class ESP32Bridge(Node):
         self.base_frame = self.get_parameter('base_frame').value
 
         self.wheel_circ = math.pi * self.wheel_d
+
+        # ── Raw Encoder & Outlier Tracking State ──────────────────────
+        self._last_raw_us = None
+        self._last_fl = None
+        self._last_fr = None
+        self._last_rl = None
+        self._last_rr = None
+        self._last_vl = 0.0
+        self._last_vr = 0.0
 
         # ── Robot Odometry State (Dead Reckoning) ─────────────────────
         self.x = 0.0
@@ -86,7 +102,7 @@ class ESP32Bridge(Node):
         self.timer = self.create_timer(0.05, self.update_loop)
 
         self.get_logger().info(
-            f'ESP32 Bridge started [Mode: {self.mode}] [Wheel D: {self.wheel_d}m, Base: {self.wheel_base}m]')
+            f'ESP32 Bridge started [Mode: {self.mode}] [Wheel D: {self.wheel_d}m, Base: {self.wheel_base}m, CPR: {self.encoder_cpr:.0f} (PPR:{self.encoder_ppr} x Quad:{self.quadrature} x Gear:{self.gear_ratio})]')
 
     def init_serial(self):
         if not SERIAL_AVAILABLE:
@@ -161,8 +177,63 @@ class ESP32Bridge(Node):
                         if not line:
                             continue
 
-                        # 1. Giao thức ODOM: "ODOM <v_left> <v_right>" (m/s)
-                        if line.startswith('ODOM') or line.startswith('O '):
+                        # 1. Giao thức RAW: "RAW <timestamp_us> <FL> <FR> <RL> <RR>" (Tính Odometry trực tiếp trên Pi)
+                        if line.startswith('RAW'):
+                            parts = line.split()
+                            if len(parts) >= 6:
+                                try:
+                                    t_us = int(parts[1])
+                                    fl = int(parts[2])
+                                    fr = int(parts[3])
+                                    rl = int(parts[4])
+                                    rr = int(parts[5])
+
+                                    if self._last_raw_us is not None:
+                                        # Tính khoảng thời gian delta time tính bằng giây (xử lý tràn micros 32-bit)
+                                        dt_us = t_us - self._last_raw_us
+                                        if dt_us < 0:
+                                            dt_us += (1 << 32)
+                                        dt_s = dt_us / 1e6
+
+                                        # Chỉ tính toán nếu chu kỳ delta time hợp lý (5ms đến 250ms)
+                                        if 0.005 < dt_s < 0.25:
+                                            d_fl = fl - self._last_fl
+                                            d_rl = rl - self._last_rl
+                                            d_fr = fr - self._last_fr
+                                            d_rr = rr - self._last_rr
+
+                                            # Đổi xung trung bình vế Trái và vế Phải
+                                            d_left_ticks = (d_fl + d_rl) / 2.0
+                                            d_right_ticks = (d_fr + d_rr) / 2.0
+
+                                            # Vận tốc tức thời (m/s) = (xung * chu vi bánh / CPR) / dt
+                                            v_l_meas = (d_left_ticks * self.wheel_circ / self.encoder_cpr) / dt_s
+                                            v_r_meas = (d_right_ticks * self.wheel_circ / self.encoder_cpr) / dt_s
+
+                                            # Bộ lọc gia tốc ảo (Sanity Check Filter) chống nhảy số đột biến do rớt gói Serial
+                                            a_l = abs(v_l_meas - self._last_vl) / dt_s
+                                            a_r = abs(v_r_meas - self._last_vr) / dt_s
+
+                                            # Chấp nhận nếu mẫu đầu tiên hoặc gia tốc vật lý hợp lý (<8.0 m/s^2) và vận tốc < 2.5 m/s
+                                            if (not getattr(self, '_has_first_meas', False) or (a_l < 8.0 and a_r < 8.0)) and abs(v_l_meas) < 2.5 and abs(v_r_meas) < 2.5:
+                                                self._has_first_meas = True
+                                                v_l = v_l_meas
+                                                v_r = v_r_meas
+                                                self._last_vl = v_l
+                                                self._last_vr = v_r
+                                                self.vx = (v_r + v_l) / 2.0
+                                                self.vth = (v_r - v_l) / self.wheel_base
+
+                                    self._last_raw_us = t_us
+                                    self._last_fl = fl
+                                    self._last_fr = fr
+                                    self._last_rl = rl
+                                    self._last_rr = rr
+                                except ValueError:
+                                    pass
+
+                        # 2. Giao thức ODOM dự phòng: "ODOM <v_left> <v_right>" (chỉ kích hoạt nếu chưa có gói RAW)
+                        elif (line.startswith('ODOM') or line.startswith('O ')) and self._last_raw_us is None:
                             parts = line.split()
                             if len(parts) >= 3:
                                 try:
@@ -173,8 +244,8 @@ class ESP32Bridge(Node):
                                 except ValueError:
                                     pass
 
-                        # 2. Giao thức ENC: "ENC <tick_FL> <tick_RL> <tick_FR> <tick_RR> <dt_ms>"
-                        elif line.startswith('ENC'):
+                        # 3. Giao thức ENC dự phòng
+                        elif line.startswith('ENC') and self._last_raw_us is None:
                             parts = line.split()
                             try:
                                 if len(parts) >= 6:
@@ -193,8 +264,8 @@ class ESP32Bridge(Node):
                                         dt_s = dt_ms / 1000.0
                                         d_l = tick_l - self._last_tick_l
                                         d_r = tick_r - self._last_tick_r
-                                        v_l = (d_l * self.wheel_circ / 200.0) / dt_s
-                                        v_r = (d_r * self.wheel_circ / 200.0) / dt_s
+                                        v_l = (d_l * self.wheel_circ / self.encoder_cpr) / dt_s
+                                        v_r = (d_r * self.wheel_circ / self.encoder_cpr) / dt_s
                                         self.vx = (v_r + v_l) / 2.0
                                         self.vth = (v_r - v_l) / self.wheel_base
                                     self._last_tick_l = tick_l
