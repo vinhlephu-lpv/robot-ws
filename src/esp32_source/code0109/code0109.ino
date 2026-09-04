@@ -113,8 +113,8 @@ struct WheelPID {
 #define PID_KP              1.050f
 #define PID_KI              0.900f
 #define PID_KD              0.080f
-#define K_SYNC_CROSS_WHEEL  0.850f  // Hệ số bù đồng tốc liên bánh xe
-#define K_LR_BALANCE        1.500f  // Hệ số khóa cân bằng đồng tốc cụm Trái - Phải
+#define K_SYNC_CROSS_WHEEL  0.150f  // Hệ số bù đồng tốc liên bánh xe (giảm để triệt tiêu dao động chao đảo)
+#define K_LR_BALANCE        0.300f  // Hệ số khóa cân bằng đồng tốc cụm Trái - Phải (êm ái, chống lắc xe)
 
 WheelPID wpid[4] = {
   {PID_KP, PID_KI, PID_KD, 0.0f, 0.0f, 0.0f, 0.0f, 0, 0, true},
@@ -419,7 +419,7 @@ void updatePID(float dt) {
   } else if (currentDirection == "FORWARD" || currentDirection == "BACKWARD") {
     lrDiff = avgLeft - avgRight;
   }
-  float lrCorrection = constrain(lrDiff * K_LR_BALANCE, -18.0f, 18.0f);
+  float lrCorrection = constrain(lrDiff * K_LR_BALANCE, -6.0f, 6.0f);
 
   for (int i = 0; i < 4; i++) {
 #if WHEEL3_ENCODER_FAULT

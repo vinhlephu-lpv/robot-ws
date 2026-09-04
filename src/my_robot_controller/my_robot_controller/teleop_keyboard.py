@@ -97,7 +97,7 @@ def get_key(settings, timeout=0.05):
             key = os.read(sys.stdin.fileno(), 1).decode('utf-8', errors='ignore')
         else:
             key = ''
-        termios.tcsetattr(sys.stdin, termios.TCSADRAIN, settings)
+        termios.tcsetattr(sys.stdin, termios.TCSANOW, settings)
         return key
     else:
         rlist, _, _ = select.select([sys.stdin.fileno()], [], [], timeout)
