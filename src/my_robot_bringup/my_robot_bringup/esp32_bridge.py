@@ -39,7 +39,7 @@ class ESP32Bridge(Node):
         self.declare_parameter('encoder_ppr', 200)      # Pulses per revolution per channel
         self.declare_parameter('quadrature', 4)         # Quadrature factor (1, 2, or 4 for X4)
         self.declare_parameter('gear_ratio', 1.0)       # Gearbox ratio (1.0 if encoder is after gearbox)
-        self.declare_parameter('odom_topic', '/odom/raw')
+        self.declare_parameter('odom_topic', '/wheel/odom')
         self.declare_parameter('publish_tf', False)
         self.declare_parameter('odom_frame', 'odom')
         self.declare_parameter('base_frame', 'base_footprint')
@@ -203,16 +203,30 @@ class ESP32Bridge(Node):
                         if not line:
                             continue
 
-                        # 1. Giao thức RAW: "RAW <timestamp_us> <FL> <FR> <RL> <RR>" (Tính Odometry trực tiếp trên Pi)
+                        # 1. Giao thức RAW: "RAW <sequence> <timestamp_us> <FL> <FR> <RL> <RR>" (Tính Odometry trực tiếp trên Pi)
                         if line.startswith('RAW'):
                             parts = line.split()
-                            if len(parts) >= 6:
+                            if len(parts) >= 7:
+                                try:
+                                    t_us = int(parts[2])
+                                    fl = int(parts[3])
+                                    fr = int(parts[4])
+                                    rl = int(parts[5])
+                                    rr = int(parts[6])
+                                except ValueError:
+                                    parts = []
+                            elif len(parts) >= 6:
                                 try:
                                     t_us = int(parts[1])
                                     fl = int(parts[2])
                                     fr = int(parts[3])
                                     rl = int(parts[4])
                                     rr = int(parts[5])
+                                except ValueError:
+                                    parts = []
+
+                            if len(parts) >= 6:
+                                try:
 
                                     if self._last_raw_us is not None:
                                         # Tính khoảng thời gian delta time tính bằng giây (xử lý tràn micros 32-bit)

@@ -339,8 +339,11 @@ void calculateSpeed() {
 #endif
 
   // 1. GÓI RAW COUNT + TIMESTAMP (US) GỬI LÊN RASPBERRY PI 5 (ROS 2 JAZZY)
-  // Thứ tự chuẩn: FL=enc[0], FR=enc[2], RL=enc[1], RR=enc[3]
-  Serial.printf("RAW %lu %ld %ld %ld %ld\n", now_us, enc[0].count, enc[2].count, enc[1].count, enc[3].count);
+  // Định dạng chuẩn: RAW <sequence> <timestamp_us> <FL> <FR> <RL> <RR>
+  // Thứ tự bánh: FL=enc[0], FR=enc[2], RL=enc[1], RR=enc[3]
+  static uint32_t raw_seq = 0;
+  raw_seq++;
+  Serial.printf("RAW %lu %lu %ld %ld %ld %ld\n", raw_seq, now_us, enc[0].count, enc[2].count, enc[1].count, enc[3].count);
 
   // 2. Gói Odometry phản hồi (20 Hz)
   float v_left  = (enc[0].speed_ms + enc[1].speed_ms) / 2.0f;
