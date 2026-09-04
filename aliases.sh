@@ -18,12 +18,16 @@ load_ws() {
 
     export ROS_DOMAIN_ID=0
     export ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
-    export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
-    if [ -f "$WS_DIR/cyclonedds.xml" ]; then
-        export CYCLONEDDS_URI="file://$WS_DIR/cyclonedds.xml"
-        cp -f "$WS_DIR/cyclonedds.xml" "$HOME/.cyclonedds.xml" 2>/dev/null || true
-    elif [ -f "$HOME/.cyclonedds.xml" ]; then
-        export CYCLONEDDS_URI="file://$HOME/.cyclonedds.xml"
+    if [ -f "/opt/ros/jazzy/lib/librmw_cyclonedds_cpp.so" ] || [ -f "/opt/ros/humble/lib/librmw_cyclonedds_cpp.so" ] || [ -f "/usr/lib/librmw_cyclonedds_cpp.so" ]; then
+        export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+        if [ -f "$WS_DIR/cyclonedds.xml" ]; then
+            export CYCLONEDDS_URI="file://$WS_DIR/cyclonedds.xml"
+            cp -f "$WS_DIR/cyclonedds.xml" "$HOME/.cyclonedds.xml" 2>/dev/null || true
+        elif [ -f "$HOME/.cyclonedds.xml" ]; then
+            export CYCLONEDDS_URI="file://$HOME/.cyclonedds.xml"
+        fi
+    else
+        unset RMW_IMPLEMENTATION
     fi
 }
 

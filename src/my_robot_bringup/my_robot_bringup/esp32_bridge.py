@@ -9,12 +9,14 @@ Roles:
 3. Fallback: If ESP32 is not connected, operates in graceful Mock/Open-Loop mode.
 """
 
+import os
 import math
 import time
 import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Twist, TransformStamped
 from nav_msgs.msg import Odometry
+from std_msgs.msg import String as StringMsg
 import tf2_ros
 
 try:
@@ -33,8 +35,7 @@ class ESP32Bridge(Node):
         self.declare_parameter('serial_port', '/dev/ttyUSB1')
         self.declare_parameter('baudrate', 115200)
         self.declare_parameter('esp32_ip', '192.168.1.100')
-        self.declare_parameter('wheel_diameter', 0.20)  # meters (from codepid2608.ino)
-        self.declare_parameter('wheel_base', 0.58)      # meters (distance between left and right wheels)
+        self.declare_parameter('wheel_diameter', 0.20)  # meters (from code0109.ino)
         self.declare_parameter('encoder_ppr', 200)      # Pulses per revolution per channel
         self.declare_parameter('quadrature', 4)         # Quadrature factor (1, 2, or 4 for X4)
         self.declare_parameter('gear_ratio', 1.0)       # Gearbox ratio (1.0 if encoder is after gearbox)
@@ -85,6 +86,8 @@ class ESP32Bridge(Node):
         # ── Publishers & Subscribers ──────────────────────────────────
         self.cmd_sub = self.create_subscription(
             Twist, '/cmd_vel', self.cmd_vel_callback, 10)
+        self.esp32_cmd_sub = self.create_subscription(
+            StringMsg, '/esp32/command', self.esp32_command_callback, 10)
         self.odom_pub = self.create_publisher(
             Odometry, self.odom_topic, 10)
         self.tf_broadcaster = tf2_ros.TransformBroadcaster(self)
@@ -102,7 +105,7 @@ class ESP32Bridge(Node):
         self.timer = self.create_timer(0.05, self.update_loop)
 
         self.get_logger().info(
-            f'ESP32 Bridge started [Mode: {self.mode}] [Wheel D: {self.wheel_d}m, Base: {self.wheel_base}m, CPR: {self.encoder_cpr:.0f} (PPR:{self.encoder_ppr} x Quad:{self.quadrature} x Gear:{self.gear_ratio})]')
+            f'ESP32 Bridge started [Mode: {self.mode}] [Port: {self.port}] [Wheel D: {self.wheel_d}m, Base: {self.wheel_base}m, CPR: {self.encoder_cpr:.0f} (PPR:{self.encoder_ppr} x Quad:{self.quadrature} x Gear:{self.gear_ratio})]')
 
     def init_serial(self):
         if not SERIAL_AVAILABLE:
@@ -110,12 +113,37 @@ class ESP32Bridge(Node):
             self.mode = 'mock'
             return
 
-        try:
-            self.ser = serial.Serial(self.port, self.baud, timeout=0.05)
-            self.get_logger().info(f'Connected to ESP32 on {self.port} at {self.baud} baud')
-        except Exception as e:
-            self.get_logger().warn(f'Could not open serial port {self.port}: {e}. Running in MOCK mode.')
-            self.mode = 'mock'
+        candidate_ports = [self.port, '/dev/esp32', '/dev/ttyACM0', '/dev/ttyACM1', '/dev/ttyUSB1', '/dev/ttyUSB0']
+        seen = set()
+        ports_to_try = [p for p in candidate_ports if p and (p not in seen and not seen.add(p))]
+
+        for p in ports_to_try:
+            if not os.path.exists(p):
+                continue
+            try:
+                self.ser = serial.Serial(p, self.baud, timeout=0.05)
+                self.port = p
+                self.get_logger().info(f'✅ Successfully connected to ESP32 on {self.port} at {self.baud} baud')
+                return
+            except Exception as e:
+                self.get_logger().warn(f'Could not open serial port {p}: {e}')
+
+        self.get_logger().warn(f'Could not open any serial port in {ports_to_try}. Running in MOCK mode.')
+        self.mode = 'mock'
+
+    def esp32_command_callback(self, msg: StringMsg):
+        """
+        Sends arbitrary string commands to ESP32 (e.g., RESET_ODOM, PID 1, PID 0, CALIB 1.05).
+        """
+        cmd = msg.data.strip()
+        if not cmd:
+            return
+        if self.mode == 'serial' and self.ser and self.ser.is_open:
+            try:
+                self.ser.write(f'{cmd}\n'.encode('utf-8'))
+                self.get_logger().info(f'Sent raw command to ESP32: {cmd}')
+            except Exception as e:
+                self.get_logger().warn(f'Failed to send command to ESP32: {e}')
 
     def cmd_vel_callback(self, msg: Twist):
         """
@@ -161,10 +189,8 @@ class ESP32Bridge(Node):
             except Exception as e:
                 pass
 
-        v_l = 0.0
-        v_r = 0.0
-
         # Read serial feedback non-blocking
+        odom_received_this_tick = False
         if self.mode == 'serial' and self.ser and self.ser.is_open:
             try:
                 if self.ser.in_waiting > 0:
@@ -241,6 +267,7 @@ class ESP32Bridge(Node):
                                     v_r = float(parts[2])
                                     self.vx = (v_r + v_l) / 2.0
                                     self.vth = (v_r - v_l) / self.wheel_base
+                                    odom_received_this_tick = True
                                 except ValueError:
                                     pass
 
