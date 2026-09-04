@@ -57,12 +57,12 @@ def generate_launch_description():
         description='Enable USB camera node')
 
     color_width_arg = DeclareLaunchArgument(
-        'color_width', default_value='640',
-        description='Color image width (640 for VGA)')
+        'color_width', default_value='1920',
+        description='Color image width (1920 for 1080p Full HD)')
 
     color_height_arg = DeclareLaunchArgument(
-        'color_height', default_value='480',
-        description='Color image height (480 for VGA)')
+        'color_height', default_value='1080',
+        description='Color image height (1080 for 1080p Full HD)')
 
     enable_cnn_arg = DeclareLaunchArgument(
         'enable_cnn', default_value='false',
@@ -137,6 +137,7 @@ def generate_launch_description():
     )
 
     # ── Camera Driver (V4L2 USB Webcam) ──────────────────────────────
+    # ── Camera Driver (V4L2 USB Webcam DVD20 1080p @ 60 FPS) ─────────
     v4l2_camera_node = Node(
         package='v4l2_camera',
         executable='v4l2_camera_node',
@@ -145,7 +146,8 @@ def generate_launch_description():
         output='screen',
         parameters=[{
             'video_device': LaunchConfiguration('camera_device'),
-            'image_size': [640, 480],
+            'image_size': [1920, 1080],
+            'time_per_frame': [1, 60],
             'camera_frame_id': 'camera_link',
             'pixel_format': 'MJPG',
         }],
@@ -195,7 +197,19 @@ def generate_launch_description():
         executable='cnn_driver',
         name='cnn_driver_node',
         output='screen',
-        parameters=[params_real],
+        parameters=[
+            params_real,
+            {
+                'image_topic': '/camera/color/image_raw',
+                'odom_topic': PythonExpression(["'/odometry/filtered' if '", LaunchConfiguration('enable_ekf'), "' == 'true' else '/odom'"]),
+                'imu_topic': '/imu/data',
+            }
+        ],
+        remappings=[
+            ('camera/image_raw', '/camera/color/image_raw'),
+            ('odom', PythonExpression(["'/odometry/filtered' if '", LaunchConfiguration('enable_ekf'), "' == 'true' else '/odom'"])),
+            ('/imu', '/imu/data'),
+        ],
         condition=IfCondition(LaunchConfiguration('enable_cnn'))
     )
 

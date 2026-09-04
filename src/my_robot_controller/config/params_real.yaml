@@ -5,25 +5,30 @@
 
 cnn_driver_node:
   ros__parameters:
-    # Đường dẫn model ONNX (copy file này sang Pi)
+    # Đường dẫn model ONNX
     model_path: 'models/crop_row_cnn_best_final.onnx'
     input_height: 512
     input_width: 512
     save_debug_imgs: false
+
+    # Cấu hình Topics đồng bộ cảm biến trên xe thật
+    image_topic: '/camera/color/image_raw'
+    odom_topic: '/odometry/filtered'
+    imu_topic: '/imu/data'
 
     # Không sử dụng mặt nạ HSV trên xe thật (dùng model ONNX)
     use_hsv_mask: false
 
     mask_threshold: 0.35        # cao hơn sim vì model nhận diện ảnh thật tốt hơn
 
-    # Tốc độ di chuyển (m/s) — nên chạy chậm hơn lần đầu, tăng dần sau khi test OK
-    linear_speed: 0.12
-    turn_linear_speed: 0.10
-    turn_angular_speed: 0.30
+    # Tốc độ di chuyển (m/s) — Bám luống 0.30 m/s, bẻ lái/quay đầu gấp đôi (0.60 rad/s)
+    linear_speed: 0.30
+    turn_linear_speed: 0.20
+    turn_angular_speed: 0.60
 
     kp: 1.5                     # có thể cần giảm xuống nếu xe dao động
-    max_steering_angle_deg: 3.5
-    ema_alpha: 0.30             # có thể tăng lên để nhạy hơn với ảnh thật rõ
+    max_steering_angle_deg: 7.0 # góc bẻ lái tối đa mở rộng gấp đôi (7.0 độ)
+    ema_alpha: 0.35             # tăng độ nhạy bộ lọc EMA khi chạy 0.3 m/s
 
     # Ngưỡng confidence — CAO hơn sim vì ảnh thật cho mask rõ ràng hơn
     low_confidence_threshold: 0.30

@@ -1,0 +1,59 @@
+digraph G {
+    graph [rankdir=TB, splines=spline, nodesep=0.4, ranksep=0.45, bgcolor="#f8fafc", fontname="DejaVu Sans"];
+    node [fontname="DejaVu Sans", fontsize=10, style="filled,rounded", shape=box, penwidth=1.5];
+    edge [fontname="DejaVu Sans", fontsize=9, penwidth=1.5];
+
+    start [label="🚀 BẮT ĐẦU VẬN HÀNH", shape=ellipse, fillcolor="#bfdbfe", color="#1d4ed8", fontname="DejaVu Sans Bold"];
+    init [label="1. KHỞI TẠO HỆ THỐNG\n- Nạp URDF mô hình xe 3D & TF Tree\n- Kết nối RPLIDAR C1, Camera, IMU, ESP32\n- Khởi động lọc Madgwick, EKF Localization & Nạp mạng AI ONNX", fillcolor="#e0f2fe", color="#0284c7"];
+    idle [label="Trạng thái: IDLE\nSẵn sàng chờ kích hoạt", fillcolor="#f1f5f9", color="#64748b"];
+    loop_head [label="2. VÒNG LẶP ĐIỀU KHIỂN CHÍNH\n(Tần số: 15 - 20 Hz)", fillcolor="#e2e8f0", color="#475569", fontname="DejaVu Sans Bold"];
+    
+    sense [label="3. THU THẬP & LỌC CẢM BIẾN\n- Camera: Chụp ảnh thực tế 640x480\n- LiDAR: Quét 360 độ khoảng cách xung quanh\n- EKF: Cập nhật tọa độ X, Y, Hướng Yaw chuẩn", fillcolor="#dcfce7", color="#16a34a"];
+    ai [label="4. AI SUY LUẬN BÁM LUỐNG\n- Mạng CNN phân đoạn ảnh 512x512\n- Tính độ lệch tâm (lane_offset) & góc lệch hướng (heading_error)\n- Đánh giá độ tin cậy confidence", fillcolor="#dbeafe", color="#2563eb"];
+    
+    check_obs [label="Phát hiện vật cản\nphía trước < 0.6m?", shape=diamond, fillcolor="#fef3c7", color="#d97706", fontname="DejaVu Sans Bold"];
+    
+    // NHÁNH CẢN
+    avoid_wait [label="Trạng thái: REACTIVE_AVOID\n- Phanh dừng xe êm bằng Slew Rate\n- Đếm thời gian chờ 3 giây", fillcolor="#fee2e2", color="#dc2626"];
+    check_blocked [label="Vật cản\ncòn chắn đường?", shape=diamond, fillcolor="#fef3c7", color="#d97706"];
+    plan_rrt [label="Trạng thái: AVOID_PLANNING\n- RRT* Planner tìm đường vòng né\n- Pure Pursuit bám đường tránh", fillcolor="#fee2e2", color="#dc2626"];
+    check_plan_ok [label="Tìm được\nđường né?", shape=diamond, fillcolor="#fef3c7", color="#d97706"];
+    recovery [label="Trạng thái: RECOVERY\n- Lùi xe 1.0m giải phóng không gian\n- Nếu vẫn kẹt: Dừng khẩn cấp EMERGENCY_STOP", fillcolor="#fecaca", color="#b91c1c"];
+
+    // NHÁNH BÁM LUỐNG & HẾT HÀNG
+    check_eor [label="Hết hàng bắp EOR?\nCamera confidence < 0.35\nVÀ LiDAR trước mặt > 2.0m\nVÀ hai bên hông > 0.9m", shape=diamond, fillcolor="#fef3c7", color="#d97706", fontname="DejaVu Sans Bold"];
+    
+    smc [label="Trạng thái: TRACKING\n- Bộ điều khiển trượt SMC:\n  v = 0.20 m/s\n  w = -k*S - eta*sat(S/phi)\n- Tự động bám thẳng theo tim luống bắp", fillcolor="#bbf7d0", color="#16a34a", fontname="DejaVu Sans Bold"];
+    
+    uturn [label="Trạng thái: UTURN_PLANNING & PATH_FOLLOWING\n1. Thoát hàng: Chạy thẳng 0.7m - 2.5m vượt cây cuối\n2. Tạo đường cong U-Turn bán nguyệt 180 độ\n3. Pure Pursuit bẻ lái xe quay đầu sang luống mới", fillcolor="#fef08a", color="#ca8a04"];
+    check_turn_done [label="Đã xoay >= 90 độ\nVÀ Camera thấy luống mới\nconfidence >= 0.50?", shape=diamond, fillcolor="#fef3c7", color="#d97706"];
+
+    bridge [label="5. CẦU NỐI & ĐIỀU KHIỂN ĐỘNG CƠ (esp32_bridge)\n- Quy đổi cmd_vel sang RPM bánh trái & phải\n- Gửi Serial 115200 baud: 'V rpm_L rpm_R'", fillcolor="#e9d5ff", color="#7e22ce"];
+    
+    esp [label="6. THỜI GIAN THỰC TẠI ESP32\n- Khởi động mềm Slew Rate Limiter\n- Đọc 4 Encoder ngắt GPIO (200 PPR)\n- Lọc nhiễu Kalman 1D từng bánh\n- Chạy 4 bộ PID điều tốc + Khóa hướng thẳng K_heading\n- Xuất xung PWM 7kHz qua 4 mạch cầu BTS7960", fillcolor="#f3e8ff", color="#9333ea"];
+
+    motors [label="4 ĐỘNG CƠ DC 775 & BÁNH XE\nLăn bánh trong luống bắp", shape=ellipse, fillcolor="#fca5a5", color="#b91c1c", fontname="DejaVu Sans Bold"];
+
+    start -> init -> idle -> loop_head -> sense -> ai -> check_obs;
+
+    check_obs -> avoid_wait [color="#dc2626", label="Có cản"];
+    avoid_wait -> check_blocked;
+    check_blocked -> loop_head [color="#16a34a", label="Hết cản"];
+    check_blocked -> plan_rrt [color="#dc2626", label="Vẫn cản"];
+    plan_rrt -> check_plan_ok;
+    check_plan_ok -> loop_head [color="#16a34a", label="Thành công"];
+    check_plan_ok -> recovery [color="#dc2626", label="Thất bại"];
+    recovery -> loop_head;
+
+    check_obs -> check_eor [color="#16a34a", label="Đường thông thoáng"];
+    check_eor -> smc [color="#16a34a", label="Chưa hết hàng (Còn trong luống)"];
+    smc -> bridge;
+
+    check_eor -> uturn [color="#ca8a04", label="Đã hết hàng"];
+    uturn -> check_turn_done;
+    check_turn_done -> bridge [color="#ca8a04", label="Đang quay"];
+    check_turn_done -> loop_head [color="#16a34a", label="Đã nhập luống mới"];
+
+    bridge -> esp -> motors;
+    motors -> loop_head [style=dashed, color="#475569", label="ESP32 gửi 'ODOM v_L v_R' cập nhật EKF (20Hz)"];
+}

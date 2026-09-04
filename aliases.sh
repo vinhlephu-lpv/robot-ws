@@ -196,7 +196,14 @@ real_nav_func() {
         fi
     fi
 }
-alias real-nav="real_nav_func"
+# Lệnh TỰ HÀNH XE THẬT BÁM LUỐNG BẰNG AI CNN (Crop Row Following)
+alias real-cnn="load_ws && ros2 launch my_robot_bringup real_robot.launch.py enable_cnn:=true"
+alias auto-cnn="real-cnn"
+alias cnn-auto="real-cnn"
+
+# Lệnh KIỂM TRA CHẨN ĐOÁN TOÀN DIỆN CHUỖI AI CNN
+alias check-cnn="load_ws && python3 \"$WS_DIR/scripts/verify_cnn_pipeline.py\""
+alias test-cnn="check-cnn"
 
 alias pc-nav="load_ws && ros2 launch my_robot_bringup pc_nav.launch.py"
 alias nav-slam="load_ws && ros2 launch my_robot_bringup pc_nav.launch.py"
@@ -408,11 +415,13 @@ cat << 'EOF'
 🍓 [TRÊN RASPBERRY PI] (Khởi động phần cứng xe & Quay video)
   real-robot         : BẬT XE THẬT (Tự động chạy Madgwick + EKF chuẩn xác)
   real-record [tên]  : BẬT XE THẬT + QUAY VIDEO THÔ (100% Raw, lưu MP4 vào Pi)
+  real-cnn           : BẬT XE THẬT TỰ HÀNH BÁM LUỐNG BẰNG AI CNN (1-Click)
   real-slam          : Bật Xe Thật + SLAM Toolbox vẽ bản đồ
   real-nav [tên_map] : Bật Xe Thật + Nav2 tự né vật cản (Tự động nạp map mới nhất)
   savemap <tên_map>  : Lưu bản đồ SLAM vừa quét xong vào thư mục maps/
 
-🔍 [KIỂM TRA CẢM BIẾN] (1-Click Test trên Pi / Laptop)
+🔍 [KIỂM TRA CẢM BIẾN & AI] (1-Click Test trên Pi / Laptop)
+  check-cnn (test-cnn): Kiểm tra chẩn đoán toàn diện chuỗi AI CNN (512x512, góc lái, ESP32)
   test-cam           : Kiểm tra hình ảnh Webcam DVD20 1080p 60FPS (/dev/video0)
   test-lidar         : Kiểm tra tia quét mắt LiDAR RPLIDAR C1 (/dev/ttyUSB0)
   test-imu           : Kiểm tra cảm biến IMU 9 trục ICM-20948 (I2C Pin 3, 5)

@@ -35,7 +35,8 @@ def generate_launch_description():
         output='screen',
         parameters=[{
             'video_device': camera_device,
-            'image_size':   [640, 480],
+            'image_size':   [1920, 1080],
+            'time_per_frame': [1, 60],
             'camera_frame_id': 'camera_link',
             'pixel_format': 'MJPG',
         }],

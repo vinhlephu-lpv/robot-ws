@@ -50,6 +50,7 @@ wasd
 | **Quay Video THÔ làm Dataset (Có lưu MP4 vào Pi)** | `real-record [tên]` | `get-video` $\to$ `extract-dataset` |
 | **Quét bản đồ SLAM** | `real-slam` | `laptop-view` & `wasd` $\to$ `savemap` |
 | **Tự hành Nav2 (Tự né vật cản)** | `real-nav` | `laptop-view` $\to$ chọn **2D Goal Pose** |
+| **Tự hành AI CNN (Bám luống bắp)** | `real-cnn` *(hoặc `check-cnn` để kiểm tra)* | `laptop-view` để quan sát |
 
 ---
 
@@ -326,15 +327,32 @@ graph TD
 ---
 
 ### 🌽 KỊCH BẢN D: Tự lái bám hàng bắp bằng AI CNN & Quay đầu U-Turn
-1. Đảm bảo file model ONNX đã có tại `models/crop_row_cnn_best_final.onnx`.
-2. Đặt xe vào đầu luống bắp, hướng camera dọc theo rãnh giữa 2 hàng bắp.
-3. **Trên Pi (SSH):** Chạy lệnh:
+
+1. **Kiểm tra chẩn đoán toàn diện hệ thống trước khi chạy (Khuyên dùng):**
    ```bash
-   ros2 launch my_robot_bringup real_robot.launch.py enable_camera:=true enable_cnn:=true
+   check-cnn
    ```
-4. **Cơ chế hoạt động:**
-   - Camera thu nhận hình ảnh $\to$ Mạng CNN phân đoạn luống bắp và tính tâm đường đi $\to$ Bộ điều khiển bám hàng PID lái xe chạy thẳng mượt mà.
-   - Khi hết hàng bắp (LiDAR và Camera nhận diện vùng trống): Xe tự kích hoạt chu trình **Drive Out (2.5m)** $\to$ Tự động bẻ lái cung tròn **U-Turn 180°** sang hàng bắp tiếp theo.
+   *(Kiểm tra nhanh Camera, ONNX 512x512, tính góc lái, FSM, SMC và chuỗi lệnh gửi xuống ESP32).*
+
+2. **Đặt xe vào luống:** Đặt xe ở đầu luống bắp, hướng camera dọc theo rãnh giữa 2 hàng bắp.
+
+3. **Kích hoạt tự hành 1-Click trên Pi (SSH):**
+   ```bash
+   real-cnn
+   ```
+   *(Tương đương lệnh đầy đủ: `ros2 launch my_robot_bringup real_robot.launch.py enable_cnn:=true`)*
+
+4. **Trên Laptop (Nếu muốn xem Camera + Tọa độ 3D):**
+   ```bash
+   laptop-view
+   ```
+
+5. **Cơ chế hoạt động chuẩn của chuỗi AI CNN:**
+   - **Camera:** Thu hình ảnh thực tế (60 FPS) $\to$ Đưa vào mạng ONNX với kích thước chuẩn **$512 \times 512$**.
+   - **Xử lý nhận thức:** Mạng CNN phân đoạn luống $\to$ Trích xuất tâm đường đi $\to$ Tính sai số góc lái `heading_error` và độ lệch tâm `lane_offset`.
+   - **Máy trạng thái FSM & Bộ điều khiển trượt SMC:** Bám thẳng theo tim luống với vận tốc $0.18 \text{ m/s}$, tự động triệt tiêu rung lắc.
+   - **Gửi lệnh xuống ESP32:** Cầu nối `esp32_bridge` quy đổi động học vi sai sang RPM trái/phải và gửi liên tục chuỗi `V <rpm_L> <rpm_R>\n` (20 Hz) xuống ESP32 điều tốc 4 bánh xe.
+   - **Hết hàng EOR:** Khi tới cuối hàng (Camera giảm confidence kết hợp LiDAR trống vùng trước mặt), xe tự động chạy thoát hàng $\to$ Ôm cua bán nguyệt **U-Turn 180°** sang hàng bắp tiếp theo.
 
 ---
 

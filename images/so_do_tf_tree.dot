@@ -1,0 +1,36 @@
+digraph G {
+    graph [rankdir=TB, splines=spline, nodesep=0.4, ranksep=0.5, bgcolor="#f8fafc", fontname="DejaVu Sans"];
+    node [fontname="DejaVu Sans", fontsize=10, style="filled,rounded", shape=box, penwidth=1.5];
+    edge [fontname="DejaVu Sans", fontsize=9, penwidth=1.5];
+
+    map [label="map\n(Tọa độ Bản đồ Toàn cục)", fillcolor="#e0e7ff", color="#4338ca", fontname="DejaVu Sans Bold"];
+    odom [label="odom\n(Tọa độ Hành trình Cục bộ)", fillcolor="#dbeafe", color="#1d4ed8", fontname="DejaVu Sans Bold"];
+    base_footprint [label="base_footprint\n(Tâm tiếp đất thân xe)", fillcolor="#bfdbfe", color="#2563eb", fontname="DejaVu Sans Bold"];
+    base_link [label="base_link\n(Trọng tâm thân xe z=+0.30m)", fillcolor="#93c5fd", color="#1d4ed8", fontname="DejaVu Sans Bold"];
+    
+    laser [label="laser_frame\n(RPLIDAR C1 [0.2, 0, 0.22] yaw=180°)", fillcolor="#bbf7d0", color="#16a34a"];
+    camera [label="camera_link\n(Webcam [0.3, 0, 0.2] pitch=12.5°)", fillcolor="#bbf7d0", color="#16a34a"];
+    cam_opt [label="camera_link_optical\n(Chuẩn quang học Z tới, X phải, Y xuống)", fillcolor="#dcfce7", color="#16a34a"];
+    imu [label="imu_link\n(ICM-20948 tâm xe [0, 0, 0])", fillcolor="#bbf7d0", color="#16a34a"];
+    gps [label="gps_link\n(GPS nóc xe [0, 0, 0.21])", fillcolor="#bbf7d0", color="#16a34a"];
+
+    fl [label="front_left_wheel\n[0.20, 0.29, -0.20]", fillcolor="#fecaca", color="#dc2626"];
+    fr [label="front_right_wheel\n[0.20, -0.29, -0.20]", fillcolor="#fecaca", color="#dc2626"];
+    rl [label="rear_left_wheel\n[-0.20, 0.29, -0.20]", fillcolor="#fecaca", color="#dc2626"];
+    rr [label="rear_right_wheel\n[-0.20, -0.29, -0.20]", fillcolor="#fecaca", color="#dc2626"];
+
+    map -> odom [color="#4338ca", penwidth=2, label="SLAM Toolbox / AMCL"];
+    odom -> base_footprint [color="#1d4ed8", penwidth=2, label="ekf_filter_node (30Hz)"];
+    base_footprint -> base_link [color="#2563eb", penwidth=2, label="base_footprint_joint (fixed)"];
+    
+    base_link -> laser [color="#16a34a"];
+    base_link -> camera [color="#16a34a"];
+    camera -> cam_opt [color="#16a34a"];
+    base_link -> imu [color="#16a34a"];
+    base_link -> gps [color="#16a34a"];
+
+    base_link -> fl [color="#dc2626"];
+    base_link -> fr [color="#dc2626"];
+    base_link -> rl [color="#dc2626"];
+    base_link -> rr [color="#dc2626"];
+}
