@@ -5,6 +5,7 @@ WASD Teleop Controller for ROS 2 (Chạy liên tục không ngắt).
 Bấm [Space], [X] hoặc [K] để DỪNG XE.
 """
 
+import os
 import sys
 import select
 import termios
@@ -83,14 +84,18 @@ SPEED_BINDINGS = {
 
 def get_key(settings, timeout=0.05):
     if settings is not None:
-        rlist, _, _ = select.select([sys.stdin], [], [], timeout)
+        tty.setraw(sys.stdin.fileno())
+        rlist, _, _ = select.select([sys.stdin.fileno()], [], [], timeout)
         if rlist:
-            return sys.stdin.read(1)
-        return ''
+            key = os.read(sys.stdin.fileno(), 1).decode('utf-8', errors='ignore')
+        else:
+            key = ''
+        termios.tcsetattr(sys.stdin, termios.TCSADRAIN, settings)
+        return key
     else:
-        rlist, _, _ = select.select([sys.stdin], [], [], timeout)
+        rlist, _, _ = select.select([sys.stdin.fileno()], [], [], timeout)
         if rlist:
-            return sys.stdin.read(1)
+            return os.read(sys.stdin.fileno(), 1).decode('utf-8', errors='ignore')
         return ''
 
 
@@ -99,7 +104,6 @@ def main():
     if sys.stdin.isatty():
         try:
             settings = termios.tcgetattr(sys.stdin)
-            tty.setcbreak(sys.stdin.fileno())
         except Exception:
             settings = None
 
