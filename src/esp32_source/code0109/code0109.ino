@@ -663,17 +663,18 @@ void handleCommand(String command) {
     return;
   }
 
-  // Lệnh Bật/Tắt PID
+  // Lệnh PID: Luôn giữ PID bật cố định để đảm bảo đồng tốc 4 bánh chính xác
   if (command.equalsIgnoreCase("PID 1") || command.equalsIgnoreCase("PID ON")) {
     pidGlobalEnabled = true;
     for (int i = 0; i < 4; i++) wpid[i].enabled = true;
-    Serial.println("# [MODE] PID: ON");
+    Serial.println("# [MODE] PID: ON (Luon bat)");
     return;
   }
   if (command.equalsIgnoreCase("PID 0") || command.equalsIgnoreCase("PID OFF")) {
-    pidGlobalEnabled = false;
-    for (int i = 0; i < 4; i++) wpid[i].enabled = false;
-    Serial.println("# [MODE] PID: OFF");
+    // Luôn giữ PID bật theo yêu cầu hệ thống, không cho tắt để bảo vệ cân bằng 4 bánh
+    pidGlobalEnabled = true;
+    for (int i = 0; i < 4; i++) wpid[i].enabled = true;
+    Serial.println("# [MODE] PID: LUON BAT (Locked ON - Khong the tat de giu dong toc)");
     return;
   }
 
