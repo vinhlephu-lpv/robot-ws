@@ -22,6 +22,7 @@ import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Imu
 from geometry_msgs.msg import Quaternion
+from nav_msgs.msg import Odometry
 
 
 # ── ICM-20948 I2C Registers & Constants ─────────────────────────────────
@@ -184,6 +185,11 @@ class ImuDriverNode(Node):
         self.declare_parameter('raw_topic', '/imu/data_raw')
         self.declare_parameter('rate_hz', 50.0)
         self.declare_parameter('calibrate_samples', 60)
+        self.declare_parameter('vibration_filter_enabled', True)
+        self.declare_parameter('accel_ema_alpha', 0.75)          # 75% mẫu cũ + 25% mẫu mới -> lọc sạch rung cơ học 775
+        self.declare_parameter('gyro_ema_alpha', 0.80)           # Làm mịn nhẹ gyro
+        self.declare_parameter('adaptive_bias_tracking', True)   # Tự động bám bù trôi nhiệt độ khi xe dừng
+        self.declare_parameter('stationary_speed_threshold', 0.02) # Ngưỡng coi xe đang dừng (m/s)
 
         self.bus_num = int(self.get_parameter('i2c_bus').value)
         self.address = int(self.get_parameter('i2c_address').value)
@@ -193,9 +199,16 @@ class ImuDriverNode(Node):
         self.rate_hz = float(self.get_parameter('rate_hz').value)
         self.calib_target = int(self.get_parameter('calibrate_samples').value)
 
-        # Publishers (Cả dữ liệu thô cho Madgwick và dữ liệu nội suy)
+        self.vibration_filter_enabled = bool(self.get_parameter('vibration_filter_enabled').value)
+        self.accel_ema_alpha = float(self.get_parameter('accel_ema_alpha').value)
+        self.gyro_ema_alpha = float(self.get_parameter('gyro_ema_alpha').value)
+        self.adaptive_bias_tracking = bool(self.get_parameter('adaptive_bias_tracking').value)
+        self.stationary_speed_threshold = float(self.get_parameter('stationary_speed_threshold').value)
+
+        # Publishers & Subscribers
         self.imu_pub = self.create_publisher(Imu, self.publish_topic, 10)
         self.imu_raw_pub = self.create_publisher(Imu, self.raw_topic, 10)
+        self.odom_sub = self.create_subscription(Odometry, '/wheel/odom', self.odom_callback, 10)
 
         # I2C & Driver
         self.i2c = I2CInterface(bus_num=self.bus_num, address=self.address)
@@ -207,6 +220,19 @@ class ImuDriverNode(Node):
         self.gyro_bias_x = 0.0
         self.gyro_bias_y = 0.0
         self.gyro_bias_z = 0.0
+
+        # Bộ lọc chống rung động cơ 775 (Low-Pass EMA Filter)
+        self.filt_ax = 0.0
+        self.filt_ay = 0.0
+        self.filt_az = GRAVITY_MSS
+        self.filt_gx = 0.0
+        self.filt_gy = 0.0
+        self.filt_gz = 0.0
+
+        # Trạng thái theo dõi xe dừng đỗ để bám bù trôi nhiệt độ (ZUPT)
+        self.is_stationary = True
+        self.stationary_start_time = time.time()
+        self.zupt_learning_rate = 0.005  # Tốc độ học vi sai Zero-bias (0.5% mỗi mẫu @ 50Hz)
 
         # Orientation Filter State (Euler -> Quaternion)
         self.roll = 0.0
@@ -232,6 +258,21 @@ class ImuDriverNode(Node):
         # Timer Loop (50 Hz)
         period = 1.0 / max(1.0, self.rate_hz)
         self.timer = self.create_timer(period, self.timer_callback)
+
+    def odom_callback(self, msg: Odometry):
+        """Theo dõi vận tốc từ encoder 4 bánh để phát hiện xe đứng yên (ZUPT)."""
+        vx = msg.twist.twist.linear.x
+        wz = msg.twist.twist.angular.z
+        speed = abs(vx)
+
+        now = time.time()
+        if speed < self.stationary_speed_threshold and abs(wz) < 0.03:
+            if not self.is_stationary:
+                self.is_stationary = True
+                self.stationary_start_time = now
+        else:
+            self.is_stationary = False
+            self.stationary_start_time = now
 
     def timer_callback(self):
         raw = self.sensor.read_raw_sensors()
@@ -259,6 +300,14 @@ class ImuDriverNode(Node):
                 self.gyro_bias_z /= self.calib_count
                 self.calibrating = False
 
+                # Khởi tạo bộ lọc EMA bằng giá trị cảm biến đầu tiên
+                self.filt_ax = ax
+                self.filt_ay = ay
+                self.filt_az = az
+                self.filt_gx = 0.0
+                self.filt_gy = 0.0
+                self.filt_gz = 0.0
+
                 # Khởi tạo góc nghiêng ban đầu từ gia tốc kế
                 self.roll = math.atan2(ay, az)
                 self.pitch = math.atan2(-ax, math.sqrt(ay * ay + az * az))
@@ -273,14 +322,46 @@ class ImuDriverNode(Node):
         gy_corr = gy - self.gyro_bias_y
         gz_corr = gz - self.gyro_bias_z
 
-        # Tính góc nghiêng tĩnh từ gia tốc trọng trường
-        roll_acc = math.atan2(ay, az)
-        pitch_acc = math.atan2(-ax, math.sqrt(ay * ay + az * az))
+        # Adaptive Zero-Velocity Gyro Bias Tracking (ZUPT)
+        # Khi xe dừng đỗ (vận tốc bánh xe = 0 > 1.0s), cập nhật bù trôi nhiệt độ vi sai
+        if self.adaptive_bias_tracking and self.is_stationary and (now - self.stationary_start_time) > 1.0:
+            self.gyro_bias_x = (1.0 - self.zupt_learning_rate) * self.gyro_bias_x + self.zupt_learning_rate * gx
+            self.gyro_bias_y = (1.0 - self.zupt_learning_rate) * self.gyro_bias_y + self.zupt_learning_rate * gy
+            self.gyro_bias_z = (1.0 - self.zupt_learning_rate) * self.gyro_bias_z + self.zupt_learning_rate * gz
+            gx_corr = gx - self.gyro_bias_x
+            gy_corr = gy - self.gyro_bias_y
+            gz_corr = gz - self.gyro_bias_z
+
+        # Bộ lọc chống rung động cơ 775 và hộp số (Low-Pass EMA Filter & Spike Clamping)
+        # 1. Cắt tỉa sốc cơ học (Spike clamping) quá mức ±25 m/s² (~2.5g)
+        ax = max(-25.0, min(25.0, ax))
+        ay = max(-25.0, min(25.0, ay))
+        az = max(-25.0, min(25.0, az))
+
+        if self.vibration_filter_enabled:
+            # Low-Pass Exponential Moving Average (EMA)
+            self.filt_ax = self.accel_ema_alpha * self.filt_ax + (1.0 - self.accel_ema_alpha) * ax
+            self.filt_ay = self.accel_ema_alpha * self.filt_ay + (1.0 - self.accel_ema_alpha) * ay
+            self.filt_az = self.accel_ema_alpha * self.filt_az + (1.0 - self.accel_ema_alpha) * az
+
+            self.filt_gx = self.gyro_ema_alpha * self.filt_gx + (1.0 - self.gyro_ema_alpha) * gx_corr
+            self.filt_gy = self.gyro_ema_alpha * self.filt_gy + (1.0 - self.gyro_ema_alpha) * gy_corr
+            self.filt_gz = self.gyro_ema_alpha * self.filt_gz + (1.0 - self.gyro_ema_alpha) * gz_corr
+
+            out_ax, out_ay, out_az = self.filt_ax, self.filt_ay, self.filt_az
+            out_gx, out_gy, out_gz = self.filt_gx, self.filt_gy, self.filt_gz
+        else:
+            out_ax, out_ay, out_az = ax, ay, az
+            out_gx, out_gy, out_gz = gx_corr, gy_corr, gz_corr
+
+        # Tính góc nghiêng tĩnh từ gia tốc trọng trường đã lọc
+        roll_acc = math.atan2(out_ay, out_az)
+        pitch_acc = math.atan2(-out_ax, math.sqrt(out_ay * out_ay + out_az * out_az))
 
         # Bộ lọc dung hợp Complementary Filter
-        self.roll = self.alpha * (self.roll + gx_corr * dt) + (1.0 - self.alpha) * roll_acc
-        self.pitch = self.alpha * (self.pitch + gy_corr * dt) + (1.0 - self.alpha) * pitch_acc
-        self.yaw += gz_corr * dt
+        self.roll = self.alpha * (self.roll + out_gx * dt) + (1.0 - self.alpha) * roll_acc
+        self.pitch = self.alpha * (self.pitch + out_gy * dt) + (1.0 - self.alpha) * pitch_acc
+        self.yaw += out_gz * dt
 
         # Chuyển đổi Euler (Roll, Pitch, Yaw) sang Quaternion chuẩn ROS
         cy = math.cos(self.yaw * 0.5)
@@ -302,17 +383,17 @@ class ImuDriverNode(Node):
         raw_msg.header.frame_id = self.frame_id
         # Orientation unknown -> orientation_covariance[0] = -1
         raw_msg.orientation_covariance = [-1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-        raw_msg.angular_velocity.x = gx_corr
-        raw_msg.angular_velocity.y = gy_corr
-        raw_msg.angular_velocity.z = gz_corr
+        raw_msg.angular_velocity.x = out_gx
+        raw_msg.angular_velocity.y = out_gy
+        raw_msg.angular_velocity.z = out_gz
         raw_msg.angular_velocity_covariance = [
             0.0001, 0.0, 0.0,
             0.0, 0.0001, 0.0,
             0.0, 0.0, 0.0001
         ]
-        raw_msg.linear_acceleration.x = ax
-        raw_msg.linear_acceleration.y = ay
-        raw_msg.linear_acceleration.z = az
+        raw_msg.linear_acceleration.x = out_ax
+        raw_msg.linear_acceleration.y = out_ay
+        raw_msg.linear_acceleration.z = out_az
         raw_msg.linear_acceleration_covariance = [
             0.01, 0.0, 0.0,
             0.0, 0.01, 0.0,
@@ -332,18 +413,18 @@ class ImuDriverNode(Node):
             0.0, 0.0, 0.005
         ]
 
-        msg.angular_velocity.x = gx_corr
-        msg.angular_velocity.y = gy_corr
-        msg.angular_velocity.z = gz_corr
+        msg.angular_velocity.x = out_gx
+        msg.angular_velocity.y = out_gy
+        msg.angular_velocity.z = out_gz
         msg.angular_velocity_covariance = [
             0.0001, 0.0, 0.0,
             0.0, 0.0001, 0.0,
             0.0, 0.0, 0.0001
         ]
 
-        msg.linear_acceleration.x = ax
-        msg.linear_acceleration.y = ay
-        msg.linear_acceleration.z = az
+        msg.linear_acceleration.x = out_ax
+        msg.linear_acceleration.y = out_ay
+        msg.linear_acceleration.z = out_az
         msg.linear_acceleration_covariance = [
             0.01, 0.0, 0.0,
             0.0, 0.01, 0.0,
@@ -358,9 +439,10 @@ class ImuDriverNode(Node):
             roll_deg = self.roll / DEG_TO_RAD
             pitch_deg = self.pitch / DEG_TO_RAD
             yaw_deg = self.yaw / DEG_TO_RAD
+            stat_str = "TĨNH (ZUPT)" if self.is_stationary else "CHẠY"
             self.get_logger().info(
-                f"📐 [IMU Live] Nghiêng (Roll): {roll_deg:+6.1f}° | Dốc (Pitch): {pitch_deg:+6.1f}° | Hướng (Yaw): {yaw_deg:+6.1f}° | "
-                f"Gia tốc: ({ax:+5.2f}, {ay:+5.2f}, {az:+5.2f}) m/s²"
+                f"📐 [IMU Live] Roll: {roll_deg:+5.1f}° | Pitch: {pitch_deg:+5.1f}° | Yaw: {yaw_deg:+5.1f}° | "
+                f"Acc: ({out_ax:+5.2f}, {out_ay:+5.2f}, {out_az:+5.2f}) | Wz: {out_gz:+5.3f} rad/s | [{stat_str}]"
             )
 
     def destroy_node(self):

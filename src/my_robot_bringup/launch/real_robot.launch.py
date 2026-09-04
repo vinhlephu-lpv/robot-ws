@@ -237,6 +237,12 @@ def generate_launch_description():
             'publish_topic': PythonExpression(["'/imu/data_complementary' if '", LaunchConfiguration('enable_madgwick'), "' == 'true' else '/imu/data'"]),
             'raw_topic': '/imu/data_raw',
             'rate_hz': 50.0,
+            # Cấu hình lọc rung động cơ 775 + hộp số và bù trôi Zero-bias (ZUPT)
+            'vibration_filter_enabled': True,
+            'accel_ema_alpha': 0.75,
+            'gyro_ema_alpha': 0.80,
+            'adaptive_bias_tracking': True,
+            'stationary_speed_threshold': 0.02,
         }],
         condition=IfCondition(LaunchConfiguration('enable_imu'))
     )
