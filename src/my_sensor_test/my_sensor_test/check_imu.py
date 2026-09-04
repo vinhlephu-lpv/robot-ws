@@ -160,11 +160,15 @@ def main(args=None):
     node = ImuCheckerNode()
     try:
         rclpy.spin(node)
-    except KeyboardInterrupt:
+    except Exception:
         pass
     finally:
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            try:
+                rclpy.shutdown()
+            except Exception:
+                pass
 
 
 if __name__ == '__main__':
