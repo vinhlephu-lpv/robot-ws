@@ -30,6 +30,7 @@ import rclpy
 from rclpy.node import Node
 from nav_msgs.msg import Odometry
 from geometry_msgs.msg import Twist, Quaternion, TransformStamped
+from std_msgs.msg import String as StringMsg
 import tf2_ros
 
 try:
@@ -112,6 +113,7 @@ class EncoderNode(Node):
 
         # ── 7. Publishers, Subscribers & TF Broadcaster ────────────────────
         self.odom_pub = self.create_publisher(Odometry, self.odom_topic, 10)
+        self.wheel_status_pub = self.create_publisher(StringMsg, '/wheel/status', 10)
         self.tf_broadcaster = tf2_ros.TransformBroadcaster(self) if self.publish_tf else None
         self.cmd_vel_sub = self.create_subscription(Twist, '/cmd_vel', self.cmd_vel_callback, 10)
 
@@ -446,8 +448,23 @@ class EncoderNode(Node):
         # Chuẩn hóa góc quay Yaw trong khoảng [-pi, pi]
         self.yaw = math.atan2(math.sin(self.yaw), math.cos(self.yaw))
 
-        # ── 9. Xuất bản Odometry (/wheel/odom) ──────────────────────────────
+        # ── 9. Xuất bản Odometry (/wheel/odom) & Trạng thái 4 bánh (/wheel/status) ──
         self._publish_odometry()
+
+        # Xuất bản chuỗi trạng thái chi tiết 4 bánh để người dùng theo dõi trực tiếp
+        status_msg = StringMsg()
+        status_msg.data = (
+            f"Seq:{seq} | FL:{fl} ({v_fl:+.2f}m/s) | FR:{fr} ({v_fr:+.2f}m/s) | "
+            f"RL:{rl} ({v_rl:+.2f}m/s) | RR:{rr} ({v_rr:+.2f}m/s) | "
+            f"Vx:{vx:+.2f}m/s | Wz:{wz:+.2f}rad/s"
+        )
+        self.wheel_status_pub.publish(status_msg)
+
+        # In log định kỳ 1 giây/lần lên màn hình Terminal
+        self.get_logger().info(
+            f"📊 [4 ENCODERS] FL={fl} FR={fr} RL={rl} RR={rr} | Vx={vx:+.2f}m/s, Wz={wz:+.2f}rad/s",
+            throttle_duration_sec=1.0
+        )
 
     def _publish_odometry(self):
         """Tạo và xuất bản thông điệp nav_msgs/Odometry và TF (nếu bật)."""
