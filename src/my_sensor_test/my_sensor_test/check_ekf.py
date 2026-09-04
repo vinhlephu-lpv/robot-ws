@@ -147,6 +147,8 @@ class DualEkfMonitor(Node):
         self.gps_lat = msg.latitude
         self.gps_lon = msg.longitude
         self.gps_status = msg.status.status
+        cov_val = msg.position_covariance[0] if len(msg.position_covariance) > 0 else 0.0
+        self.gps_accuracy = math.sqrt(cov_val) if cov_val > 0.0 else 0.0
 
     def cb_navsat(self, msg: Odometry):
         self.navsat_count += 1
@@ -180,9 +182,9 @@ class DualEkfMonitor(Node):
         ekf1_status = f"✅ ĐANG DUNG HỢP ({self.ekf1_hz:4.1f} Hz)" if self.ekf1_hz > 5.0 else "⏳ CHỜ DỮ LIỆU"
 
         if self.gps_status >= 0:
-            gps_str = f"✅ FIX ({self.gps_hz:4.1f} Hz)"
+            gps_str = f"✅ FIX ({self.gps_hz:4.1f} Hz) | Độ chính xác ~ ±{self.gps_accuracy:.1f}m"
         elif self.gps_hz > 0.0:
-            gps_str = f"⚠️ NO FIX ({self.gps_hz:4.1f} Hz)"
+            gps_str = f"⚠️ NO FIX ({self.gps_hz:4.1f} Hz - Đang dò vệ tinh ngoài trời)"
         else:
             gps_str = "⏳ CHƯA BẬT / CHỜ GPS"
 
@@ -208,7 +210,7 @@ class DualEkfMonitor(Node):
             "----------------------------------------------------------------------",
             f" [3. CẦU NỐI GPS - NAVSAT TRANSFORM] (/odometry/gps)",
             f"   • Tín hiệu Vệ tinh (/gps/fix): {gps_str}",
-            f"     -> Tọa độ Địa lý: Lat = {self.gps_lat:.7f}° | Lon = {self.gps_lon:.7f}°",
+            f"     -> Tọa độ Địa lý (Lọc 4 Lớp): Lat = {self.gps_lat:.7f}° | Lon = {self.gps_lon:.7f}°",
             f"   • Tọa độ Phẳng Descartes     : {navsat_str}",
             f"     -> Easting (X) = {self.navsat_x:+7.2f} m | Northing (Y) = {self.navsat_y:+7.2f} m",
             "----------------------------------------------------------------------",
