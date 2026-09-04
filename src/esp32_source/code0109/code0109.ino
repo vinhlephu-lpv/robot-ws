@@ -486,20 +486,25 @@ void updatePID(float dt) {
       torque_boost = defectRatio * 35.0f;
     }
 
-    // Ghì hãm chống vọt tốc khi chạy chậm
-    if (rpm_act > target + 1.0f) {
-      pid_corr -= (rpm_act - target) * 2.5f;
+    // Ghì hãm chống vọt tốc khi chạy chậm (Có Deadband chống khựng giật dao động)
+    if (rpm_act > target + 2.5f) {
+      pid_corr -= (rpm_act - (target + 2.5f)) * 1.5f;
     }
 
     // 10. Tổng hợp PWM điều khiển hoàn chỉnh (0-255)
     int desired = constrain((int)(ff_pwm + pid_corr + balance_corr + internal_sync_corr + torque_boost), 0, 255);
 
-    // Giới hạn an toàn thích ứng tải ở tốc độ thấp
+    // Giới hạn an toàn thích ứng tải ở tốc độ thấp (Giữ sàn tối thiểu 45 PWM để không bị sụt mô-men xoắn)
     if (target <= 65.0f) {
-      int safeLowSpeedCap = constrain((int)((target / 65.0f) * 140.0f + (track_error > 3.0f ? 50 : 0) + max(0.0f, wpid[i].integral * 0.8f)), 25, 255);
+      int safeLowSpeedCap = constrain((int)((target / 65.0f) * 140.0f + (track_error > 3.0f ? 50 : 0) + max(0.0f, wpid[i].integral * 0.8f)), 45, 255);
       if (rpm_act >= target * 0.90f && desired > safeLowSpeedCap) {
         desired = safeLowSpeedCap;
       }
+    }
+
+    // Sàn PWM tối thiểu để duy trì lăn bánh khi có lệnh chạy (tránh chết máy do ma sát hộp số 775)
+    if (target > 1.0f && desired < 35) {
+      desired = 35;
     }
 
     // Giới hạn biến thiên PWM bất đối xứng

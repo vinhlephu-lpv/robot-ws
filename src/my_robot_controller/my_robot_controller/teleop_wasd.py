@@ -81,16 +81,12 @@ SPEED_BINDINGS = {
 }
 
 
-def get_key(settings, timeout=0.06):
+def get_key(settings, timeout=0.05):
     if settings is not None:
-        tty.setraw(sys.stdin.fileno())
         rlist, _, _ = select.select([sys.stdin], [], [], timeout)
         if rlist:
-            key = sys.stdin.read(1)
-        else:
-            key = ''
-        termios.tcsetattr(sys.stdin, termios.TCSADRAIN, settings)
-        return key
+            return sys.stdin.read(1)
+        return ''
     else:
         rlist, _, _ = select.select([sys.stdin], [], [], timeout)
         if rlist:
@@ -103,6 +99,7 @@ def main():
     if sys.stdin.isatty():
         try:
             settings = termios.tcgetattr(sys.stdin)
+            tty.setcbreak(sys.stdin.fileno())
         except Exception:
             settings = None
 
@@ -110,8 +107,8 @@ def main():
     node = rclpy.create_node('teleop_wasd_node')
     pub = node.create_publisher(Twist, '/cmd_vel', 10)
 
-    linear_speed = 0.20   # m/s (Khởi đầu êm ái, an toàn)
-    angular_speed = 0.60  # rad/s
+    linear_speed = 0.35   # m/s (Khởi đầu êm ái, phù hợp tải động cơ 775)
+    angular_speed = 0.80  # rad/s
 
     print(BANNER)
     print(f"👉 CHẾ ĐỘ CHẠY LIÊN TỤC: Bấm [W] là xe tiến liên tục cho đến khi bấm [Space] hoặc [X] để dừng.")
@@ -123,7 +120,8 @@ def main():
 
     try:
         while rclpy.ok():
-            key = get_key(settings, timeout=0.06)
+            rclpy.spin_once(node, timeout_sec=0.0)
+            key = get_key(settings, timeout=0.05)
 
             if key in MOVE_BINDINGS:
                 target_x = MOVE_BINDINGS[key][0]
@@ -148,7 +146,7 @@ def main():
             elif key == '\x03':  # Ctrl+C
                 break
 
-            # Phát liên tục ~16 Hz duy trì vận tốc đều đặn, nuôi ESP32 Watchdog
+            # Phát liên tục ~20 Hz duy trì vận tốc đều đặn, nuôi ESP32 Watchdog
             twist = Twist()
             twist.linear.x = target_x * linear_speed
             twist.angular.z = target_th * angular_speed

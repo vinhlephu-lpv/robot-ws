@@ -58,6 +58,7 @@ class EncoderNode(Node):
         self.declare_parameter('base_frame', 'base_footprint')
         self.declare_parameter('abnormal_diff_threshold', 0.6)  # Ngưỡng lệch tốc độ tối đa giữa 2 bánh cùng bên (m/s)
         self.declare_parameter('max_accel_threshold', 8.0)       # Ngưỡng gia tốc vật lý tối đa cho phép (m/s^2)
+        self.declare_parameter('cmd_vel_timeout', 0.60)         # Timeout lệnh cmd_vel (0.60s giúp chống rớt gói/lag mạng Wi-Fi)
 
         # ── 2. Lấy giá trị tham số ────────────────────────────────────────
         self.port = self.get_parameter('serial_port').value
@@ -73,6 +74,7 @@ class EncoderNode(Node):
         self.base_frame = self.get_parameter('base_frame').value
         self.abnormal_diff_threshold = float(self.get_parameter('abnormal_diff_threshold').value)
         self.max_accel_threshold = float(self.get_parameter('max_accel_threshold').value)
+        self.cmd_vel_timeout = float(self.get_parameter('cmd_vel_timeout').value)
 
         # ── 3. Hằng số động học bánh xe ────────────────────────────────────
         self.wheel_circ = math.pi * self.wheel_d
@@ -171,9 +173,10 @@ class EncoderNode(Node):
         self.last_cmd_vel_time = time.time()
 
     def _send_motor_cmd(self, rpm_l: float, rpm_r: float):
-        """Gửi lệnh vận tốc 'V <rpm_L> <rpm_R>' xuống ESP32."""
+        """Gửi lệnh vận tốc tường minh 4 bánh 'V <FL> <RL> <FR> <RR>' xuống ESP32."""
         if self.ser and self.ser.is_open:
-            cmd = f'V {rpm_l:.1f} {rpm_r:.1f}\n'
+            # Gửi tường minh cả 4 bánh để ESP32 phân giải độc lập, tránh nhầm vế
+            cmd = f'V {rpm_l:.1f} {rpm_l:.1f} {rpm_r:.1f} {rpm_r:.1f}\n'
             try:
                 self.ser.write(cmd.encode('utf-8'))
             except Exception as e:
@@ -189,8 +192,8 @@ class EncoderNode(Node):
             return
 
         # Duy trì lệnh gửi định kỳ nuôi Watchdog an toàn của ESP32 (Chu kỳ chuẩn 20 Hz / 50ms)
-        # Nếu quá 0.30s không có lệnh /cmd_vel mới thì tự động về 0 RPM để dừng xe dứt khoát không bị trôi lệnh
-        if time.time() - self.last_cmd_vel_time > 0.30:
+        # Nếu quá cmd_vel_timeout (0.60s) không có lệnh /cmd_vel mới thì tự động về 0 RPM để dừng xe an toàn
+        if time.time() - self.last_cmd_vel_time > self.cmd_vel_timeout:
             self.target_rpm_left = 0.0
             self.target_rpm_right = 0.0
         self._send_motor_cmd(self.target_rpm_left, self.target_rpm_right)

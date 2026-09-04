@@ -88,16 +88,12 @@ SPEED_BINDINGS = {
 }
 
 
-def get_key(settings, timeout=0.06):
+def get_key(settings, timeout=0.05):
     if settings is not None:
-        tty.setraw(sys.stdin.fileno())
         rlist, _, _ = select.select([sys.stdin], [], [], timeout)
         if rlist:
-            key = sys.stdin.read(1)
-        else:
-            key = ''
-        termios.tcsetattr(sys.stdin, termios.TCSADRAIN, settings)
-        return key
+            return sys.stdin.read(1)
+        return ''
     else:
         rlist, _, _ = select.select([sys.stdin], [], [], timeout)
         if rlist:
@@ -110,6 +106,7 @@ def main():
     if sys.stdin.isatty():
         try:
             settings = termios.tcgetattr(sys.stdin)
+            tty.setcbreak(sys.stdin.fileno())
         except Exception:
             settings = None
 
@@ -117,8 +114,8 @@ def main():
     node = rclpy.create_node('teleop_keyboard_node')
     pub = node.create_publisher(Twist, '/cmd_vel', 10)
 
-    linear_speed = 0.20   # m/s (Khởi đầu êm ái, an toàn)
-    angular_speed = 0.60  # rad/s
+    linear_speed = 0.35   # m/s (Tốc độ tuyến tính phù hợp mô-men xoắn động cơ 775 có hộp số)
+    angular_speed = 0.80  # rad/s
 
     target_x = 0.0
     target_th = 0.0
@@ -130,20 +127,21 @@ def main():
 
     try:
         while rclpy.ok():
-            key = get_key(settings, timeout=0.06)
+            rclpy.spin_once(node, timeout_sec=0.0)
+            key = get_key(settings, timeout=0.05)
 
             if key in MOVE_BINDINGS:
                 target_x = MOVE_BINDINGS[key][0]
                 target_th = MOVE_BINDINGS[key][1]
 
-                if target_x > 0 and target_th == 0: last_action = "TIẾN ⬆️ [W]"
-                elif target_x < 0 and target_th == 0: last_action = "LÙI ⬇️ [S]"
-                elif target_th > 0 and target_x == 0: last_action = "XOAY TRÁI ⬅️ [A]"
-                elif target_th < 0 and target_x == 0: last_action = "XOAY PHẢI ➡️ [D]"
-                elif target_x > 0 and target_th > 0: last_action = "TIẾN TRÁI ↖️ [Q]"
-                elif target_x > 0 and target_th < 0: last_action = "TIẾN PHẢI ↗️ [E]"
-                elif target_x < 0 and target_th < 0: last_action = "LÙI TRÁI ↙️ [Z]"
-                elif target_x < 0 and target_th > 0: last_action = "LÙI PHẢI ↘️ [C]"
+                if target_x > 0 and target_th == 0: last_action = "TIẾN ⬆️ [W/i]"
+                elif target_x < 0 and target_th == 0: last_action = "LÙI ⬇️ [S/,]"
+                elif target_th > 0 and target_x == 0: last_action = "XOAY TRÁI ⬅️ [A/j]"
+                elif target_th < 0 and target_x == 0: last_action = "XOAY PHẢI ➡️ [D/l]"
+                elif target_x > 0 and target_th > 0: last_action = "TIẾN TRÁI ↖️ [Q/u]"
+                elif target_x > 0 and target_th < 0: last_action = "TIẾN PHẢI ↗️ [E/o]"
+                elif target_x < 0 and target_th < 0: last_action = "LÙI TRÁI ↙️ [Z/m]"
+                elif target_x < 0 and target_th > 0: last_action = "LÙI PHẢI ↘️ [C/.]"
                 else: last_action = "DỪNG [Space]"
 
             elif key in SPEED_BINDINGS:
@@ -155,7 +153,7 @@ def main():
             elif key == '\x03':  # Ctrl+C
                 break
 
-            # Phát liên tục ~16 Hz duy trì vận tốc đều đặn, nuôi ESP32 Watchdog
+            # Phát liên tục ~20 Hz duy trì vận tốc đều đặn, nuôi ESP32 Watchdog
             twist = Twist()
             twist.linear.x = target_x * linear_speed
             twist.angular.z = target_th * angular_speed
