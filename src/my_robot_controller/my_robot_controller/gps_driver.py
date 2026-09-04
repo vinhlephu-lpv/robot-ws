@@ -44,8 +44,8 @@ class GpsDriverNode(Node):
     def __init__(self):
         super().__init__('gps_driver_node')
 
-        self.declare_parameter('serial_port', '/dev/ttyUSB0')
-        self.declare_parameter('baudrate', 9600)
+        self.declare_parameter('serial_port', '/dev/ttyAMA0')
+        self.declare_parameter('baudrate', 38400)
         self.declare_parameter('frame_id', 'gps_link')
         self.declare_parameter('publish_topic', '/gps/fix')
 
@@ -128,6 +128,22 @@ class GpsDriverNode(Node):
                 msg.status.status = NavSatStatus.STATUS_NO_FIX
         except ValueError:
             msg.status.status = NavSatStatus.STATUS_NO_FIX
+
+        # Tinh toan ma tran hiep phuong sai (Covariance) tu HDOP phuc vu EKF
+        hdop = 1.0
+        if len(parts) > 8 and parts[8]:
+            try:
+                hdop = float(parts[8])
+            except ValueError:
+                hdop = 1.0
+        var_h = max(0.5, (hdop * 1.5)) ** 2
+        var_v = max(1.0, (hdop * 3.0)) ** 2
+        msg.position_covariance = [
+            var_h, 0.0, 0.0,
+            0.0, var_h, 0.0,
+            0.0, 0.0, var_v
+        ]
+        msg.position_covariance_type = NavSatFix.COVARIANCE_TYPE_APPROXIMATED
 
         self.publisher_.publish(msg)
         self.get_logger().debug(f"[GPS Node] Published Fix: Lat={lat:.8f}, Lon={lon:.8f}, Alt={alt:.2f}m")
