@@ -379,6 +379,9 @@ except KeyboardInterrupt:
 alias show-ekf="xem-ekf"
 alias xem-odom="xem-ekf"
 alias show-odom="xem-ekf"
+alias check-ekf="load_ws && python3 \"$WS_DIR/src/my_sensor_test/scripts/check_ekf\""
+alias xem-fusion="check-ekf"
+alias test-ekf="check-ekf"
 
 # =====================================================
 # BẢNG TRA CỨU LỆNH TẮT NHANH (ros-help)
