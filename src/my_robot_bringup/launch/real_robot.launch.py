@@ -17,7 +17,8 @@ Sử dụng:
 import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.conditions import IfCondition, UnlessCondition
 from launch.substitutions import LaunchConfiguration, Command, PythonExpression
 from launch_ros.actions import Node
@@ -91,6 +92,10 @@ def generate_launch_description():
     enable_ekf_arg = DeclareLaunchArgument(
         'enable_ekf', default_value='true',
         description='Enable EKF sensor fusion (Wheel Odometry + IMU)')
+
+    enable_gps_arg = DeclareLaunchArgument(
+        'enable_gps', default_value='true',
+        description='Enable GPS NEO-M10, NavSat Transform and EKF 2 Global')
 
     # ── Robot State Publisher (URDF + TF) ────────────────────────────
     robot_state_pub = Node(
@@ -171,23 +176,22 @@ def generate_launch_description():
         condition=IfCondition(LaunchConfiguration('enable_camera'))
     )
 
-    # ── ESP32 Hardware Bridge (Motor PID + Encoder Odom) ─────────────
-    esp32_bridge = Node(
-        package='my_robot_bringup',
-        executable='esp32_bridge',
-        name='esp32_bridge',
+    # ── ESP32 Hardware Encoder Node (Đo 4 bánh độc lập, lọc ngoại lai) ───
+    encoder_node = Node(
+        package='encoder_odom',
+        executable='encoder_node',
+        name='encoder_node',
         output='screen',
         parameters=[{
-            'connection_mode': 'serial',
             'serial_port': LaunchConfiguration('esp32_port'),
             'baudrate': 115200,
             'wheel_diameter': 0.20,
-            'wheel_base': 0.58,
+            'track_width': 0.58,
             'encoder_ppr': 200,
             'quadrature': 4,
             'gear_ratio': 1.0,
-            'publish_tf': PythonExpression(["'false' if '", LaunchConfiguration('enable_ekf'), "' == 'true' else 'true'"]),
-            'odom_topic': PythonExpression(["'/wheel/odom' if '", LaunchConfiguration('enable_ekf'), "' == 'true' else '/odom'"]),
+            'publish_tf': False,
+            'odom_topic': '/wheel/odom',
         }],
         condition=IfCondition(LaunchConfiguration('enable_esp32'))
     )
@@ -259,16 +263,14 @@ def generate_launch_description():
         )
     )
 
-    # ── EKF Robot Localization (Dung hợp Encoder + IMU) ──────────────
-    ekf_node = Node(
-        package='robot_localization',
-        executable='ekf_node',
-        name='ekf_filter_node',
-        output='screen',
-        parameters=[ekf_config],
-        remappings=[
-            ('odometry/filtered', '/odometry/filtered'),
-        ],
+    # ── DUAL EKF + NAVSAT TRANSFORM (REP-105: EKF 1 Local + NavSat + EKF 2 Global) ─
+    dual_ekf_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(pkg_bringup, 'launch', 'dual_ekf.launch.py')
+        ),
+        launch_arguments={
+            'enable_gps': LaunchConfiguration('enable_gps'),
+        }.items(),
         condition=IfCondition(LaunchConfiguration('enable_ekf'))
     )
 
@@ -297,16 +299,17 @@ def generate_launch_description():
         enable_imu_arg,
         enable_madgwick_arg,
         enable_ekf_arg,
+        enable_gps_arg,
         robot_state_pub,
         joint_state_pub,
         static_odom_tf,
         lidar_node,
         v4l2_camera_node,
         wifi_cam_bridge,
-        esp32_bridge,
+        encoder_node,
         imu_node,
         madgwick_node,
-        ekf_node,
+        dual_ekf_launch,
         video_recorder,
         cnn_driver,
         rviz2_node,
