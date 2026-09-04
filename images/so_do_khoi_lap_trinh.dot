@@ -1,0 +1,129 @@
+digraph SoftwareArchitecture {
+    graph [rankdir=TB, splines=spline, nodesep=0.5, ranksep=0.7, bgcolor="#ffffff", fontname="DejaVu Sans"];
+    node [fontname="DejaVu Sans", fontsize=10, style="filled,rounded", shape=box, penwidth=1.8];
+    edge [fontname="DejaVu Sans", fontsize=9, penwidth=1.6];
+
+    // TẦNG 1: CẢM BIẾN & DRIVER
+    subgraph cluster_layer1 {
+        label="TẦNG 1: THU NHẬN CẢM BIẾN (SENSOR DRIVER LAYER)";
+        fontname="DejaVu Sans Bold"; fontsize=11; fontcolor="#1b5e20";
+        style="filled,rounded"; fillcolor="#f1f8e9"; color="#558b2f"; penwidth=2;
+
+        cam_node [label="Node: v4l2_camera_node\n• Input: USB Webcam DVD20\n• Output: /camera/color/image_raw\n(sensor_msgs/Image 640x480 @ 60 FPS)", fillcolor="#dcedc8", color="#558b2f"];
+        lidar_node [label="Node: sllidar_node\n• Input: RPLIDAR C1 (Serial 460800)\n• Output: /scan\n(sensor_msgs/LaserScan 360°)", fillcolor="#dcedc8", color="#558b2f"];
+        imu_node [label="Node: imu_driver\n• Input: IMU ICM-20948 (I2C Bus 1)\n• Output: /imu/data_raw (50 Hz)", fillcolor="#dcedc8", color="#558b2f"];
+    }
+
+    // TẦNG 2: NHẬN THỨC & ĐỊNH VỊ
+    subgraph cluster_layer2 {
+        label="TẦNG 2: NHẬN THỨC & ĐỊNH VỊ (PERCEPTION & ESTIMATION LAYER)";
+        fontname="DejaVu Sans Bold"; fontsize=11; fontcolor="#006064";
+        style="filled,rounded"; fillcolor="#e0f7fa"; color="#00838f"; penwidth=2;
+
+        ai_module [label="Module: InferenceHandler\n• Model: crop_row_cnn_best_final.onnx\n• Input: Tensor (1, 3, 512, 512)\n• Output: Probability Mask luống bắp", fillcolor="#b2ebf2", color="#00838f", fontname="DejaVu Sans Bold"];
+        feature_extract [label="Function: find_lane_center()\n• Trích xuất tâm luống & sai số\n• Output: heading_error, lane_offset, confidence", fillcolor="#b2ebf2", color="#00838f"];
+        lidar_proc [label="Class: LidarProcessor\n• Quét rẻ quạt phía trước & 2 bên\n• Output: front_dist, obstacle_flag, eor_flag", fillcolor="#b2ebf2", color="#00838f"];
+        madgwick [label="Node: imu_filter_madgwick\n• Lọc bù con quay hồi chuyển & gia tốc\n• Output: /imu/data (Góc Yaw, Roll, Pitch)", fillcolor="#b2ebf2", color="#00838f"];
+        ekf [label="Node: ekf_filter_node (robot_localization)\n• Dung hợp: /odom/raw + /imu/data (30 Hz)\n• Output: /odometry/filtered & TF odom->base", fillcolor="#80deea", color="#006064", fontname="DejaVu Sans Bold"];
+    }
+
+    // TẦNG 3: QUẢN LÝ TRẠNG THÁI & QUY HOẠCH
+    subgraph cluster_layer3 {
+        label="TẦNG 3: MÁY TRẠNG THÁI & QUY HOẠCH (DECISION & PLANNING LAYER)";
+        fontname="DejaVu Sans Bold"; fontsize=11; fontcolor="#e65100";
+        style="filled,rounded"; fillcolor="#fff3e0"; color="#ef6c00"; penwidth=2;
+
+        fsm [label="Class: FSMCoordinator (fsm.py)\n• Quản trị 9 trạng thái tự hành:\nTRACKING | AVOID | U-TURN | RECOVERY...\n• Bỏ phiếu đồng thuận đa cảm biến EOR", fillcolor="#ffe0b2", color="#ef6c00", fontname="DejaVu Sans Bold"];
+        rrt_planner [label="Class: RRTStarPlanner (planners.py)\n• Thuật toán RRT* tìm đường vòng né cản\n• Output: Waypoints danh sách tọa độ (x, y)", fillcolor="#ffe0b2", color="#ef6c00"];
+        uturn_gen [label="Function: generate_uturn_path()\n• Thoát hàng 0.7m-2.5m + Bán nguyệt 180°\n• Output: Quỹ đạo cung tròn chuyển luống", fillcolor="#ffe0b2", color="#ef6c00"];
+    }
+
+    // TẦNG 4: THUẬT TOÁN ĐIỀU KHIỂN
+    subgraph cluster_layer4 {
+        label="TẦNG 4: BỘ ĐIỀU KHIỂN CHUYỂN ĐỘNG (MOTION CONTROLLER LAYER)";
+        fontname="DejaVu Sans Bold"; fontsize=11; fontcolor="#0d47a1";
+        style="filled,rounded"; fillcolor="#e3f2fd"; color="#1565c0"; penwidth=2;
+
+        smc [label="Class: TrackingControllerSMC\n• Bộ điều khiển trượt bám tim luống bắp\n• S = de + λ*e; ω = -k*S - η*sat(S/Φ)\n• Output: v = 0.20 m/s, ω (rad/s)", fillcolor="#bbdefb", color="#1565c0", fontname="DejaVu Sans Bold"];
+        pure_pursuit [label="Class: PurePursuitController\n• Bám đường cong U-Turn & né vật cản\n• Khoảng cách nhìn trước L_d = 0.28m\n• Output: v_turn = 0.18 m/s, ω_turn", fillcolor="#bbdefb", color="#1565c0", fontname="DejaVu Sans Bold"];
+        cmd_mux [label="Topic: /cmd_vel (geometry_msgs/Twist)\n• linear.x (vận tốc dài m/s)\n• angular.z (vận tốc góc rad/s)", fillcolor="#90caf9", color="#0d47a1", fontname="DejaVu Sans Bold"];
+    }
+
+    // TẦNG 5: CẦU NỐI ĐỘNG HỌC & TRUYỀN THÔNG
+    subgraph cluster_layer5 {
+        label="TẦNG 5: CẦU NỐI PHẦN CỨNG (HARDWARE BRIDGE LAYER)";
+        fontname="DejaVu Sans Bold"; fontsize=11; fontcolor="#4a148c";
+        style="filled,rounded"; fillcolor="#f3e5f5"; color="#7b1fa2"; penwidth=2;
+
+        bridge [label="Node: esp32_bridge (my_robot_bringup)\n• Kinematics vi sai: v, ω ──► RPM_L, RPM_R\n• Dead Reckoning: v_L, v_R ──► /odom/raw\n• Nuôi Watchdog Serial đều đặn 20 Hz", fillcolor="#e1bee7", color="#7b1fa2", fontname="DejaVu Sans Bold"];
+    }
+
+    // TẦNG 6: FIRMWARE NHÚNG THỜI GIAN THỰC (ESP32-S3)
+    subgraph cluster_layer6 {
+        label="TẦNG 6: NHÚNG THỜI GIAN THỰC (ESP32-S3 EMBEDDED FIRMWARE)";
+        fontname="DejaVu Sans Bold"; fontsize=11; fontcolor="#311b92";
+        style="filled,rounded"; fillcolor="#ede7f6"; color="#4527a0"; penwidth=2;
+
+        esp_uart [label="UART Parser (115200 baud, 20 Hz)\n• Giải mã lệnh: 'V <rpm_L> <rpm_R>'\n• Đóng gói phản hồi: 'ODOM <v_L> <v_R>'", fillcolor="#d1c4e9", color="#4527a0"];
+        slew [label="Slew Rate Limiter (Bộ hạn chế gia tốc)\n• Tăng tốc: max +55 PWM | Giảm tốc: -25 PWM\n• Khởi động mềm chống giật và vỡ nhông", fillcolor="#d1c4e9", color="#4527a0"];
+        pid_sync [label="4x Closed-Loop PID + Đồng Bộ Động Cơ\n• Kp=1.05, Ki=0.90, Kd=0.08\n• Bù đồng tốc K_sync = 0.85\n• Khóa hướng thẳng vi sai K_heading = 35.0", fillcolor="#b39ddb", color="#311b92", fontname="DejaVu Sans Bold"];
+        kalman_1d [label="4x Bộ Lọc Kalman 1D\n• Khử 100% gai nhiễu điện chổi than DC 775\n• Cung cấp Measured RPM cực mịn cho PID", fillcolor="#d1c4e9", color="#4527a0"];
+        pwm_driver [label="LEDC Hardware PWM Generator\n• 8 Kênh PWM độc lập tần số 7 kHz, 8-bit\n• Điều khiển chân RPWM/LPWM mạch cầu H", fillcolor="#b39ddb", color="#311b92"];
+    }
+
+    // TẦNG 7: PHẦN CỨNG CHẤP HÀNH
+    subgraph cluster_layer7 {
+        label="TẦNG 7: CÔNG SUẤT & CHẤP HÀNH VẬT LÝ (HARDWARE ACTUATION)";
+        fontname="DejaVu Sans Bold"; fontsize=11; fontcolor="#b71c1c";
+        style="filled,rounded"; fillcolor="#ffebee"; color="#c62828"; penwidth=2;
+
+        bts [label="4 Mạch Cầu H BTS7960\n• Đóng ngắt Mosfet chịu dòng đỉnh 43A\n• Cấp điện áp 24V băm xung PWM", fillcolor="#ffcdd2", color="#c62828"];
+        motors [label="4 Động Cơ DC 775 24V + Hộp Số 220 RPM\n• Dẫn động 4 bánh xe cao su (D=200mm, W=0.58m)\n• Robot di chuyển thực tế trên mặt đất", fillcolor="#ef9a9a", color="#b71c1c", fontname="DejaVu Sans Bold"];
+        encoders [label="4 Cảm Biến Encoder Quang Học (200 PPR)\n• Gắn trực tiếp trên trục quay 4 bánh\n• Đọc ngắt GPIO phần cứng chu kỳ 50ms (20 Hz)", fillcolor="#ffcdd2", color="#c62828", fontname="DejaVu Sans Bold"];
+    }
+
+    // LIÊN KẾT LUỒNG DỮ LIỆU (DATA & CONTROL FLOW)
+    // Tầng 1 -> Tầng 2
+    cam_node -> ai_module [color="#558b2f", label="Ảnh BGR 640x480"];
+    ai_module -> feature_extract [color="#00838f", label="Mask 512x512"];
+    lidar_node -> lidar_proc [color="#558b2f", label="/scan"];
+    imu_node -> madgwick [color="#558b2f", label="/imu/data_raw"];
+    madgwick -> ekf [color="#00838f", label="/imu/data"];
+
+    // Tầng 2 -> Tầng 3
+    feature_extract -> fsm [color="#00838f", label="heading_error, lane_offset"];
+    lidar_proc -> fsm [color="#00838f", label="obstacle, eor"];
+    fsm -> rrt_planner [color="#ef6c00", label="Khi gặp cản"];
+    fsm -> uturn_gen [color="#ef6c00", label="Khi hết hàng EOR"];
+
+    // Tầng 3 -> Tầng 4
+    fsm -> smc [color="#ef6c00", label="State: TRACKING"];
+    rrt_planner -> pure_pursuit [color="#ef6c00", label="State: AVOID_PLANNING"];
+    uturn_gen -> pure_pursuit [color="#ef6c00", label="State: UTURN_PLANNING"];
+    smc -> cmd_mux [color="#1565c0", label="cmd_vel (v, w)"];
+    pure_pursuit -> cmd_mux [color="#1565c0", label="cmd_vel (v, w)"];
+
+    // Tầng 4 -> Tầng 5
+    cmd_mux -> bridge [color="#0d47a1", penwidth=2.5, label="Subscribed /cmd_vel"];
+
+    // Tầng 5 -> Tầng 6 (Serial Downlink)
+    bridge -> esp_uart [color="#7b1fa2", penwidth=3, label="Serial Downlink (115200 baud, 20 Hz)\n'V <rpm_L> <rpm_R>\\n'"];
+
+    // Tầng 6 nội bộ
+    esp_uart -> slew [color="#4527a0"];
+    slew -> pid_sync [color="#4527a0", label="Target RPM"];
+    kalman_1d -> pid_sync [color="#311b92", label="Measured RPM"];
+    pid_sync -> pwm_driver [color="#311b92", label="PWM Output (0-255)"];
+
+    // Tầng 6 -> Tầng 7
+    pwm_driver -> bts [color="#c62828", penwidth=2.5, label="8 Kênh PWM 7kHz + IN1/IN2"];
+    bts -> motors [color="#c62828", penwidth=2.5, label="Điện áp 24V"];
+    motors -> encoders [color="#b71c1c", style=dashed, label="Quay trục bánh"];
+
+    // VÒNG HỒI TIẾP NGƯỢC (FEEDBACK UPLINK)
+    encoders -> kalman_1d [color="#00838f", penwidth=2.5, label="Xung ngắt A/B (200 PPR, 50ms)"];
+    kalman_1d -> esp_uart [color="#00838f", label="Tốc độ thực v_L, v_R (m/s)"];
+    esp_uart -> bridge [color="#006064", penwidth=3, label="Serial Uplink (20 Hz)\n'ODOM <v_L> <v_R>\\n'"];
+    bridge -> ekf [color="#006064", penwidth=2, label="/odom/raw (Dead Reckoning)"];
+    ekf -> fsm [color="#006064", style=dashed, label="Tọa độ /odometry/filtered (X, Y, Yaw)"];
+}

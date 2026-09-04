@@ -48,9 +48,9 @@ class CnnDriverNode(Node):
         self.declare_parameter('input_width', 512)
         self.declare_parameter('num_threads', 0)
         self.declare_parameter('mask_threshold', 0.04)
-        self.declare_parameter('linear_speed', 0.20)
-        self.declare_parameter('turn_linear_speed', 0.18)
-        self.declare_parameter('turn_angular_speed', 0.50)
+        self.declare_parameter('linear_speed', 0.30)
+        self.declare_parameter('turn_linear_speed', 0.20)
+        self.declare_parameter('turn_angular_speed', 0.60)
         self.declare_parameter('low_confidence_threshold', 0.35)
         self.declare_parameter('high_confidence_threshold', 0.50)
         self.declare_parameter('lambda_smc', 2.0)
@@ -74,6 +74,9 @@ class CnnDriverNode(Node):
         self.declare_parameter('datum_longitude', 106.670889)
         self.declare_parameter('datum_altitude', 10.0)
         self.declare_parameter('gps_topic', '/gps/fix')
+        self.declare_parameter('image_topic', '/camera/color/image_raw')
+        self.declare_parameter('odom_topic', '/odometry/filtered')
+        self.declare_parameter('imu_topic', '/imu/data')
         
         default_log_dir = os.path.join(
             os.path.expanduser('~'), 'ros2_telemetry_logs'
@@ -115,6 +118,9 @@ class CnnDriverNode(Node):
         self.datum_longitude         = p('datum_longitude').value
         self.datum_altitude          = p('datum_altitude').value
         self.gps_topic               = p('gps_topic').value
+        self.image_topic             = p('image_topic').value
+        self.odom_topic              = p('odom_topic').value
+        self.imu_topic               = p('imu_topic').value
         self.enable_file_logging     = p('enable_file_logging').value
         self.log_output_dir          = p('log_output_dir').value
         self.terminal_log_interval   = p('terminal_log_interval').value
@@ -274,10 +280,18 @@ class CnnDriverNode(Node):
         self.gps_pub     = self.create_publisher(NavSatFix, '/localization/gps', 10)
 
         self.image_sub = self.create_subscription(
-            Image, 'camera/image_raw', self.image_callback, 10)
+            Image, self.image_topic, self.image_callback, 10)
+        # Fallback subscription for simulation / raw image
+        if self.image_topic not in ('/camera/image_raw', 'camera/image_raw'):
+            self.image_fallback_sub = self.create_subscription(
+                Image, '/camera/image_raw', self.image_callback, 10)
 
         self.odom_sub = self.create_subscription(
-            Odometry, 'odom', self.odom_callback, 10)
+            Odometry, self.odom_topic, self.odom_callback, 10)
+        # Fallback subscription for raw odom
+        if self.odom_topic not in ('/odom', 'odom'):
+            self.odom_fallback_sub = self.create_subscription(
+                Odometry, '/odom', self.odom_callback, 10)
 
         self.scan_sub = self.create_subscription(
             LaserScan, '/scan', self.scan_callback, 10)
@@ -286,10 +300,15 @@ class CnnDriverNode(Node):
             NavSatFix, self.gps_topic, self.gps_callback, 10)
 
         self.imu_sub = self.create_subscription(
-            Imu, '/imu', self.imu_callback, 10)
+            Imu, self.imu_topic, self.imu_callback, 10)
+        # Fallback subscription for alternative imu topic
+        if self.imu_topic not in ('/imu', 'imu'):
+            self.imu_fallback_sub = self.create_subscription(
+                Imu, '/imu', self.imu_callback, 10)
 
         self.get_logger().info(
             f"cnn_driver_node ready | navigation_mode={self.navigation_mode} | "
+            f"Image topic={self.image_topic} | Odom topic={self.odom_topic} | "
             f"min_row_length={self.min_row_length}m | drive_out_distance={self.drive_out_distance}m | "
             f"GPS topic={self.gps_topic} | Datum Lat/Lon=({self.datum_latitude:.6f}, {self.datum_longitude:.6f})"
         )
@@ -469,6 +488,13 @@ class CnnDriverNode(Node):
 
     # ── Main image callback / FSM ──────────────────────────────────────
     def image_callback(self, msg: Image):
+        # Prevent processing duplicate frames within 10ms
+        now = self.get_clock().now()
+        now_ns = now.nanoseconds
+        if hasattr(self, '_last_img_cb_ns') and (now_ns - self._last_img_cb_ns) < 10000000:
+            return
+        self._last_img_cb_ns = now_ns
+
         try:
             bgr_image = self.convert_image(msg)
             # Debug: Save the first image to verify camera is working (if enabled)
