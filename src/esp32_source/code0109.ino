@@ -21,7 +21,7 @@
 #define MAX_PWM_CHANGE_DOWN     25        // Bước giảm PWM tối đa (bảo vệ cơ cấu nhông hộp số)
 #define RAMP_STEP_MAX           12.0f     // Bước ramp gia tốc tối đa
 #define RAMP_STEP_MIN           2.5f      // Bước ramp khởi động dứt khoát
-#define RAMP_STEP_STOP_MAX      5.0f      // Bước giảm tốc êm ái khi dừng
+#define RAMP_STEP_STOP_MAX      20.0f     // Bước giảm tốc dứt khoát khi dừng (chống trôi xe)
 
 // Lọc nhiễu Encoder & Ngưỡng vật lý
 #define MIN_ENC_INTERVAL_US     15        // Chặn gai nhiễu megahertz tia lửa chổi than (<15us)
@@ -62,7 +62,7 @@ const char* password = "";
 #define INV_DRV1     1   // Bánh trái trước: Tiến
 #define INV_DRV2     1   // Bánh trái sau: Tiến
 #define INV_DRV3    -1   // Bánh phải trước: Đảo chiều
-#define INV_DRV4     1   // Bánh phải sau: Tiến
+#define INV_DRV4    -1   // Bánh phải sau: Đảo chiều (đồng bộ vế Phải với Bánh 3)
 
 const int PWM_FREQ = 7000;
 const int PWM_RES  = 8;      // 8-bit: 0 - 255
