@@ -57,6 +57,10 @@ def generate_launch_description():
         'enable_camera', default_value='true',
         description='Enable USB camera node')
 
+    enable_lidar_arg = DeclareLaunchArgument(
+        'enable_lidar', default_value='true',
+        description='Enable RPLIDAR C1 sensor node')
+
     color_width_arg = DeclareLaunchArgument(
         'color_width', default_value='640',
         description='Color image width (640 for VGA)')
@@ -138,7 +142,8 @@ def generate_launch_description():
             'inverted': False,
             'angle_compensate': True,
             'scan_mode': 'Standard',
-        }]
+        }],
+        condition=IfCondition(LaunchConfiguration('enable_lidar'))
     )
 
     # ── Camera Driver (V4L2 USB Webcam) ──────────────────────────────
@@ -296,6 +301,7 @@ def generate_launch_description():
         esp32_port_arg,
         enable_esp32_arg,
         enable_camera_arg,
+        enable_lidar_arg,
         color_width_arg,
         color_height_arg,
         enable_cnn_arg,
