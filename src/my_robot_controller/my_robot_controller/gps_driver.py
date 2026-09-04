@@ -109,44 +109,46 @@ class GpsDriverNode(Node):
         except ValueError:
             alt = 0.0
 
-        if math.isnan(lat) or math.isnan(lon):
-            return
-
         msg = NavSatFix()
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.header.frame_id = self.frame_id
 
-        msg.latitude = lat
-        msg.longitude = lon
-        msg.altitude = alt
-
         try:
             qual = int(fix_quality)
-            if qual > 0:
-                msg.status.status = NavSatStatus.STATUS_FIX
-            else:
-                msg.status.status = NavSatStatus.STATUS_NO_FIX
         except ValueError:
-            msg.status.status = NavSatStatus.STATUS_NO_FIX
+            qual = 0
 
-        # Tinh toan ma tran hiep phuong sai (Covariance) tu HDOP phuc vu EKF
-        hdop = 1.0
-        if len(parts) > 8 and parts[8]:
-            try:
-                hdop = float(parts[8])
-            except ValueError:
-                hdop = 1.0
-        var_h = max(0.5, (hdop * 1.5)) ** 2
-        var_v = max(1.0, (hdop * 3.0)) ** 2
-        msg.position_covariance = [
-            var_h, 0.0, 0.0,
-            0.0, var_h, 0.0,
-            0.0, 0.0, var_v
-        ]
-        msg.position_covariance_type = NavSatFix.COVARIANCE_TYPE_APPROXIMATED
+        if qual > 0 and not math.isnan(lat) and not math.isnan(lon):
+            msg.status.status = NavSatStatus.STATUS_FIX
+            msg.latitude = lat
+            msg.longitude = lon
+            msg.altitude = alt
+
+            # Tinh toan ma tran hiep phuong sai (Covariance) tu HDOP phuc vu EKF
+            hdop = 1.0
+            if len(parts) > 8 and parts[8]:
+                try:
+                    hdop = float(parts[8])
+                except ValueError:
+                    hdop = 1.0
+            var_h = max(0.5, (hdop * 1.5)) ** 2
+            var_v = max(1.0, (hdop * 3.0)) ** 2
+            msg.position_covariance = [
+                var_h, 0.0, 0.0,
+                0.0, var_h, 0.0,
+                0.0, 0.0, var_v
+            ]
+            msg.position_covariance_type = NavSatFix.COVARIANCE_TYPE_APPROXIMATED
+            self.get_logger().debug(f"[GPS Node] Published Fix: Lat={lat:.8f}, Lon={lon:.8f}, Alt={alt:.2f}m")
+        else:
+            msg.status.status = NavSatStatus.STATUS_NO_FIX
+            msg.latitude = float('nan')
+            msg.longitude = float('nan')
+            msg.altitude = float('nan')
+            msg.position_covariance = [0.0] * 9
+            msg.position_covariance_type = NavSatFix.COVARIANCE_TYPE_UNKNOWN
 
         self.publisher_.publish(msg)
-        self.get_logger().debug(f"[GPS Node] Published Fix: Lat={lat:.8f}, Lon={lon:.8f}, Alt={alt:.2f}m")
 
 
 def main(args=None):

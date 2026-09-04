@@ -541,7 +541,7 @@ def main(args=None):
     node = EncoderNode()
     try:
         rclpy.spin(node)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, rclpy.executors.ExternalShutdownException):
         pass
     finally:
         if node.ser and node.ser.is_open:
@@ -550,8 +550,12 @@ def main(args=None):
                 node.ser.close()
             except Exception:
                 pass
-        node.destroy_node()
-        rclpy.shutdown()
+        try:
+            node.destroy_node()
+        except Exception:
+            pass
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == '__main__':
