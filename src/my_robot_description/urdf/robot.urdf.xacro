@@ -3,7 +3,7 @@
 
   <!-- Materials -->
   <material name="blue">
-    <color rgba="0.1 0.3 0.8 1.0"/>
+    <color rgba="0.15 0.45 0.95 0.8"/>
   </material>
   <material name="black">
     <color rgba="0.0 0.0 0.0 1.0"/>
@@ -15,7 +15,7 @@
     <color rgba="0.5 0.5 0.5 1.0"/>
   </material>
 
-  <!-- Robot dimensions -->
+  <!-- Robot dimensions (Exact real dimensions: 0.6m length x 0.53m width x 0.4m height) -->
   <xacro:property name="chassis_length" value="0.6"/>
   <xacro:property name="chassis_width" value="0.53"/>
   <xacro:property name="chassis_height" value="0.4"/>

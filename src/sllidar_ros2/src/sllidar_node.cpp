@@ -226,7 +226,8 @@ class SLlidarNode : public rclcpp::Node
         scan_msg->scan_time = scan_time;
         scan_msg->time_increment = scan_time / (double)(node_count-1);
         scan_msg->range_min = 0.05;
-        scan_msg->range_max = max_distance;//8.0;
+        scan_msg->range_max = 6.0;
+        // scan_msg->range_max = max_distance;//8.0;
 
         scan_msg->intensities.resize(node_count);
         scan_msg->ranges.resize(node_count);

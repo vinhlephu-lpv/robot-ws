@@ -461,7 +461,7 @@ stop_robot_func() {
     echo "🛑 Đang gửi lệnh phanh khẩn cấp & dừng toàn bộ động cơ..."
     ros2 topic pub --once /cmd_vel geometry_msgs/msg/Twist "{linear: {x: 0.0}, angular: {z: 0.0}}" 2>/dev/null || true
     echo "🧹 Đang dọn sạch các tiến trình ROS 2 còn sót lại..."
-    killall -9 rplidar_node esp32_bridge imu_driver costmap_node async_slam_toolbox_node 2>/dev/null || true
+    killall -9 rplidar_node sllidar_node esp32_bridge imu_driver costmap_node async_slam_toolbox_node 2>/dev/null || true
     echo "✅ Toàn bộ hệ thống Robot đã dừng an toàn và giải phóng cổng Serial!"
 }
 alias stop-robot="stop_robot_func"

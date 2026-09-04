@@ -18,9 +18,9 @@ class CostmapNode(Node):
         super().__init__('costmap_node')
 
         # Declare parameters
-        self.declare_parameter('inscribed_radius', 0.18)      # m - robot physical radius (~18cm)
-        self.declare_parameter('inflation_radius', 0.28)      # m - slim, realistic safety halo (28cm total, ~10cm buffer)
-        self.declare_parameter('cost_scaling_factor', 7.0)    # steep exponential decay: clears open space immediately
+        self.declare_parameter('inscribed_radius', 0.25)      # m - robot radius (25cm)
+        self.declare_parameter('inflation_radius', 0.35)      # m - 10cm safety buffer (35cm total)
+        self.declare_parameter('cost_scaling_factor', 10.0)   # smooth exponential decay across 10cm buffer
         self.declare_parameter('obstacle_threshold', 60)      # minimum SLAM confidence (0-100) to treat as obstacle
         if not self.has_parameter('use_sim_time'):
             self.declare_parameter('use_sim_time', False)
