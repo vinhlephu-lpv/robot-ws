@@ -588,7 +588,7 @@ class CnnDriverNode(Node):
         # Check if we have entered the row dynamically (arm when settled inside the lane)
         if current_state == FSMState.TRACKING and not self.inside_row:
             dir_fwd = (math.cos(self.current_yaw) >= 0)
-            in_row_zone = (self.current_x >= 0.50) if dir_fwd else (self.current_x <= 4.30)
+            in_row_zone = (self.current_x >= 0.20 or confidence >= self.low_confidence_threshold) if dir_fwd else (self.current_x <= 4.30 or confidence >= self.low_confidence_threshold)
             
             if in_row_zone and confidence >= 0.15:
                 self.inside_row = True
@@ -679,26 +679,20 @@ class CnnDriverNode(Node):
                 # 2. Safety distance backup (safety net if vision/LiDAR is degraded)
                 trigger_safety_distance = (self.distance_traveled >= self.max_row_length)
 
-                # Use purely perception-based U-turn triggers
-                # Require that the robot has entered the crop row first
-                if self.inside_row and (trigger_confidence or end_of_row or trigger_safety_distance):
-                    is_forward_completed = (self.row_start_x is not None and self.row_start_x < 2.0 and self.current_x >= 3.65)
-                    is_backward_completed = (self.row_start_x is not None and self.row_start_x > 1.5 and self.current_x <= -0.05)
-                    
-                    if is_forward_completed or is_backward_completed or trigger_safety_distance or self.distance_traveled >= self.min_row_length:
-                        self.row_completed = True
-                        reason = "LiDAR End of Row" if end_of_row else ("Safety Distance" if trigger_safety_distance else "Vision Confidence Drop")
-                        self.get_logger().info(
-                            f"--- Row fully traversed and completed! (start_x={self.row_start_x if self.row_start_x is not None else 0.0:.2f}m, end_x={self.current_x:.2f}m) via {reason}. ---"
-                        )
-                        self.eor_detected = True
-                        self.eor_trigger_x = self.current_x
-                        return
-                    else:
-                        # Log and ignore early false EOR triggers
-                        self.get_logger().warn(
-                            f"Ignored early EOR trigger: robot has not traversed the full row (start_x={self.row_start_x if self.row_start_x is not None else 0.0:.2f}m, current_x={self.current_x:.2f}m)"
-                        )
+                # ── Pure Perception U-turn triggers ───────────────────────
+                # Tự động nhận biết hết hàng hoàn toàn bằng đa cảm biến (Perception-driven):
+                # 1. LiDAR C1 phát hiện khoảng trống đầu bờ (phía trước > 2.0m, 2 bên sườn > 0.90m)
+                # 2. Camera CNN mất dấu hàng thùng khi ra khỏi luống (confidence tụt giảm)
+                # 3. Watchdog khoảng cách an toàn khẩn cấp (phòng ngừa cả 2 cảm biến bị lỗi phần cứng)
+                if self.inside_row and (end_of_row or trigger_confidence or trigger_safety_distance):
+                    self.row_completed = True
+                    reason = "LiDAR Headland Clearance" if end_of_row else ("Vision Confidence Drop" if trigger_confidence else "Safety Distance Watchdog")
+                    self.get_logger().info(
+                        f"--- Đã nhận biết HẾT HÀNG tự động bằng cảm biến ({reason}) tại x={self.current_x:.2f}m! Bắt đầu tự lập kế hoạch quay đầu... ---"
+                    )
+                    self.eor_detected = True
+                    self.eor_trigger_x = self.current_x
+                    return
 
         # ── REACTIVE_AVOID ────────────────────────────────────────────
         elif current_state == FSMState.REACTIVE_AVOID:

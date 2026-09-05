@@ -328,11 +328,17 @@ graph TD
 
 ### 🌽 KỊCH BẢN D: Tự lái bám hàng bắp bằng AI CNN & Quay đầu U-Turn
 
-1. **Kiểm tra chẩn đoán toàn diện hệ thống trước khi chạy (Khuyên dùng):**
-   ```bash
-   check-cnn
-   ```
-   *(Kiểm tra nhanh Camera, ONNX 512x512, tính góc lái, FSM, SMC và chuỗi lệnh gửi xuống ESP32).*
+1. **Kiểm tra chẩn đoán toàn diện hoặc chạy thử ảnh tĩnh trên Laptop:**
+   - **Chẩn đoán luồng phần mềm & phần cứng:**
+     ```bash
+     check-cnn
+     ```
+   - **Chạy thử suy luận AI CNN trên ảnh tĩnh (mô phỏng 100% xe thật bám luống, chọn 1 hoặc nhiều ảnh):**
+     ```bash
+     test-img
+     # Hoặc chọn thư mục/file: test-img /path/to/folder/
+     ```
+     *(Hộp thoại chọn ảnh sẽ hiện lên để bạn chọn 1 hoặc nhiều ảnh trên Laptop. Script sẽ trích xuất tâm luống, tính góc bẻ lái SMC, RPM bánh xe và mở cửa sổ HUD xem trực quan từng ảnh).*
 
 2. **Đặt xe vào luống:** Đặt xe ở đầu luống bắp, hướng camera dọc theo rãnh giữa 2 hàng bắp.
 

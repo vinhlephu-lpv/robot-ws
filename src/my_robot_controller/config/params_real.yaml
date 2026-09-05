@@ -34,10 +34,9 @@ cnn_driver_node:
     low_confidence_threshold: 0.30
     high_confidence_threshold: 0.55
 
-    # Trigger U-turn: dùng cả distance + confidence
-    use_distance_trigger: true
-    row_length: 15.0            # m — đo thực tế chiều dài luống bắp
-    low_conf_frames_threshold: 8  # xe thật: cũng dùng confidence trigger
+    # Tự động nhận biết hết hàng (End of Row) bằng cảm biến (Camera CNN + LiDAR C1):
+    low_conf_frames_threshold: 8  # số frame camera liên tiếp mất dấu hàng để xác nhận hết luống
+    max_row_length: 50.0          # m — giới hạn an toàn tối đa (chỉ kích hoạt nếu cả Camera và LiDAR đồng thời bị hỏng)
 
     warmup_time: 3.0
     drive_out_time: 2.0

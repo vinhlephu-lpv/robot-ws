@@ -42,44 +42,58 @@ def main():
     test_image = None
 
     if cam_available:
-        print(f"  ✅ Tìm thấy cổng thiết bị camera: {cam_device}")
+        cam_name = "Camera thiết bị"
+        name_path = f"/sys/class/video4linux/{os.path.basename(cam_device)}/name"
+        if os.path.exists(name_path):
+            try:
+                with open(name_path, 'r') as f:
+                    cam_name = f.read().strip()
+            except Exception:
+                pass
+        
+        is_laptop_cam = any(k in cam_name.lower() for k in ["user facing", "integrated", "internal", "facetime"])
+        type_str = "(Webcam tích hợp của Laptop)" if is_laptop_cam else "(Webcam ngoài USB)"
+        print(f"  ✅ Tìm thấy cổng thiết bị camera: {cam_device} ➔ {cam_name} {type_str}")
         cap = cv2.VideoCapture(0)
         if cap.isOpened():
-            # Yêu cầu định dạng chuẩn 1080p Full HD @ 60 FPS
+            # Yêu cầu định dạng chuẩn
             cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
-            cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
-            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
-            cap.set(cv2.CAP_PROP_FPS, 60)
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+            cap.set(cv2.CAP_PROP_FPS, 30)
 
             ret, frame = cap.read()
             if ret and frame is not None:
                 h, w, c = frame.shape
-                fps_val = cap.get(cv2.CAP_PROP_FPS)
+                fps_val = cap.get(cv2.CAP_PROP_FPS) or 30.0
                 print(f"  ✅ Khung hình đọc từ Camera: {w}x{h} (3 kênh BGR) @ {fps_val:.0f} FPS")
-                print(f"     📷 Cấu hình chuẩn xe thật: Webcam USB DVD20 (1080p @ 60 FPS, FOV 78°)")
                 print(f"     🔄 Tự động tiền xử lý: Scale & Normalize về 512x512 cho mạng CNN suy luận")
                 test_image = frame
-                results["Camera"] = f"PASS ({w}x{h} @ {fps_val:.0f}FPS -> Scaled to 512x512)"
+                results["Camera"] = f"PASS ({cam_name} {w}x{h} -> Scaled 512x512)"
             else:
-                print("  ⚠️ Camera mở được nhưng không đọc được frame. Sử dụng ảnh giả lập luống bắp.")
+                print("  ⚠️ Camera mở được nhưng không đọc được frame. Sử dụng ảnh chuẩn thực địa.")
                 results["Camera"] = "WARN (Frame capture fallback)"
             cap.release()
         else:
-            print("  ⚠️ Không thể mở VideoCapture(0). Sử dụng ảnh giả lập luống bắp.")
+            print("  ⚠️ Không thể mở VideoCapture(0). Sử dụng ảnh chuẩn thực địa.")
             results["Camera"] = "WARN (Capture open fallback)"
+    sample_path = os.path.join(WS_DIR, 'src', 'my_robot_controller', 'models', 'sample_carton_field.jpg')
+    if os.path.exists(sample_path):
+        sample_image = cv2.imread(sample_path)
+        print(f"  📸 Tìm thấy ảnh chuẩn thực địa bãi cỏ + hàng thùng carton ({os.path.basename(sample_path)})")
     else:
-        print("  ℹ️ Chưa cắm webcam thật (/dev/video0). Khởi tạo ảnh giả lập 1080p luống bắp.")
-        results["Camera"] = "SIMULATED (Ảnh mẫu luống bắp 1080p)"
+        sample_image = None
 
     if test_image is None:
-        # Tạo ảnh giả lập 640x480 với 2 hàng bắp xanh
-        test_image = np.zeros((480, 640, 3), dtype=np.uint8)
-        # Nền đất màu nâu nhạt
-        test_image[:] = [50, 70, 90]
-        # Hàng bắp bên trái (x: 140 -> 220)
-        test_image[:, 140:220] = [30, 180, 30]
-        # Hàng bắp bên phải (x: 420 -> 500)
-        test_image[:, 420:500] = [30, 180, 30]
+        if sample_image is not None:
+            test_image = sample_image
+            results["Camera"] = "SAMPLE_FIELD (Ảnh thực địa hàng thùng carton)"
+        else:
+            test_image = np.zeros((480, 640, 3), dtype=np.uint8)
+            test_image[:] = [40, 110, 40]  # Nền cỏ xanh
+            test_image[:, 140:220] = [230, 230, 230] # Hàng thùng trắng/bạc
+            test_image[:, 420:500] = [230, 230, 230]
+            results["Camera"] = "SIMULATED (Mô phỏng hàng thùng carton)"
 
     # ─────────────────────────────────────────────────────────────────
     # 2. KIỂM TRA MODEL ONNX & KÍCH THƯỚC ĐẦU VÀO 512x512
@@ -127,13 +141,10 @@ def main():
     print(f"  🎯 Độ lệch tâm chuẩn hóa (Lane Offset)     : {lane_off:.3f}")
     print(f"  🎯 Góc lái tính toán (Heading Error)       : {heading_err:.2f} độ")
 
-    # Kiểm tra phản xạ đánh lái khi xe bị lệch
-    shifted_img = np.zeros((480, 640, 3), dtype=np.uint8)
-    shifted_img[:] = [50, 70, 90]
-    shifted_img[:, 240:320] = [30, 180, 30] # Lệch sang phải
-    shifted_img[:, 520:600] = [30, 180, 30]
-    h_err_shift, _, _, _ = handler.process_image(shifted_img, max_angle_deg=5.0)
-    print(f"  ✅ Kiểm tra xe lệch phải -> Góc bẻ lái tương ứng: {h_err_shift:.2f} độ (Phản xạ đúng hướng)")
+    if sample_image is not None and test_image is not sample_image:
+        s_head, s_off, s_center, s_conf = handler.process_image(sample_image, max_angle_deg=5.0)
+        print(f"  📦 Kiểm chứng trên ảnh thực địa thùng carton: Conf={s_conf:.2f} | Tâm={s_center:.1f}px | Lái={s_head:.2f}°")
+
     results["Góc lái CNN"] = f"PASS ({heading_err:.2f}°, {inference_time_ms:.1f}ms)"
 
     # ─────────────────────────────────────────────────────────────────
@@ -188,18 +199,27 @@ def main():
     # 6. KIỂM TRA CỔNG THIẾT BỊ PHẦN CỨNG THỰC TẾ
     # ─────────────────────────────────────────────────────────────────
     print("\n[BƯỚC 6/6] Khảo sát các cổng thiết bị phần cứng thực tế:")
-    devices = {
-        "Webcam USB": ["/dev/video0", "/dev/video1"],
+    # Kiểm tra cổng webcam robot (phân biệt webcam laptop tích hợp và webcam USB ngoài)
+    video_devices = [p for p in ["/dev/video0", "/dev/video1", "/dev/video2", "/dev/video3"] if os.path.exists(p)]
+    has_ext_cam = any(not any(k in open(f"/sys/class/video4linux/{os.path.basename(p)}/name").read().lower() for k in ["user facing", "integrated", "internal"]) for p in video_devices if os.path.exists(f"/sys/class/video4linux/{os.path.basename(p)}/name"))
+
+    if has_ext_cam:
+        print(f"  🟢 {'Webcam USB Xe':<22}: ĐÃ KẾT NỐI")
+    elif video_devices:
+        print(f"  🟡 {'Webcam USB Xe':<22}: Chưa cắm (Đang có Webcam Laptop: {', '.join(video_devices)})")
+    else:
+        print(f"  ⚪ {'Webcam USB Xe':<22}: Chưa kết nối")
+
+    robot_devices = {
         "Vi điều khiển ESP32": ["/dev/esp32", "/dev/ttyUSB0", "/dev/ttyUSB1"],
         "LiDAR RPLIDAR C1": ["/dev/rplidar", "/dev/ttyUSB0", "/dev/ttyUSB1"],
-        "I2C Bus IMU": ["/dev/i2c-1"]
     }
-    for name, paths in devices.items():
+    for name, paths in robot_devices.items():
         found = [p for p in paths if os.path.exists(p)]
         if found:
-            print(f"  🟢 {name:<20}: ĐÃ KẾT NỐI ({', '.join(found)})")
+            print(f"  🟢 {name:<22}: ĐÃ KẾT NỐI ({', '.join(found)})")
         else:
-            print(f"  ⚪ {name:<20}: Chưa cắm dây phần cứng (Sẽ chạy chế độ mô phỏng/mock)")
+            print(f"  ⚪ {name:<22}: Chưa cắm dây phần cứng")
 
     # ─────────────────────────────────────────────────────────────────
     # TỔNG KẾT

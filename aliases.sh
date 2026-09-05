@@ -203,7 +203,10 @@ alias cnn-auto="real-cnn"
 
 # Lệnh KIỂM TRA CHẨN ĐOÁN TOÀN DIỆN CHUỖI AI CNN
 alias check-cnn="load_ws && python3 \"$WS_DIR/scripts/verify_cnn_pipeline.py\""
-alias test-cnn="check-cnn"
+
+# Lệnh CHẠY THỬ SUY LUẬN AI CNN TRÊN ẢNH (Mô phỏng 100% xe thật bám luống)
+alias test-img="load_ws && python3 \"$WS_DIR/scripts/test_inference_images.py\""
+alias cnn-img="test-img"
 
 alias pc-nav="load_ws && ros2 launch my_robot_bringup pc_nav.launch.py"
 alias nav-slam="load_ws && ros2 launch my_robot_bringup pc_nav.launch.py"

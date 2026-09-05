@@ -95,6 +95,16 @@ class TrackingControllerSMC(ControllerInterface):
         angular_velocity = -self.k_smc * S - self.eta_smc * sat_val
         angular_velocity = np.clip(angular_velocity, -self.turn_angular_speed, self.turn_angular_speed)
 
+        # Ràng buộc nhất quán hướng (Direction Consistency):
+        # Thành phần đạo hàm (de) chỉ dùng để giảm chấn (damp) chống vọt lố,
+        # tuyệt đối KHÔNG được đảo chiều góc lái sang phía đối diện khi xe vẫn đang ở một bên luống.
+        if e > 1e-4:
+            # Mục tiêu ở bên PHẢI (e > 0) -> Vận tốc góc phải <= 0 (bẻ phải hoặc chạy thẳng, không được bẻ trái)
+            angular_velocity = min(0.0, angular_velocity)
+        elif e < -1e-4:
+            # Mục tiêu ở bên TRÁI (e < 0) -> Vận tốc góc phải >= 0 (bẻ trái hoặc chạy thẳng, không được bẻ phải)
+            angular_velocity = max(0.0, angular_velocity)
+
         return {
             "linear_velocity": self.linear_speed,
             "angular_velocity": angular_velocity,

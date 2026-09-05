@@ -24,15 +24,13 @@ class LidarProcessor:
             if math.isnan(r) or math.isinf(r) or r < 0.10 or r > max_dist:
                 continue
 
-            beam_yaw = ryaw + (angle_min + idx * angle_increment)
-            xg = rx + r * math.cos(beam_yaw)
-            yg = ry + r * math.sin(beam_yaw)
+            angle = angle_min + idx * angle_increment
+            x_fwd = r * math.cos(angle)
+            y_lat = r * math.sin(angle)
             
-            fwd_dist = dir_x * (xg - rx)
-            lat_err = abs(yg - lane_center)
-            
-            # True obstacle strictly in the driving lane corridor (ignoring stalks at >= 0.38m)
-            if 0.10 < fwd_dist <= max_dist and lat_err <= 0.35:
+            # True obstacle strictly in the robot's forward driving corridor (width 1.0m, robot half-width 0.25m, buffer 0.07m)
+            # Ignoring boundary carton stacks at |y_lat| >= 0.38m
+            if 0.10 < x_fwd <= max_dist and abs(y_lat) <= 0.32:
                 return True
         return False
 

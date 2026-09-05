@@ -102,8 +102,8 @@ class InferenceHandler:
         h, w = mask.shape
         image_center = (w - 1) * 0.5
 
-        # Bottom ROI (40% height)
-        roi_ratio = 0.4
+        # Bottom ROI (70% height to capture full carton boxes / crop rows)
+        roi_ratio = 0.70
         y0 = int(h * (1.0 - roi_ratio))
         roi = mask[y0:, :]
 
@@ -138,26 +138,72 @@ class InferenceHandler:
             starts = np.where(diffs == -1)[0]
             ends = np.where(diffs == 1)[0] - 1
             valid = (starts > 0) & (ends < w - 1)
-
             if np.any(valid):
-                v_starts = starts[valid]
-                v_ends = ends[valid]
-                widths = v_ends - v_starts + 1
-                centers_x = (v_starts + v_ends) * 0.5
-                dists = np.abs(centers_x - image_center)
-                best_idx = np.lexsort((dists, -widths))[0]
-                centers.append(float(centers_x[best_idx]))
+                widths = ends[valid] - starts[valid] + 1
+                # Bắt buộc bề rộng khoảng trống phải >= min_lane_width (loại bỏ khe hở nhiễu)
+                valid_w = valid & (widths >= min_lane_width)
+                if np.any(valid_w):
+                    v_starts = starts[valid_w]
+                    v_ends = ends[valid_w]
+                    centers_x = (v_starts + v_ends) * 0.5
+                    dists = np.abs(centers_x - image_center)
+                    best_idx = np.argmin(dists)
+                    centers.append(float(centers_x[best_idx]))
 
-        if centers:
+        # Cần ít nhất 5 hàng quét tìm thấy lối đi 2 bên mới coi là tìm thấy luống hoàn chỉnh
+        if len(centers) >= 5:
             return float(np.clip(np.median(centers), 0.0, w - 1.0))
 
-        # Fallback: left/right boundary of all crop pixels in ROI
-        col_sum = binary.sum(axis=0)
-        cols = np.where(col_sum > 0)[0]
-        if len(cols) >= 2:
-            left = float(cols[0])
-            right = float(cols[-1])
-            return (left + right) * 0.5
+        # Phân tích liên thông 2D (Connected Components Analysis) khi chỉ bắt được 1 hàng hoặc hàng chéo:
+        half_lane_px = 0.22 * w  # Nửa bề rộng hành lang 1.0m (~112.6px trên ảnh 512px)
+        num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(binary)
+
+        # Lọc bỏ các cụm nhiễu nhỏ (< 200 pixel)
+        valid_comps = []
+        for i in range(1, num_labels):
+            area = stats[i, cv2.CC_STAT_AREA]
+            if area >= 200:
+                pts = np.argwhere(labels == i)
+                y_max = pts[:, 0].max()
+                y_min = pts[:, 0].min()
+                # Tọa độ chân hàng ở cận cảnh đáy ảnh (ngay trước mũi xe)
+                bot_pts = pts[pts[:, 0] >= y_max - 25, 1]
+                bot_x = float(bot_pts.mean()) if len(bot_pts) > 0 else float(centroids[i, 0])
+                # Tọa độ ngọn hàng ở xa
+                top_pts = pts[pts[:, 0] <= y_min + 25, 1]
+                top_x = float(top_pts.mean()) if len(top_pts) > 0 else float(centroids[i, 0])
+                valid_comps.append({
+                    "area": area,
+                    "cx": float(centroids[i, 0]),
+                    "cy": float(centroids[i, 1]),
+                    "bot_x": bot_x,
+                    "top_x": top_x,
+                    "dx_up": top_x - bot_x,
+                    "bbox": stats[i]
+                })
+
+        if valid_comps:
+            left_comps = [c for c in valid_comps if c["bot_x"] < center_idx]
+            right_comps = [c for c in valid_comps if c["bot_x"] >= center_idx]
+
+            # Trường hợp 1: Có các cụm rõ rệt nằm ở cả 2 bên tâm ảnh (Đủ 2 hàng Trái & Phải)
+            if left_comps and right_comps:
+                c_left = max(left_comps, key=lambda c: c["cx"])["cx"]
+                c_right = min(right_comps, key=lambda c: c["cx"])["cx"]
+                if (c_right - c_left) >= min_lane_width:
+                    return float((c_left + c_right) * 0.5)
+
+            # Trường hợp 2: Chỉ có 1 hàng đơn lẻ (hoặc hàng chéo chiếm ưu thế)
+            # Áp dụng quy tắc phối cảnh hội tụ điểm tụ:
+            # - Hàng có chân ở bên trái mũi xe (bot_x < center_idx) hoặc dấu sắc [/] -> HÀNG BÊN TRÁI
+            #   => Lối đi xe chạy nằm ở bên PHẢI hàng này (+ half_lane)
+            # - Hàng có chân ở bên phải mũi xe (bot_x >= center_idx) hoặc dấu huyền [\] -> HÀNG BÊN PHẢI
+            #   => Lối đi xe chạy nằm ở bên TRÁI hàng này (- half_lane)
+            main_comp = max(valid_comps, key=lambda c: c["area"])
+            if main_comp["bot_x"] < center_idx:
+                return float(np.clip(main_comp["cx"] + half_lane_px, 0.0, w - 1.0))
+            else:
+                return float(np.clip(main_comp["cx"] - half_lane_px, 0.0, w - 1.0))
 
         return image_center
 
@@ -171,7 +217,7 @@ class InferenceHandler:
         angle = float(np.clip(offset * max_angle_deg, -max_angle_deg, max_angle_deg))
         return angle
 
-    def compute_row_confidence(self, mask_prob: np.ndarray, roi_ratio: float = 0.25) -> float:
+    def compute_row_confidence(self, mask_prob: np.ndarray, roi_ratio: float = 0.70) -> float:
         """Computes a confidence score based on crop row lane detection density."""
         if mask_prob.ndim == 3:
             mask_prob = mask_prob[..., 0]
@@ -216,6 +262,17 @@ class InferenceHandler:
         # Confidence Score: 1.0 if valid lane is detected on >50% of ROI rows
         row_score = valid_rows / (total_rows * 0.5 + 1e-6)
         confidence = float(np.clip(row_score, 0.0, 1.0))
+
+        # Hỗ trợ bám 1 hàng (Single-Row Confidence):
+        # Nếu chưa đủ 2 hàng (confidence thấp) nhưng có 1 hàng cây/thùng rõ nét (diện tích lớn)
+        if confidence < 0.35:
+            num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(binary_closed)
+            max_area = max([stats[i, cv2.CC_STAT_AREA] for i in range(1, num_labels)], default=0)
+            if max_area >= 1200:
+                # 1 hàng rất rõ nét -> Đạt mức confidence 0.50 ~ 0.60 (Bám 1 hàng an toàn)
+                single_score = min(0.60, 0.40 + (max_area / 10000.0) * 0.20)
+                confidence = max(confidence, single_score)
+
         return confidence
 
     def process_image(self, bgr_image: np.ndarray, max_angle_deg: float = 3.5) -> tuple[float, float, float, float]:
@@ -238,8 +295,9 @@ class InferenceHandler:
             mask_prob = self.predict_mask(input_tensor, enable_tta=False)
             confidence = self.compute_row_confidence(mask_prob)
             
-            # Domain Adaptation Check: if CNN confidence is low (due to Gazebo domain gap), fallback to HSV green segmentation
-            if confidence < 0.30:
+            # Domain Adaptation Check: Only fallback to HSV green segmentation in simulation (when use_hsv_mask is enabled)
+            # In real world, ground is green grass and boxes are white/cardboard, so never overwrite CNN with green HSV
+            if self.use_hsv_mask and confidence < 0.30:
                 hsv = cv2.cvtColor(bgr_image, cv2.COLOR_BGR2HSV)
                 lower_green = np.array([35, 30, 30])
                 upper_green = np.array([85, 255, 255])
