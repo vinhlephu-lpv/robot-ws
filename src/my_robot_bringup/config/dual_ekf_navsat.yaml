@@ -1,0 +1,171 @@
+### ==============================================================================
+### CẤU HÌNH ĐỊNH VỊ DUAL EKF + NAVSAT TRANSFORM (CHUẨN REP-105) CHO ROBOT
+### 
+### Kiến trúc 2 tầng:
+###   1. EKF 1 (LOCAL) : Dung hợp /wheel/odom + /imu/data -> /odometry/local
+###                      Broadcast TF: odom -> base_footprint (Mượt, không giật bước)
+###   2. NavSat Transform: Chuyển đổi /gps/fix + /imu/data + /odometry/local -> /odometry/gps
+###   3. EKF 2 (GLOBAL): Dung hợp /odometry/local + /odometry/gps -> /odometry/global
+###                      Broadcast TF: map -> odom (Triệt tiêu trôi tích lũy bằng GPS)
+### ==============================================================================
+
+# ── 1. TẦNG CỤC BỘ: EKF 1 LOCAL (Odometry trơn mượt cho Local Planner Nav2) ────
+ekf_filter_node_local:
+  ros__parameters:
+    frequency: 30.0
+    sensor_timeout: 0.1
+    two_d_mode: true
+    transform_time_offset: 0.0
+    transform_timeout: 0.0
+    print_diagnostics: false
+    debug: false
+
+    # Định nghĩa các Frame
+    map_frame: map
+    odom_frame: odom
+    base_link_frame: base_footprint
+    world_frame: odom          # Cực kỳ quan trọng: Local EKF dùng world_frame là odom!
+
+    publish_tf: true           # Phát biến đổi TF odom -> base_footprint
+    publish_acceleration: false
+
+    # Cảm biến 1: 4 Bánh xe (/wheel/odom)
+    # [x, y, z, roll, pitch, yaw, vx, vy, vz, vroll, vpitch, vyaw, ax, ay, az]
+    odom0: /wheel/odom
+    odom0_config: [
+      false, false, false,   # x, y, z
+      false, false, false,   # roll, pitch, yaw
+      true,  false, false,   # vx, vy, vz (Lấy vận tốc tiến Vx từ 4 bánh)
+      false, false, false,   # vroll, vpitch, vyaw
+      false, false, false    # ax, ay, az
+    ]
+    odom0_queue_size: 10
+    odom0_differential: false
+    odom0_relative: false
+
+    # Cảm biến 2: IMU ICM-20948 qua Madgwick (/imu/data)
+    imu0: /imu/data
+    imu0_config: [
+      false, false, false,   # x, y, z
+      false, false, true,    # roll, pitch, yaw (Lấy góc quay Yaw mượt)
+      false, false, false,   # vx, vy, vz
+      false, false, true,    # vroll, vpitch, vyaw (Lấy vận tốc góc quay Vyaw)
+      false, false, false    # ax, ay, az
+    ]
+    imu0_queue_size: 10
+    imu0_differential: false
+    imu0_relative: false
+    imu0_remove_gravitational_acceleration: true
+
+    # Process Noise Covariance cho tầng Local
+    process_noise_covariance: [
+      0.05, 0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,
+      0.0,  0.05, 0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,
+      0.0,  0.0,  0.06, 0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,
+      0.0,  0.0,  0.0,  0.03, 0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,
+      0.0,  0.0,  0.0,  0.0,  0.03, 0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,
+      0.0,  0.0,  0.0,  0.0,  0.0,  0.06, 0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,
+      0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.025,0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,
+      0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.025,0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,
+      0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.04, 0.0,  0.0,  0.0,  0.0,  0.0,  0.0,
+      0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.01, 0.0,  0.0,  0.0,  0.0,  0.0,
+      0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.01, 0.0,  0.0,  0.0,  0.0,
+      0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.02, 0.0,  0.0,  0.0,
+      0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.01, 0.0,  0.0,
+      0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.01, 0.0,
+      0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.015
+    ]
+
+
+# ── 2. CẦU NỐI GPS: NAVSAT TRANSFORM (Chuyển đổi Kinh/Vĩ độ sang Tọa độ Mét) ──
+navsat_transform_node:
+  ros__parameters:
+    frequency: 30.0
+    delay: 3.0
+    magnetic_declination_radians: -0.01   # Độ lệch từ trường tại Việt Nam (~ -0.6°)
+    yaw_offset: 0.0                       # Căn chỉnh góc 0 theo trục Bắc (ENU)
+    zero_altitude: true                   # Giữ độ cao Z = 0 cho xe chạy mặt đất
+    broadcast_cartesian_transform: false
+    publish_filtered_gps: true
+    use_odometry_yaw: false
+    wait_for_datum: false
+
+
+# ── 3. TẦNG TOÀN CỤC: EKF 2 GLOBAL (Dung hợp GPS cho Toàn bộ Bản đồ Nav2) ─────
+ekf_filter_node_global:
+  ros__parameters:
+    frequency: 30.0
+    sensor_timeout: 0.1
+    two_d_mode: true
+    transform_time_offset: 0.0
+    transform_timeout: 0.0
+    print_diagnostics: false
+    debug: false
+
+    # Định nghĩa các Frame
+    map_frame: map
+    odom_frame: odom
+    base_link_frame: base_footprint
+    world_frame: map           # Cực kỳ quan trọng: Global EKF dùng world_frame là map!
+
+    publish_tf: true           # Phát biến đổi TF map -> odom
+    publish_acceleration: false
+
+    # Cảm biến 1: 4 Bánh xe (/wheel/odom)
+    odom0: /wheel/odom
+    odom0_config: [
+      false, false, false,
+      false, false, false,
+      true,  false, false,   # vx
+      false, false, false,
+      false, false, false
+    ]
+    odom0_queue_size: 10
+    odom0_differential: false
+    odom0_relative: false
+
+    # Cảm biến 2: IMU (/imu/data)
+    imu0: /imu/data
+    imu0_config: [
+      false, false, false,
+      false, false, true,    # yaw
+      false, false, false,
+      false, false, true,    # vyaw
+      false, false, false
+    ]
+    imu0_queue_size: 10
+    imu0_differential: false
+    imu0_relative: false
+    imu0_remove_gravitational_acceleration: true
+
+    # Cảm biến 3: Tọa độ tuyệt đối GPS từ navsat_transform (/odometry/gps)
+    odom1: /odometry/gps
+    odom1_config: [
+      true,  true,  false,   # Lấy tọa độ tuyệt đối X, Y từ vệ tinh GPS!
+      false, false, false,
+      false, false, false,
+      false, false, false,
+      false, false, false
+    ]
+    odom1_queue_size: 10
+    odom1_differential: false
+    odom1_relative: false
+
+    # Process Noise Covariance cho tầng Global
+    process_noise_covariance: [
+      0.05, 0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,
+      0.0,  0.05, 0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,
+      0.0,  0.0,  0.06, 0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,
+      0.0,  0.0,  0.0,  0.03, 0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,
+      0.0,  0.0,  0.0,  0.0,  0.03, 0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,
+      0.0,  0.0,  0.0,  0.0,  0.0,  0.06, 0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,
+      0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.025,0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,
+      0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.025,0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,
+      0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.04, 0.0,  0.0,  0.0,  0.0,  0.0,  0.0,
+      0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.01, 0.0,  0.0,  0.0,  0.0,  0.0,
+      0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.01, 0.0,  0.0,  0.0,  0.0,
+      0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.02, 0.0,  0.0,  0.0,
+      0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.01, 0.0,  0.0,
+      0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.01, 0.0,
+      0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.015
+    ]

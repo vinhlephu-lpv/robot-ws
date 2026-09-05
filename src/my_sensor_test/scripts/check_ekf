@@ -1,0 +1,13 @@
+#!/usr/bin/env python3
+import os
+import sys
+
+# Đảm bảo PYTHONPATH nhận đúng module my_sensor_test
+script_dir = os.path.dirname(os.path.abspath(__file__))
+pkg_dir = os.path.dirname(script_dir)
+sys.path.insert(0, pkg_dir)
+
+from my_sensor_test.check_ekf import main
+
+if __name__ == '__main__':
+    main()

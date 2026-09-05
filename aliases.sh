@@ -18,12 +18,16 @@ load_ws() {
 
     export ROS_DOMAIN_ID=0
     export ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
-    export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
-    if [ -f "$WS_DIR/cyclonedds.xml" ]; then
-        export CYCLONEDDS_URI="file://$WS_DIR/cyclonedds.xml"
-        cp -f "$WS_DIR/cyclonedds.xml" "$HOME/.cyclonedds.xml" 2>/dev/null || true
-    elif [ -f "$HOME/.cyclonedds.xml" ]; then
-        export CYCLONEDDS_URI="file://$HOME/.cyclonedds.xml"
+    if [ -f "/opt/ros/jazzy/lib/librmw_cyclonedds_cpp.so" ] || [ -f "/opt/ros/humble/lib/librmw_cyclonedds_cpp.so" ] || [ -f "/usr/lib/librmw_cyclonedds_cpp.so" ]; then
+        export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+        if [ -f "$WS_DIR/cyclonedds.xml" ]; then
+            export CYCLONEDDS_URI="file://$WS_DIR/cyclonedds.xml"
+            cp -f "$WS_DIR/cyclonedds.xml" "$HOME/.cyclonedds.xml" 2>/dev/null || true
+        elif [ -f "$HOME/.cyclonedds.xml" ]; then
+            export CYCLONEDDS_URI="file://$HOME/.cyclonedds.xml"
+        fi
+    else
+        unset RMW_IMPLEMENTATION
     fi
 }
 
@@ -161,6 +165,9 @@ alias test-cam="load_ws && bash \"$WS_DIR/src/my_sensor_test/scripts/run_test_ca
 alias test-camera="test-cam"
 alias test-imu="load_ws && bash \"$WS_DIR/src/my_sensor_test/scripts/run_test_imu.sh\""
 alias test-gps="load_ws && ros2 run my_robot_controller gps_driver --ros-args -p serial_port:=/dev/ttyAMA0 -p baudrate:=38400"
+alias run-encoder="load_ws && ros2 run encoder_odom encoder_node --ros-args -p serial_port:=/dev/ttyACM0"
+alias encoder="run-encoder"
+alias test-encoder="run-encoder"
 alias test-esp32="load_ws && ros2 run my_robot_bringup esp32_bridge --ros-args -p serial_port:=/dev/esp32"
 alias test-all="load_ws && ros2 launch my_sensor_test test_all_sensors.launch.py"
 alias test-slam="load_ws && bash \"$WS_DIR/src/my_sensor_test/scripts/run_test_slam.sh\""
@@ -210,6 +217,8 @@ alias cnn-img="test-img"
 
 alias pc-nav="load_ws && ros2 launch my_robot_bringup pc_nav.launch.py"
 alias nav-slam="load_ws && ros2 launch my_robot_bringup pc_nav.launch.py"
+alias gps-nav="load_ws && ros2 launch my_robot_navigation gps_nav.launch.py"
+alias nav-gps="gps-nav"
 
 # Lệnh kích hoạt xe THẬT CÓ QUAY VIDEO THÔ (100% Raw, không hiện gì trên màn hình)
 real-record() {
@@ -386,6 +395,12 @@ except KeyboardInterrupt:
 alias show-ekf="xem-ekf"
 alias xem-odom="xem-ekf"
 alias show-odom="xem-ekf"
+alias check-ekf="load_ws && python3 \"$WS_DIR/src/my_sensor_test/scripts/check_ekf\""
+alias xem-fusion="check-ekf"
+alias test-ekf="check-ekf"
+alias check-imu="load_ws && python3 \"$WS_DIR/src/my_sensor_test/scripts/check_imu\""
+alias dual-ekf="load_ws && ros2 launch my_robot_bringup dual_ekf.launch.py"
+alias ekf-gps="load_ws && ros2 launch my_robot_bringup dual_ekf.launch.py enable_gps:=true"
 
 # =====================================================
 # BẢNG TRA CỨU LỆNH TẮT NHANH (ros-help)
@@ -425,11 +440,15 @@ cat << 'EOF'
 
 🔍 [KIỂM TRA CẢM BIẾN & AI] (1-Click Test trên Pi / Laptop)
   check-cnn (test-cnn): Kiểm tra chẩn đoán toàn diện chuỗi AI CNN (512x512, góc lái, ESP32)
+  check-ekf (test-ekf): Chẩn đoán bảng số liệu trực tiếp EKF (Wheel, IMU, GPS, Độ lệch)
+  check-imu          : Kiểm tra lọc rung & bù trôi tĩnh ZUPT của cảm biến IMU
   test-cam           : Kiểm tra hình ảnh Webcam DVD20 1080p 60FPS (/dev/video0)
   test-lidar         : Kiểm tra tia quét mắt LiDAR RPLIDAR C1 (/dev/ttyUSB0)
   test-imu           : Kiểm tra cảm biến IMU 9 trục ICM-20948 (I2C Pin 3, 5)
   test-esp32         : Kiểm tra kết nối mạch điều khiển ESP32 Bridge
+  run-encoder        : Chạy Node tính toán Odometry từ xung RAW 4 bánh
   test-gps           : Kiểm tra module GPS UART GPIO (/dev/ttyAMA0)
+  gps-nav            : Tự hành theo cọc tiêu tọa độ GPS ngoài trời
   test-all           : Kiểm tra toàn bộ cảm biến cùng lúc trên RViz
 
 🎮 [MÔ PHỎNG & ĐỒ THỊ] (Chạy trên PC / Laptop)

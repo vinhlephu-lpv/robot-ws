@@ -9,12 +9,14 @@ Roles:
 3. Fallback: If ESP32 is not connected, operates in graceful Mock/Open-Loop mode.
 """
 
+import os
 import math
 import time
 import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Twist, TransformStamped
 from nav_msgs.msg import Odometry
+from std_msgs.msg import String as StringMsg
 import tf2_ros
 
 try:
@@ -33,9 +35,11 @@ class ESP32Bridge(Node):
         self.declare_parameter('serial_port', '/dev/ttyUSB1')
         self.declare_parameter('baudrate', 115200)
         self.declare_parameter('esp32_ip', '192.168.1.100')
-        self.declare_parameter('wheel_diameter', 0.20)  # meters (from codepid2608.ino)
-        self.declare_parameter('wheel_base', 0.58)      # meters (distance between left and right wheels)
-        self.declare_parameter('odom_topic', '/odom/raw')
+        self.declare_parameter('wheel_diameter', 0.20)  # meters (from code0109.ino)
+        self.declare_parameter('encoder_ppr', 200)      # Pulses per revolution per channel
+        self.declare_parameter('quadrature', 4)         # Quadrature factor (1, 2, or 4 for X4)
+        self.declare_parameter('gear_ratio', 1.0)       # Gearbox ratio (1.0 if encoder is after gearbox)
+        self.declare_parameter('odom_topic', '/wheel/odom')
         self.declare_parameter('publish_tf', False)
         self.declare_parameter('odom_frame', 'odom')
         self.declare_parameter('base_frame', 'base_footprint')
@@ -45,6 +49,10 @@ class ESP32Bridge(Node):
         self.baud = self.get_parameter('baudrate').value
         self.wheel_d = float(self.get_parameter('wheel_diameter').value)
         self.wheel_base = float(self.get_parameter('wheel_base').value)
+        self.encoder_ppr = int(self.get_parameter('encoder_ppr').value)
+        self.quadrature = int(self.get_parameter('quadrature').value)
+        self.gear_ratio = float(self.get_parameter('gear_ratio').value)
+        self.encoder_cpr = float(self.encoder_ppr * self.quadrature * self.gear_ratio)
         self.odom_topic = self.get_parameter('odom_topic').value
         
         raw_pub_tf = self.get_parameter('publish_tf').value
@@ -58,6 +66,15 @@ class ESP32Bridge(Node):
 
         self.wheel_circ = math.pi * self.wheel_d
 
+        # ── Raw Encoder & Outlier Tracking State ──────────────────────
+        self._last_raw_us = None
+        self._last_fl = None
+        self._last_fr = None
+        self._last_rl = None
+        self._last_rr = None
+        self._last_vl = 0.0
+        self._last_vr = 0.0
+
         # ── Robot Odometry State (Dead Reckoning) ─────────────────────
         self.x = 0.0
         self.y = 0.0
@@ -69,6 +86,8 @@ class ESP32Bridge(Node):
         # ── Publishers & Subscribers ──────────────────────────────────
         self.cmd_sub = self.create_subscription(
             Twist, '/cmd_vel', self.cmd_vel_callback, 10)
+        self.esp32_cmd_sub = self.create_subscription(
+            StringMsg, '/esp32/command', self.esp32_command_callback, 10)
         self.odom_pub = self.create_publisher(
             Odometry, self.odom_topic, 10)
         self.tf_broadcaster = tf2_ros.TransformBroadcaster(self)
@@ -80,14 +99,13 @@ class ESP32Bridge(Node):
 
         self.target_rpm_left = 0.0
         self.target_rpm_right = 0.0
-        self._stop_sent_count = 0
         self._serial_rx_buffer = ''
 
         # ── Loop Timer (20 Hz for Odom processing & continuous ESP32 streaming) ──
         self.timer = self.create_timer(0.05, self.update_loop)
 
         self.get_logger().info(
-            f'ESP32 Bridge started [Mode: {self.mode}] [Wheel D: {self.wheel_d}m, Base: {self.wheel_base}m]')
+            f'ESP32 Bridge started [Mode: {self.mode}] [Port: {self.port}] [Wheel D: {self.wheel_d}m, Base: {self.wheel_base}m, CPR: {self.encoder_cpr:.0f} (PPR:{self.encoder_ppr} x Quad:{self.quadrature} x Gear:{self.gear_ratio})]')
 
     def init_serial(self):
         if not SERIAL_AVAILABLE:
@@ -95,12 +113,37 @@ class ESP32Bridge(Node):
             self.mode = 'mock'
             return
 
-        try:
-            self.ser = serial.Serial(self.port, self.baud, timeout=0.05)
-            self.get_logger().info(f'Connected to ESP32 on {self.port} at {self.baud} baud')
-        except Exception as e:
-            self.get_logger().warn(f'Could not open serial port {self.port}: {e}. Running in MOCK mode.')
-            self.mode = 'mock'
+        candidate_ports = [self.port, '/dev/esp32', '/dev/ttyACM0', '/dev/ttyACM1', '/dev/ttyUSB1', '/dev/ttyUSB0']
+        seen = set()
+        ports_to_try = [p for p in candidate_ports if p and (p not in seen and not seen.add(p))]
+
+        for p in ports_to_try:
+            if not os.path.exists(p):
+                continue
+            try:
+                self.ser = serial.Serial(p, self.baud, timeout=0.05)
+                self.port = p
+                self.get_logger().info(f'✅ Successfully connected to ESP32 on {self.port} at {self.baud} baud')
+                return
+            except Exception as e:
+                self.get_logger().warn(f'Could not open serial port {p}: {e}')
+
+        self.get_logger().warn(f'Could not open any serial port in {ports_to_try}. Running in MOCK mode.')
+        self.mode = 'mock'
+
+    def esp32_command_callback(self, msg: StringMsg):
+        """
+        Sends arbitrary string commands to ESP32 (e.g., RESET_ODOM, PID 1, PID 0, CALIB 1.05).
+        """
+        cmd = msg.data.strip()
+        if not cmd:
+            return
+        if self.mode == 'serial' and self.ser and self.ser.is_open:
+            try:
+                self.ser.write(f'{cmd}\n'.encode('utf-8'))
+                self.get_logger().info(f'Sent raw command to ESP32: {cmd}')
+            except Exception as e:
+                self.get_logger().warn(f'Failed to send command to ESP32: {e}')
 
     def cmd_vel_callback(self, msg: Twist):
         """
@@ -118,27 +161,17 @@ class ESP32Bridge(Node):
         self.target_rpm_left = (v_left * 60.0) / self.wheel_circ
         self.target_rpm_right = (v_right * 60.0) / self.wheel_circ
 
-        # Store for mock odometry only when NOT in real hardware serial mode
-        if self.mode != 'serial':
-            self.vx = v
-            self.vth = w
+        # Store for mock odometry
+        self.vx = v
+        self.vth = w
 
         # Direct write to ESP32 immediately on cmd_vel arrival
         if self.mode == 'serial' and self.ser and self.ser.is_open:
-            is_zero = (abs(self.target_rpm_left) < 0.1 and abs(self.target_rpm_right) < 0.1)
-            if not is_zero:
-                self._stop_sent_count = 0
-                cmd_str = f'V {self.target_rpm_left:.1f} {self.target_rpm_right:.1f}\n'
-                try:
-                    self.ser.write(cmd_str.encode('utf-8'))
-                except Exception as e:
-                    self.get_logger().warn(f'Serial write error: {e}')
-            elif self._stop_sent_count < 3:
-                self._stop_sent_count += 1
-                try:
-                    self.ser.write(b'V 0.0 0.0\n')
-                except Exception:
-                    pass
+            cmd_str = f'V {self.target_rpm_left:.1f} {self.target_rpm_right:.1f}\n'
+            try:
+                self.ser.write(cmd_str.encode('utf-8'))
+            except Exception as e:
+                self.get_logger().warn(f'Serial write error: {e}')
 
     def update_loop(self):
         now = self.get_clock().now()
@@ -148,34 +181,21 @@ class ESP32Bridge(Node):
         if dt <= 0:
             return
 
-        # Phát nuôi Watchdog ESP32 chỉ khi xe đang di chuyển hoặc chuyển trạng thái dừng
+        # Phát liên tục 20 Hz duy trì lệnh nuôi Watchdog ESP32 mượt mà
         if self.mode == 'serial' and self.ser and self.ser.is_open:
-            is_zero = (abs(self.target_rpm_left) < 0.1 and abs(self.target_rpm_right) < 0.1)
-            if not is_zero:
-                self._stop_sent_count = 0
-                cmd_str = f'V {self.target_rpm_left:.1f} {self.target_rpm_right:.1f}\n'
-                try:
-                    self.ser.write(cmd_str.encode('utf-8'))
-                except Exception:
-                    pass
-            elif self._stop_sent_count < 3:
-                # Chỉ gửi lệnh dừng 3 lần rồi im lặng, không spam liên tục 20Hz khi đứng yên
-                self._stop_sent_count += 1
-                try:
-                    self.ser.write(b'V 0.0 0.0\n')
-                except Exception:
-                    pass
-
-        v_l = 0.0
-        v_r = 0.0
+            cmd_str = f'V {self.target_rpm_left:.1f} {self.target_rpm_right:.1f}\n'
+            try:
+                self.ser.write(cmd_str.encode('utf-8'))
+            except Exception as e:
+                pass
 
         # Read serial feedback non-blocking
+        odom_received_this_tick = False
         if self.mode == 'serial' and self.ser and self.ser.is_open:
             try:
                 if self.ser.in_waiting > 0:
                     raw_data = self.ser.read(self.ser.in_waiting).decode('utf-8', errors='ignore')
                     self._serial_rx_buffer += raw_data
-                    odom_received = False
 
                     while '\n' in self._serial_rx_buffer:
                         line, self._serial_rx_buffer = self._serial_rx_buffer.split('\n', 1)
@@ -183,8 +203,77 @@ class ESP32Bridge(Node):
                         if not line:
                             continue
 
-                        # 1. Giao thức ODOM chuẩn Kalman từ ESP32: "ODOM <v_left> <v_right>" (m/s)
-                        if line.startswith('ODOM') or line.startswith('O '):
+                        # 1. Giao thức RAW: "RAW <sequence> <timestamp_us> <FL> <FR> <RL> <RR>" (Tính Odometry trực tiếp trên Pi)
+                        if line.startswith('RAW'):
+                            parts = line.split()
+                            if len(parts) >= 7:
+                                try:
+                                    t_us = int(parts[2])
+                                    fl = int(parts[3])
+                                    fr = int(parts[4])
+                                    rl = int(parts[5])
+                                    rr = int(parts[6])
+                                except ValueError:
+                                    parts = []
+                            elif len(parts) >= 6:
+                                try:
+                                    t_us = int(parts[1])
+                                    fl = int(parts[2])
+                                    fr = int(parts[3])
+                                    rl = int(parts[4])
+                                    rr = int(parts[5])
+                                except ValueError:
+                                    parts = []
+
+                            if len(parts) >= 6:
+                                try:
+
+                                    if self._last_raw_us is not None:
+                                        # Tính khoảng thời gian delta time tính bằng giây (xử lý tràn micros 32-bit)
+                                        dt_us = t_us - self._last_raw_us
+                                        if dt_us < 0:
+                                            dt_us += (1 << 32)
+                                        dt_s = dt_us / 1e6
+
+                                        # Chỉ tính toán nếu chu kỳ delta time hợp lý (5ms đến 250ms)
+                                        if 0.005 < dt_s < 0.25:
+                                            d_fl = fl - self._last_fl
+                                            d_rl = rl - self._last_rl
+                                            d_fr = fr - self._last_fr
+                                            d_rr = rr - self._last_rr
+
+                                            # Đổi xung trung bình vế Trái và vế Phải
+                                            d_left_ticks = (d_fl + d_rl) / 2.0
+                                            d_right_ticks = (d_fr + d_rr) / 2.0
+
+                                            # Vận tốc tức thời (m/s) = (xung * chu vi bánh / CPR) / dt
+                                            v_l_meas = (d_left_ticks * self.wheel_circ / self.encoder_cpr) / dt_s
+                                            v_r_meas = (d_right_ticks * self.wheel_circ / self.encoder_cpr) / dt_s
+
+                                            # Bộ lọc gia tốc ảo (Sanity Check Filter) chống nhảy số đột biến do rớt gói Serial
+                                            a_l = abs(v_l_meas - self._last_vl) / dt_s
+                                            a_r = abs(v_r_meas - self._last_vr) / dt_s
+
+                                            # Chấp nhận nếu mẫu đầu tiên hoặc gia tốc vật lý hợp lý (<8.0 m/s^2) và vận tốc < 2.5 m/s
+                                            if (not getattr(self, '_has_first_meas', False) or (a_l < 8.0 and a_r < 8.0)) and abs(v_l_meas) < 2.5 and abs(v_r_meas) < 2.5:
+                                                self._has_first_meas = True
+                                                v_l = v_l_meas
+                                                v_r = v_r_meas
+                                                self._last_vl = v_l
+                                                self._last_vr = v_r
+                                                self.vx = (v_r + v_l) / 2.0
+                                                self.vth = (v_r - v_l) / self.wheel_base
+
+                                    self._last_raw_us = t_us
+                                    self._last_fl = fl
+                                    self._last_fr = fr
+                                    self._last_rl = rl
+                                    self._last_rr = rr
+                                except ValueError:
+                                    pass
+
+                        # 2. Giao thức ODOM dự phòng: "ODOM <v_left> <v_right>" (chỉ kích hoạt nếu chưa có gói RAW)
+                        elif (line.startswith('ODOM') or line.startswith('O ')) and self._last_raw_us is None:
                             parts = line.split()
                             if len(parts) >= 3:
                                 try:
@@ -192,12 +281,12 @@ class ESP32Bridge(Node):
                                     v_r = float(parts[2])
                                     self.vx = (v_r + v_l) / 2.0
                                     self.vth = (v_r - v_l) / self.wheel_base
-                                    odom_received = True
+                                    odom_received_this_tick = True
                                 except ValueError:
                                     pass
 
-                        # 2. Giao thức ENC: Chỉ dùng dự phòng nếu CHƯA nhận được bản tin ODOM
-                        elif line.startswith('ENC') and not odom_received:
+                        # 3. Giao thức ENC dự phòng
+                        elif line.startswith('ENC') and self._last_raw_us is None:
                             parts = line.split()
                             try:
                                 if len(parts) >= 6:
@@ -216,8 +305,8 @@ class ESP32Bridge(Node):
                                         dt_s = dt_ms / 1000.0
                                         d_l = tick_l - self._last_tick_l
                                         d_r = tick_r - self._last_tick_r
-                                        v_l = (d_l * self.wheel_circ / 200.0) / dt_s
-                                        v_r = (d_r * self.wheel_circ / 200.0) / dt_s
+                                        v_l = (d_l * self.wheel_circ / self.encoder_cpr) / dt_s
+                                        v_r = (d_r * self.wheel_circ / self.encoder_cpr) / dt_s
                                         self.vx = (v_r + v_l) / 2.0
                                         self.vth = (v_r - v_l) / self.wheel_base
                                     self._last_tick_l = tick_l
@@ -302,6 +391,7 @@ class ESP32Bridge(Node):
             t.transform.rotation.z = qz
             t.transform.rotation.w = qw
             self.tf_broadcaster.sendTransform(t)
+
 
     def destroy_node(self):
         """Clean shutdown: brake motors to 0 and safely close serial port on Ctrl+C."""

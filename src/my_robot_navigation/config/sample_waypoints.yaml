@@ -1,0 +1,17 @@
+# Danh sách tọa độ GPS Waypoint mẫu cho Robot tự hành ngoài vườn
+# Format:
+# waypoints:
+#   - latitude: <vĩ độ>
+#     longitude: <kinh độ>
+#     yaw: <hướng bẻ lái (độ) khi đến đích, mặc định 0.0>
+
+waypoints:
+  - latitude: 10.776889
+    longitude: 106.700806
+    yaw: 0.0
+  - latitude: 10.776950
+    longitude: 106.700900
+    yaw: 90.0
+  - latitude: 10.777000
+    longitude: 106.700950
+    yaw: 180.0
