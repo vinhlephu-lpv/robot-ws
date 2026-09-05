@@ -167,8 +167,23 @@ alias test-imu="load_ws && bash \"$WS_DIR/src/my_sensor_test/scripts/run_test_im
 alias test-gps="load_ws && ros2 run my_robot_controller gps_driver --ros-args -p serial_port:=/dev/ttyAMA0 -p baudrate:=38400"
 alias run-encoder="load_ws && ros2 run encoder_odom encoder_node --ros-args -p serial_port:=/dev/ttyACM0"
 alias encoder="run-encoder"
-alias test-encoder="run-encoder"
 alias test-esp32="load_ws && ros2 run my_robot_bringup esp32_bridge --ros-args -p serial_port:=/dev/esp32"
+
+# Lệnh nạp Firmware ESP32-S3 tự động từ Raspberry Pi
+nap_esp32_func() {
+    local port="${1:-}"
+    if [ -z "$port" ]; then
+        if [ -e "/dev/esp32" ]; then port="/dev/esp32"
+        elif [ -e "/dev/ttyACM0" ]; then port="/dev/ttyACM0"
+        elif [ -e "/dev/ttyUSB0" ]; then port="/dev/ttyUSB0"
+        else port="/dev/esp32"
+        fi
+    fi
+    echo "⚡ [ESP32] Đang biên dịch và nạp firmware code0409 vào cổng $port..."
+    arduino-cli compile --fqbn esp32:esp32:esp32s3 "$WS_DIR/src/esp32_source/code0409/" -u -p "$port"
+}
+alias nap-esp32="nap_esp32_func"
+alias flash-esp32="nap_esp32_func"
 alias test-all="load_ws && ros2 launch my_sensor_test test_all_sensors.launch.py"
 alias test-slam="load_ws && bash \"$WS_DIR/src/my_sensor_test/scripts/run_test_slam.sh\""
 
@@ -446,6 +461,7 @@ cat << 'EOF'
   test-lidar         : Kiểm tra tia quét mắt LiDAR RPLIDAR C1 (/dev/ttyUSB0)
   test-imu           : Kiểm tra cảm biến IMU 9 trục ICM-20948 (I2C Pin 3, 5)
   test-esp32         : Kiểm tra kết nối mạch điều khiển ESP32 Bridge
+  nap-esp32          : Nạp firmware code0409.ino vào ESP32-S3 (/dev/esp32)
   run-encoder        : Chạy Node tính toán Odometry từ xung RAW 4 bánh
   test-gps           : Kiểm tra module GPS UART GPIO (/dev/ttyAMA0)
   gps-nav            : Tự hành theo cọc tiêu tọa độ GPS ngoài trời
