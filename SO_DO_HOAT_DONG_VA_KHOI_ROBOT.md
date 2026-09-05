@@ -79,9 +79,9 @@
 | **2. AI CNN** | Ảnh `640x480` | Mạng ONNX trích xuất tâm luống | `heading_error`, `lane_offset` | [`inference_handler.py`](file:///home/vinh/Màn hình nền/robot_ws/src/my_robot_controller/my_robot_controller/inference_handler.py) |
 | **3. Điều Khiển Bám Luống** | Sai số góc & tâm | Bộ điều khiển trượt SMC | Topic `/cmd_vel` ($v=0.30\text{m/s}, \omega=0.60\text{rad/s}$) | [`controllers.py`](file:///home/vinh/Màn hình nền/robot_ws/src/my_robot_controller/my_robot_controller/controllers.py) |
 | **4. Cầu Nối Động Học** | Topic `/cmd_vel` | Quy đổi động học vi sai | Chuỗi Serial: `V <rpm_L> <rpm_R>\n` | [`esp32_bridge.py`](file:///home/vinh/Màn hình nền/robot_ws/src/my_robot_bringup/my_robot_bringup/esp32_bridge.py) |
-| **5. Vi Điều Khiển ESP32** | `V rpm_L rpm_R\n` | Slew Rate + 4x PID + Kalman 1D | 8 Kênh PWM 7kHz tới BTS7960 | [`code0109.ino`](file:///home/vinh/Màn hình nền/robot_ws/src/esp32_source/code0109.ino) |
-| **6. Động Cơ & Bánh Xe** | Điện áp 24V | Hộp số 220 RPM | 4 Bánh xe lăn trong ruộng | [`robot.urdf.xacro`](file:///home/vinh/Màn hình nền/robot_ws/src/my_robot_description/urdf/robot.urdf.xacro) |
-| **7. Phản Hồi Encoder** | Bánh xe quay | Đếm xung 200 PPR $\to$ Kalman 1D | Chuỗi Serial lên Pi: `ODOM <v_L> <v_R>\n` | [`code0109.ino`](file:///home/vinh/Màn hình nền/robot_ws/src/esp32_source/code0109.ino) |
+| **5. Vi Điều Khiển ESP32** | `V rpm_L rpm_R\n` | Slew Rate + 4x PID + Kalman 1D | 8 Kênh PWM 7kHz tới BTS7960 | [`code0409.ino`](file:///home/vinh/Màn hình nền/robot_ws/src/esp32_source/code0409.ino) |
+| **6. Phần Cứng Động Cơ** | Xung PWM 24V | Động cơ 775 + Hộp số giảm tốc | Truyền động 4 bánh độc lập | 4x Mạch BTS7960 H-Bridge |
+| **7. Phản Hồi Encoder** | Bánh xe quay | Đếm xung 200 PPR $\to$ Kalman 1D | Chuỗi Serial lên Pi: `ODOM <v_L> <v_R>\n` | [`code0409.ino`](file:///home/vinh/Màn hình nền/robot_ws/src/esp32_source/code0409.ino) |
 | **8. Dung Hợp EKF** | `ODOM v_L v_R` + IMU | Dung hợp EKF $\to$ Dead Reckoning | Tọa độ chuẩn TF: `odom -> base_footprint` | [`ekf.yaml`](file:///home/vinh/Màn hình nền/robot_ws/src/my_robot_bringup/config/ekf.yaml) |
 
 ---
