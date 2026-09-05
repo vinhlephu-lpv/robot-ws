@@ -62,6 +62,7 @@ echo "🔓 Mở khóa cổng Serial và giải phóng tiến trình chiếm dụ
 sudo chmod 666 "$PORT" 2>/dev/null || true
 pkill -f "esp32_bridge" 2>/dev/null || true
 pkill -f "encoder_node" 2>/dev/null || true
+sudo fuser -k "$PORT" 2>/dev/null || true
 sleep 1
 
 # 6. Tiến hành Biên dịch và Nạp firmware
