@@ -171,16 +171,7 @@ alias test-esp32="load_ws && ros2 run my_robot_bringup esp32_bridge --ros-args -
 
 # Lệnh nạp Firmware ESP32-S3 tự động từ Raspberry Pi
 nap_esp32_func() {
-    local port="${1:-}"
-    if [ -z "$port" ]; then
-        if [ -e "/dev/esp32" ]; then port="/dev/esp32"
-        elif [ -e "/dev/ttyACM0" ]; then port="/dev/ttyACM0"
-        elif [ -e "/dev/ttyUSB0" ]; then port="/dev/ttyUSB0"
-        else port="/dev/esp32"
-        fi
-    fi
-    echo "⚡ [ESP32] Đang biên dịch và nạp firmware code0409 vào cổng $port..."
-    arduino-cli compile --fqbn esp32:esp32:esp32s3 "$WS_DIR/src/esp32_source/code0409/" -u -p "$port"
+    bash "$WS_DIR/src/esp32_source/nap_code_esp32.sh" "$@"
 }
 alias nap-esp32="nap_esp32_func"
 alias flash-esp32="nap_esp32_func"
