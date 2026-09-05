@@ -147,7 +147,6 @@ def generate_launch_description():
     )
 
     # ── Camera Driver (V4L2 USB Webcam) ──────────────────────────────
-    # ── Camera Driver (V4L2 USB Webcam DVD20 1080p @ 60 FPS) ─────────
     v4l2_camera_node = Node(
         package='v4l2_camera',
         executable='v4l2_camera_node',
@@ -156,10 +155,7 @@ def generate_launch_description():
         output='screen',
         parameters=[{
             'video_device': LaunchConfiguration('camera_device'),
-            'image_size': [1920, 1080],
-            'time_per_frame': [1, 60],
             'camera_frame_id': 'camera_link',
-            'pixel_format': 'MJPG',
         }],
         remappings=[
             ('image_raw', '/camera/color/image_raw'),

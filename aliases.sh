@@ -123,27 +123,27 @@ alias wasd="teleop"
 alias teleop-wasd="teleop"
 
 # Mở RViz + Camera USB (Hiển thị mô hình xe 3D + Khung hình USB Webcam)
-rviz_view_func() {
+rviz_record_func() {
     load_ws
     mkdir -p "$WS_DIR/dataset/videos" "$WS_DIR/dataset/imgs"
     ros2 launch my_robot_bringup laptop_record.launch.py "$@"
 }
-alias rviz-record="rviz_view_func"
-alias rviz-cam="rviz_view_func"
-alias rviz-only="load_ws && rviz2 -d \"$WS_DIR/src/my_robot_description/rviz/display.rviz\""
-alias rviz="rviz-only"
+alias rviz-record="rviz_record_func"
+alias rviz-cam="rviz_record_func"
 
-# Mở RViz nhận stream WiFi nhẹ từ Pi
-laptop_view_func() {
+# Mở RViz hiển thị mô hình xe 3D, LiDAR và Camera (Tự động nhận cả Camera USB trực tiếp lẫn stream WiFi từ Pi)
+rviz_view_func() {
     load_ws
     killall -q wifi_cam_receiver 2>/dev/null || true
-    ros2 run my_robot_bringup wifi_cam_receiver &
+    ros2 run my_robot_bringup wifi_cam_receiver &>/dev/null &
     local receiver_pid=$!
-    sleep 1
-    rviz2 -d "$WS_DIR/src/my_robot_description/rviz/display.rviz"
+    sleep 0.5
+    rviz2 -d "$WS_DIR/src/my_robot_description/rviz/display.rviz" "$@"
     kill $receiver_pid 2>/dev/null || true
 }
-alias laptop-view="laptop_view_func"
+alias rviz="rviz_view_func"
+alias laptop-view="rviz_view_func"
+alias rviz-only="load_ws && rviz2 -d \"$WS_DIR/src/my_robot_description/rviz/display.rviz\""
 alias plot="load_ws && ros2 run my_robot_controller plot_response --mode telemetry"
 alias plot-pp="load_ws && ros2 run my_robot_controller plot_response --mode pure_pursuit"
 alias plot-smc="load_ws && ros2 run my_robot_controller plot_response --mode smc"
