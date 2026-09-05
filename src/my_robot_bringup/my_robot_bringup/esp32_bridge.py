@@ -35,7 +35,8 @@ class ESP32Bridge(Node):
         self.declare_parameter('serial_port', '/dev/ttyUSB1')
         self.declare_parameter('baudrate', 115200)
         self.declare_parameter('esp32_ip', '192.168.1.100')
-        self.declare_parameter('wheel_diameter', 0.20)  # meters (from code0109.ino)
+        self.declare_parameter('wheel_diameter', 0.20)  # meters (from code0409.ino)
+        self.declare_parameter('wheel_base', 0.58)      # meters (track width between left & right wheels)
         self.declare_parameter('encoder_ppr', 200)      # Pulses per revolution per channel
         self.declare_parameter('quadrature', 4)         # Quadrature factor (1, 2, or 4 for X4)
         self.declare_parameter('gear_ratio', 1.0)       # Gearbox ratio (1.0 if encoder is after gearbox)
