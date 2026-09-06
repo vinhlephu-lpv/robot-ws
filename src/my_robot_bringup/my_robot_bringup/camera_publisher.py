@@ -52,9 +52,9 @@ class CameraPublisher(Node):
         self.fps = float(self.get_parameter('fps').value)
         self.frame_id = self.get_parameter('camera_frame_id').value
 
-        # ── Publisher ─────────────────────────────────────────────────
+        # ── Publisher (RELIABLE để tương thích CNN driver + wifi_cam_bridge) ─
         cam_qos = QoSProfile(
-            reliability=ReliabilityPolicy.BEST_EFFORT,
+            reliability=ReliabilityPolicy.RELIABLE,
             history=HistoryPolicy.KEEP_LAST,
             depth=2,
             durability=DurabilityPolicy.VOLATILE,
@@ -163,22 +163,24 @@ class CameraPublisher(Node):
                     time.sleep(0.002)
                     continue
 
-                # frame từ OpenCV luôn là BGR
-                h, w, c = frame.shape
+                # Resize 1080p → 640x480 trước khi publish
+                # (CNN driver resize lại 512x512, wifi_cam_bridge resize 320x240)
+                # Tiết kiệm từ 6.2MB → 920KB mỗi frame
+                pub_frame = cv2.resize(frame, (640, 480),
+                                       interpolation=cv2.INTER_LINEAR)
 
-                # Chuyển BGR → RGB (ROS 2 Image chuẩn dùng rgb8)
-                rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                ph, pw, pc = pub_frame.shape
 
-                # Tạo ROS 2 Image message
+                # Tạo ROS 2 Image message (giữ bgr8 — không cần chuyển đổi)
                 msg = Image()
                 msg.header.stamp = self.get_clock().now().to_msg()
                 msg.header.frame_id = self.frame_id
-                msg.height = h
-                msg.width = w
-                msg.encoding = 'rgb8'
+                msg.height = ph
+                msg.width = pw
+                msg.encoding = 'bgr8'
                 msg.is_bigendian = False
-                msg.step = w * c
-                msg.data = rgb_frame.tobytes()
+                msg.step = pw * pc
+                msg.data = pub_frame.tobytes()
 
                 self.image_pub.publish(msg)
                 self.image_alt_pub.publish(msg)

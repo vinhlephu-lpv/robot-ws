@@ -537,9 +537,10 @@ class CnnDriverNode(Node):
 
         current_state = self.fsm.get_state()
 
+        now_sec = now.nanoseconds / 1e9
+
         # Save diagnostic frame every 3 seconds (sim time, if enabled)
         if self.save_debug_imgs:
-            now_sec = now.nanoseconds / 1e9
             if now_sec - self.last_img_save_time >= 3.0:
                 self.last_img_save_time = now_sec
                 try:
