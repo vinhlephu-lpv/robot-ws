@@ -448,8 +448,8 @@ class ImuDriverNode(Node):
 
         self.imu_pub.publish(msg)
 
-        # Định kỳ in trạng thái trực quan ra màn hình terminal (4 Hz) để người dùng theo dõi
-        if (now - self.last_log_time) >= 0.25:
+        # Định kỳ in trạng thái trực quan ra màn hình terminal (1 Hz) để người dùng theo dõi không bị rối
+        if (now - self.last_log_time) >= 1.0:
             self.last_log_time = now
             roll_deg = self.roll / DEG_TO_RAD
             pitch_deg = self.pitch / DEG_TO_RAD

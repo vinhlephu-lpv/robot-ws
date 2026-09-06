@@ -185,11 +185,11 @@ class CameraPublisher(Node):
                 self.image_pub.publish(msg)
                 self.image_alt_pub.publish(msg)
 
-                # Log thống kê mỗi 10 giây
+                # Log thống kê mỗi 30 giây (giảm tải màn hình terminal)
                 self._frame_count += 1
                 now = time.time()
-                if now - self._last_log_time >= 10.0:
-                    elapsed = now - self._last_log_time if self._last_log_time > 0 else 10.0
+                if now - self._last_log_time >= 30.0:
+                    elapsed = now - self._last_log_time if self._last_log_time > 0 else 30.0
                     fps_actual = self._frame_count / elapsed if elapsed > 0 else 0
                     self.get_logger().info(
                         f"📷 Camera: {pw}x{ph} | {fps_actual:.1f} FPS | "

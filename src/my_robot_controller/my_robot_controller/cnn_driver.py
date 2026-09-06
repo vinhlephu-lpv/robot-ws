@@ -893,12 +893,18 @@ class CnnDriverNode(Node):
                 display_steer_deg = math.degrees(math.atan2(twist.angular.z * 0.58, twist.linear.x))
             inf_ms = getattr(self, '_last_inference_ms', 0.0)
             fps_val = 1000.0 / inf_ms if inf_ms > 0 else 0.0
+
+            # Rút gọn trạng thái GPS nếu chưa FIX để terminal không bị rác
+            gps_status = gps_info.get('status', 'NO_FIX')
+            gps_str = f" | GPS: {gps_info.get('latitude', 0.0):.6f}°, {gps_info.get('longitude', 0.0):.6f}°" if gps_status not in ('NO_FIX', -1) else ""
+
             status_msg = (
-                f"[STATUS] [{current_state:^15s}] | Steer: {display_steer_deg:+5.2f}° | "
-                f"Conf: {confidence:.2f} | AI: {inf_ms:.0f}ms ({fps_val:.1f}FPS) | "
-                f"Vel: ({twist.linear.x:4.2f}m/s, {twist.angular.z:+4.2f}r/s) | "
-                f"Pose: ({self.current_x:5.2f}m, {self.current_y:5.2f}m) | "
-                f"GPS: ({gps_info.get('latitude', 0.0):.6f}°, {gps_info.get('longitude', 0.0):.6f}° [{gps_info.get('status', 'NO_FIX')}])"
+                f"🌾 [AI Lái Xe] Góc lái: {display_steer_deg:+5.2f}° | "
+                f"Trạng thái: [{current_state}] | "
+                f"Tin cậy: {confidence*100:4.1f}% | "
+                f"AI: {inf_ms:3.0f}ms ({fps_val:3.1f} FPS) | "
+                f"Vel: ({twist.linear.x:.2f}m/s, {twist.angular.z:+.2f}r/s)"
+                f"{gps_str}"
             )
             self.get_logger().info(status_msg)
             if self.enable_file_logging and self.telemetry_logger:
