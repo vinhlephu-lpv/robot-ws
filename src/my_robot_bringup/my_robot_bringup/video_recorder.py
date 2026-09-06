@@ -96,7 +96,21 @@ class RawVideoRecorder(Node):
         """Nhận frame siêu tốc (<0.02ms) đẩy vào hàng đợi RAM."""
         try:
             enc = (msg.encoding or '').lower()
-            if enc in ('rgb8',):
+            if enc in ('jpeg', 'mjpeg', 'jpg'):
+                frame = cv2.imdecode(np.frombuffer(msg.data, dtype=np.uint8), cv2.IMREAD_COLOR)
+                if frame is None:
+                    return
+                now = time.time()
+                if self.start_time is None:
+                    self.start_time = now
+                    self.last_log_time = now
+                try:
+                    self.frame_queue.put_nowait((frame, None, now))
+                    self.received_frames += 1
+                except queue.Full:
+                    pass
+                return
+            elif enc in ('rgb8',):
                 channels = 3
                 cvt = cv2.COLOR_RGB2BGR
             elif enc in ('bgr8',):

@@ -69,6 +69,10 @@ def generate_launch_description():
         'color_height', default_value='1080',
         description='Color image height (1080 for 1080p Full HD)')
 
+    pixel_format_arg = DeclareLaunchArgument(
+        'pixel_format', default_value='MJPG',
+        description='Camera pixel format: MJPG (1080p @ 60 FPS) or YUYV')
+
     enable_cnn_arg = DeclareLaunchArgument(
         'enable_cnn', default_value='false',
         description='Enable CNN row-following driver')
@@ -146,7 +150,7 @@ def generate_launch_description():
         condition=IfCondition(LaunchConfiguration('enable_lidar'))
     )
 
-    # ── Camera Driver (V4L2 USB Webcam) ──────────────────────────────
+    # ── Camera Driver (V4L2 USB Webcam 1080p @ 60 FPS MJPG) ──────────
     v4l2_camera_node = Node(
         package='v4l2_camera',
         executable='v4l2_camera_node',
@@ -156,6 +160,9 @@ def generate_launch_description():
         parameters=[{
             'video_device': LaunchConfiguration('camera_device'),
             'camera_frame_id': 'camera_link',
+            'image_size': [1920, 1080],
+            'time_per_frame': [1, 60],
+            'pixel_format': LaunchConfiguration('pixel_format'),
         }],
         remappings=[
             ('image_raw', '/camera/color/image_raw'),
@@ -315,6 +322,7 @@ def generate_launch_description():
         enable_lidar_arg,
         color_width_arg,
         color_height_arg,
+        pixel_format_arg,
         enable_cnn_arg,
         enable_rviz_arg,
         record_arg,

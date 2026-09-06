@@ -112,10 +112,13 @@ class WifiCamBridge(Node):
                 except Exception:
                     img = None
 
-            # 2. Giải mã thủ công hỗ trợ toàn diện: RGB, BGR, MONO, YUYV (yuv422_yuy2), UYVY
+            # 2. Giải mã thủ công hỗ trợ toàn diện: JPEG/MJPG, RGB, BGR, MONO, YUYV (yuv422_yuy2), UYVY
             if img is None:
                 enc = (msg.encoding or '').lower()
-                if enc in ('rgb8',):
+                if enc in ('jpeg', 'mjpeg', 'jpg'):
+                    arr = np.frombuffer(msg.data, dtype=np.uint8)
+                    img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+                elif enc in ('rgb8',):
                     expected = msg.height * msg.width * 3
                     if len(msg.data) >= expected:
                         arr = np.frombuffer(msg.data, dtype=np.uint8)[:expected].reshape(msg.height, msg.width, 3)

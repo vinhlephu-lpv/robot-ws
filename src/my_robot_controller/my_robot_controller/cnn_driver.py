@@ -464,7 +464,9 @@ class CnnDriverNode(Node):
             except Exception:
                 pass
         enc = (msg.encoding or '').lower()
-        if enc == 'rgb8':
+        if enc in ('jpeg', 'mjpeg', 'jpg'):
+            return cv2.imdecode(np.frombuffer(msg.data, dtype=np.uint8), cv2.IMREAD_COLOR)
+        elif enc == 'rgb8':
             img = np.frombuffer(msg.data, dtype=np.uint8)[:msg.height * msg.width * 3].reshape(
                 (msg.height, msg.width, 3))
             return cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
