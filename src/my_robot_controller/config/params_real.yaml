@@ -22,8 +22,8 @@ cnn_driver_node:
 
     mask_threshold: 0.35        # cao hơn sim vì model nhận diện ảnh thật tốt hơn
 
-    # Tốc độ di chuyển (m/s) — Bám luống 0.30 m/s, bẻ lái/quay đầu gấp đôi (0.60 rad/s)
-    linear_speed: 0.30
+    # Tốc độ di chuyển (m/s) — Bám luống 0.20 m/s, bẻ lái/quay đầu gấp đôi (0.60 rad/s)
+    linear_speed: 0.20
     turn_linear_speed: 0.20
     turn_angular_speed: 0.60
 

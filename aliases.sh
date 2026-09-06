@@ -241,7 +241,20 @@ alias test-all="load_ws && ros2 launch my_sensor_test test_all_sensors.launch.py
 alias test-slam="load_ws && bash \"$WS_DIR/src/my_sensor_test/scripts/run_test_slam.sh\""
 
 # 4. Các lệnh chạy trên Robot Thật (Raspberry Pi)
-alias real-robot="load_ws && ros2 launch my_robot_bringup real_robot.launch.py"
+real_robot_func() {
+    load_ws
+    # Tự động sửa chữa nếu my_robot_controller bị lỗi package not found
+    if ! ros2 pkg prefix my_robot_controller &>/dev/null; then
+        echo "🔧 Đang biên dịch lại package my_robot_controller..."
+        (cd "$WS_DIR" && colcon build --symlink-install --packages-select my_robot_controller)
+        [ -f "$WS_DIR/install/setup.bash" ] && source "$WS_DIR/install/setup.bash"
+    fi
+    # Giải phóng tiến trình camera hoặc serial kẹt từ lần chạy trước
+    fuser -k /dev/video* 2>/dev/null || true
+    killall -q -9 camera_publisher wifi_cam_bridge 2>/dev/null || true
+    ros2 launch my_robot_bringup real_robot.launch.py "$@"
+}
+alias real-robot="real_robot_func"
 alias real-slam="load_ws && ros2 launch my_robot_bringup real_slam.launch.py"
 
 # Lệnh TỰ HÀNH XE THẬT THEO BẢN ĐỒ ĐÃ LƯU (Tự động nhận map mới nhất hoặc chỉ định tên map)

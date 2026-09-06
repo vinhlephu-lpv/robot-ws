@@ -49,7 +49,7 @@ class CnnDriverNode(Node):
         self.declare_parameter('input_width', 512)
         self.declare_parameter('num_threads', 0)
         self.declare_parameter('mask_threshold', 0.04)
-        self.declare_parameter('linear_speed', 0.30)
+        self.declare_parameter('linear_speed', 0.20)
         self.declare_parameter('turn_linear_speed', 0.20)
         self.declare_parameter('turn_angular_speed', 0.60)
         self.declare_parameter('low_confidence_threshold', 0.35)
