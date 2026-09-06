@@ -349,7 +349,7 @@ graph TD
    *(Tương đương lệnh đầy đủ: `ros2 launch my_robot_bringup real_robot.launch.py enable_cnn:=true`)*
 
 4. **Trên Laptop (Nếu muốn xem Camera + Tọa độ 3D):**
-   ```bash
+   ```bash 
    laptop-view
    ```
 
