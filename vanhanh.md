@@ -4,7 +4,7 @@
 > *Hỗ trợ đầy đủ:* LiDAR, USB Webcam, ESP32 Encoders, IMU, GPS và AI CNN Bám luống.
 
 ---
-
+ 
 ## ⚡ QUY TRÌNH KHỞI ĐỘNG HÀNG NGÀY (MỞ XE LÊN LÀ CHẠY)
 
 ### 📋 Bước 0: Bật nguồn & Mạng Wi-Fi
