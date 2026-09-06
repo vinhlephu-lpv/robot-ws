@@ -95,10 +95,10 @@ class DualEkfMonitor(Node):
         # Subscriptions
         self.create_subscription(Imu, '/imu/data', self.cb_imu, 10)
         self.create_subscription(Odometry, '/wheel/odom', self.cb_wheel, 10)
-        self.create_subscription(Odometry, '/odom/raw', self.cb_wheel_raw, 10)
+        self.create_subscription(Odometry, '/odom/raw', self.cb_wheel, 10)
         self.create_subscription(StringMsg, '/wheel/status', self.cb_wheel_status, 10)
         self.create_subscription(Odometry, '/odometry/local', self.cb_ekf1, 10)
-        self.create_subscription(Odometry, '/odometry/filtered', self.cb_ekf1_alt, 10)
+        self.create_subscription(Odometry, '/odometry/filtered', self.cb_ekf1, 10)
         self.create_subscription(NavSatFix, '/gps/fix', self.cb_gps, 10)
         self.create_subscription(Odometry, '/odometry/gps', self.cb_navsat, 10)
         self.create_subscription(Odometry, '/odometry/global', self.cb_ekf2, 10)
@@ -110,6 +110,7 @@ class DualEkfMonitor(Node):
     def cb_imu(self, msg: Imu):
         self.imu_count += 1
         now = time.time()
+        self.imu_last_msg_time = now
         dt = now - self.imu_last_time
         if dt >= 0.5:
             self.imu_hz = self.imu_count / dt
@@ -128,6 +129,7 @@ class DualEkfMonitor(Node):
     def cb_wheel(self, msg: Odometry):
         self.wheel_count += 1
         now = time.time()
+        self.wheel_last_msg_time = now
         dt = now - self.wheel_last_time
         if dt >= 0.5:
             self.wheel_hz = self.wheel_count / dt
@@ -136,16 +138,13 @@ class DualEkfMonitor(Node):
         self.wheel_vx = msg.twist.twist.linear.x
         self.wheel_wz = msg.twist.twist.angular.z
 
-    def cb_wheel_raw(self, msg: Odometry):
-        if self.wheel_hz == 0.0:
-            self.cb_wheel(msg)
-
     def cb_wheel_status(self, msg: StringMsg):
         self.wheel_status_str = msg.data
 
     def cb_ekf1(self, msg: Odometry):
         self.ekf1_count += 1
         now = time.time()
+        self.ekf1_last_msg_time = now
         dt = now - self.ekf1_last_time
         if dt >= 0.5:
             self.ekf1_hz = self.ekf1_count / dt
@@ -156,10 +155,6 @@ class DualEkfMonitor(Node):
         self.ekf1_yaw = quat_to_yaw_deg(msg.pose.pose.orientation)
         self.ekf1_vx = msg.twist.twist.linear.x
         self.ekf1_wz = msg.twist.twist.angular.z
-
-    def cb_ekf1_alt(self, msg: Odometry):
-        if self.ekf1_hz == 0.0:
-            self.cb_ekf1(msg)
 
     def cb_gps(self, msg: NavSatFix):
         self.gps_count += 1
@@ -200,6 +195,21 @@ class DualEkfMonitor(Node):
 
     def render_screen(self):
         elapsed = time.time() - self.start_time
+        now = time.time()
+
+        # Watchdog: nếu mất tín hiệu quá 1.5s thì tự reset Hz về 0
+        if now - getattr(self, 'imu_last_msg_time', 0.0) > 1.5:
+            self.imu_hz = 0.0
+        if now - getattr(self, 'wheel_last_msg_time', 0.0) > 1.5:
+            self.wheel_hz = 0.0
+        if now - getattr(self, 'ekf1_last_msg_time', 0.0) > 1.5:
+            self.ekf1_hz = 0.0
+        if now - getattr(self, 'gps_last_time', 0.0) > 2.0:
+            self.gps_hz = 0.0
+        if now - getattr(self, 'navsat_last_time', 0.0) > 2.0:
+            self.navsat_hz = 0.0
+        if now - getattr(self, 'ekf2_last_time', 0.0) > 2.0:
+            self.ekf2_hz = 0.0
 
         # Format status strings
         imu_status = f"✅ ĐANG CHẠY ({self.imu_hz:4.1f} Hz)" if self.imu_hz > 5.0 else "⏳ CHỜ DỮ LIỆU"
@@ -228,7 +238,7 @@ class DualEkfMonitor(Node):
             f"     -> Vận tốc tiến Vx: {self.wheel_vx:+5.2f} m/s | Quay Wz: {self.wheel_wz:+5.2f} rad/s",
             f"     -> Trạng thái 4 bánh: {self.wheel_status_str}",
             "----------------------------------------------------------------------",
-            f" [2. TẦNG CỤC BỘ - EKF 1 LOCAL] (/odometry/local) -> TF: odom -> base_footprint",
+            f" [2. TẦNG CỤC BỘ - EKF 1 LOCAL] (/odometry/filtered) -> TF: odom -> base_footprint",
             f"   • Trạng thái bộ lọc         : {ekf1_status}",
             f"   • Tọa độ Cục Bộ (Odom)      : X = {self.ekf1_x:+6.2f} m  | Y = {self.ekf1_y:+6.2f} m",
             f"   • Hướng & Tốc độ Dung hợp   : Yaw = {self.ekf1_yaw:+6.1f}° | Vx = {self.ekf1_vx:+5.2f} m/s | Wz = {self.ekf1_wz:+5.2f} rad/s",
