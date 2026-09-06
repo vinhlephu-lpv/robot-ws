@@ -96,23 +96,27 @@ def main():
             results["Camera"] = "SIMULATED (Mô phỏng hàng thùng carton)"
 
     # ─────────────────────────────────────────────────────────────────
-    # 2. KIỂM TRA MODEL ONNX & KÍCH THƯỚC ĐẦU VÀO 512x512
+    # 2. KIỂM TRA MODEL ONNX & KÍCH THƯỚC ĐẦU VÀO
     # ─────────────────────────────────────────────────────────────────
-    print("\n[BƯỚC 2/6] Kiểm tra Model ONNX & Tiền xử lý 512x512:")
+    print("\n[BƯỚC 2/6] Kiểm tra Model ONNX & Cấu hình Suy luận:")
     import onnxruntime as ort
-    model_rel_path = "src/my_robot_controller/models/crop_row_cnn_best_final.onnx"
+    model_rel_path = "src/my_robot_controller/models/crop_row_cnn_best_final_int8.onnx"
+    if not os.path.exists(os.path.join(WS_DIR, model_rel_path)):
+        model_rel_path = "src/my_robot_controller/models/crop_row_cnn_best_final.onnx"
     model_full_path = os.path.join(WS_DIR, model_rel_path)
 
     if os.path.exists(model_full_path):
         size_mb = os.path.getsize(model_full_path) / (1024 * 1024)
-        print(f"  ✅ Tìm thấy file model ONNX: {model_rel_path} ({size_mb:.2f} MB)")
+        is_int8 = "int8" in os.path.basename(model_full_path).lower()
+        model_type = "INT8 Quantized (Tối ưu Pi)" if is_int8 else "FP32 Gốc"
+        print(f"  ✅ Tìm thấy file model ONNX: {model_rel_path} ({size_mb:.2f} MB - {model_type})")
         
         session = ort.InferenceSession(model_full_path, providers=['CPUExecutionProvider'])
         inp = session.get_inputs()[0]
         outp = session.get_outputs()[0]
         print(f"  ✅ Cấu hình đầu vào Model : Name='{inp.name}', Shape={inp.shape}")
         print(f"  ✅ Cấu hình đầu ra Model  : Name='{outp.name}', Shape={outp.shape}")
-        results["ONNX Model"] = f"PASS ({size_mb:.1f} MB, Input 512x512)"
+        results["ONNX Model"] = f"PASS ({size_mb:.1f} MB, {model_type})"
     else:
         print(f"  ❌ Không tìm thấy model tại: {model_full_path}")
         results["ONNX Model"] = "FAIL (File not found)"
@@ -124,9 +128,10 @@ def main():
     print("\n[BƯỚC 3/6] Kiểm tra Suy luận trích xuất tâm luống & Góc lái:")
     from my_robot_controller.inference_handler import InferenceHandler
 
+    input_res = (384, 384)
     handler = InferenceHandler(
         model_path=model_full_path,
-        input_size=(512, 512),
+        input_size=input_res,
         mask_threshold=0.35,
         use_hsv_mask=False
     )
@@ -135,9 +140,10 @@ def main():
     heading_err, lane_off, lane_center, conf = handler.process_image(test_image, max_angle_deg=5.0)
     inference_time_ms = (time.time() - t0) * 1000
 
+    print(f"  ⏱️ Kích thước ảnh CNN: {input_res[0]}x{input_res[1]}")
     print(f"  ⏱️ Thời gian tiền xử lý + suy luận: {inference_time_ms:.1f} ms (~{1000/inference_time_ms:.1f} FPS)")
     print(f"  🎯 Độ tin cậy nhận diện luống (Confidence) : {conf:.2f}")
-    print(f"  🎯 Tọa độ tâm đường đi (Lane Center)        : {lane_center:.1f} px (Ảnh chuẩn 512px)")
+    print(f"  🎯 Tọa độ tâm đường đi (Lane Center)        : {lane_center:.1f} px (Ảnh {input_res[0]}x{input_res[1]})")
     print(f"  🎯 Độ lệch tâm chuẩn hóa (Lane Offset)     : {lane_off:.3f}")
     print(f"  🎯 Góc lái tính toán (Heading Error)       : {heading_err:.2f} độ")
 

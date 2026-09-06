@@ -140,15 +140,19 @@ class CnnDriverNode(Node):
         if not self.use_hsv_mask:
             if not self.model_path or not os.path.exists(self.model_path):
                 self.get_logger().info(f"Resolving model path for '{self.model_path}'...")
+                target_name = os.path.basename(self.model_path) if self.model_path else 'crop_row_cnn_best_final_int8.onnx'
+                candidate_names = [target_name, 'crop_row_cnn_best_final_int8.onnx', 'crop_row_cnn_best_final.onnx']
                 
                 # 1. Try my_robot_controller share directory
                 try:
                     from ament_index_python.packages import get_package_share_directory
                     share_dir = get_package_share_directory('my_robot_controller')
-                    fallback_share = os.path.join(share_dir, 'models', 'crop_row_cnn_best_final.onnx')
-                    if os.path.exists(fallback_share):
-                        self.model_path = fallback_share
-                        self.get_logger().info(f"Using model from my_robot_controller share: {self.model_path}")
+                    for name in candidate_names:
+                        candidate = os.path.join(share_dir, 'models', name)
+                        if os.path.exists(candidate):
+                            self.model_path = candidate
+                            self.get_logger().info(f"Using model from my_robot_controller share: {self.model_path}")
+                            break
                 except Exception:
                     pass
 
@@ -157,20 +161,24 @@ class CnnDriverNode(Node):
                     try:
                         from ament_index_python.packages import get_package_share_directory
                         share_dir = get_package_share_directory('luanvan_control')
-                        fallback_share = os.path.join(share_dir, 'models', 'crop_row_cnn_best_final.onnx')
-                        if os.path.exists(fallback_share):
-                            self.model_path = fallback_share
-                            self.get_logger().info(f"Using model from luanvan_control share: {self.model_path}")
+                        for name in candidate_names:
+                            candidate = os.path.join(share_dir, 'models', name)
+                            if os.path.exists(candidate):
+                                self.model_path = candidate
+                                self.get_logger().info(f"Using model from luanvan_control share: {self.model_path}")
+                                break
                     except Exception:
                         pass
 
-            if not self.model_path or not os.path.exists(self.model_path):
                 # 3. Fallback to relative path from source files
-                current_dir = os.path.dirname(os.path.abspath(__file__))
-                fallback_source = os.path.abspath(os.path.join(current_dir, '..', 'models', 'crop_row_cnn_best_final.onnx'))
-                if os.path.exists(fallback_source):
-                    self.model_path = fallback_source
-                    self.get_logger().info(f"Using model from source: {self.model_path}")
+                if not self.model_path or not os.path.exists(self.model_path):
+                    current_dir = os.path.dirname(os.path.abspath(__file__))
+                    for name in candidate_names:
+                        candidate = os.path.abspath(os.path.join(current_dir, '..', 'models', name))
+                        if os.path.exists(candidate):
+                            self.model_path = candidate
+                            self.get_logger().info(f"Using model from source: {self.model_path}")
+                            break
 
             if not self.model_path or not os.path.exists(self.model_path):
                 self.get_logger().error(f"ONNX model not found anywhere: {self.model_path}")

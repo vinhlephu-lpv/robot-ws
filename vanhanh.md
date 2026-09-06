@@ -354,7 +354,7 @@ graph TD
    ```
 
 5. **Cơ chế hoạt động chuẩn của chuỗi AI CNN:**
-   - **Camera:** Thu hình ảnh thực tế (60 FPS) $\to$ Đưa vào mạng ONNX với kích thước chuẩn **$512 \times 512$**.
+   - **Camera & AI CNN (Tối ưu INT8):** Thu hình ảnh thực tế $\to$ Đưa vào mạng ONNX INT8 đã lượng tử hóa (`crop_row_cnn_best_final_int8.onnx`, dung lượng nhẹ 24MB, cấu hình chuẩn $384 \times 384$ đạt tốc độ phản hồi ~2 FPS — tức cập nhật góc lái 2 lần mỗi giây trên Pi).
    - **Xử lý nhận thức:** Mạng CNN phân đoạn luống $\to$ Trích xuất tâm đường đi $\to$ Tính sai số góc lái `heading_error` và độ lệch tâm `lane_offset`.
    - **Máy trạng thái FSM & Bộ điều khiển trượt SMC:** Bám thẳng theo tim luống với vận tốc $0.18 \text{ m/s}$, tự động triệt tiêu rung lắc.
    - **Gửi lệnh xuống ESP32:** Cầu nối `esp32_bridge` quy đổi động học vi sai sang RPM trái/phải và gửi liên tục chuỗi `V <rpm_L> <rpm_R>\n` (20 Hz) xuống ESP32 điều tốc 4 bánh xe.

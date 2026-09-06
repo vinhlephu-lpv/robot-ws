@@ -5,10 +5,11 @@
 
 cnn_driver_node:
   ros__parameters:
-    # Đường dẫn model ONNX
-    model_path: 'models/crop_row_cnn_best_final.onnx'
-    input_height: 512
-    input_width: 512
+    # Đường dẫn model ONNX INT8 (24MB, tối ưu hóa suy luận tăng tốc cho Raspberry Pi)
+    model_path: 'models/crop_row_cnn_best_final_int8.onnx'
+    # Kích thước input mạng CNN: 384x384 (Đạt chuẩn ~2 FPS - cập nhật góc lái 2 lần mỗi giây trên Pi)
+    input_height: 384
+    input_width: 384
     save_debug_imgs: false
 
     # Cấu hình Topics đồng bộ cảm biến trên xe thật

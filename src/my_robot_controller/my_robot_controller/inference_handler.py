@@ -158,11 +158,13 @@ class InferenceHandler:
         half_lane_px = 0.22 * w  # Nửa bề rộng hành lang 1.0m (~112.6px trên ảnh 512px)
         num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(binary)
 
-        # Lọc bỏ các cụm nhiễu nhỏ (< 200 pixel)
+        # Lọc bỏ các cụm nhiễu nhỏ (tự động co giãn theo độ phân giải h x w)
+        area_scale = (h * w) / (512.0 * 512.0)
+        min_comp_area = max(20, int(200 * area_scale))
         valid_comps = []
         for i in range(1, num_labels):
             area = stats[i, cv2.CC_STAT_AREA]
-            if area >= 200:
+            if area >= min_comp_area:
                 pts = np.argwhere(labels == i)
                 y_max = pts[:, 0].max()
                 y_min = pts[:, 0].min()
@@ -266,11 +268,13 @@ class InferenceHandler:
         # Hỗ trợ bám 1 hàng (Single-Row Confidence):
         # Nếu chưa đủ 2 hàng (confidence thấp) nhưng có 1 hàng cây/thùng rõ nét (diện tích lớn)
         if confidence < 0.35:
+            area_scale = (h * w) / (512.0 * 512.0)
+            min_single_area = max(150, int(1200 * area_scale))
             num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(binary_closed)
             max_area = max([stats[i, cv2.CC_STAT_AREA] for i in range(1, num_labels)], default=0)
-            if max_area >= 1200:
+            if max_area >= min_single_area:
                 # 1 hàng rất rõ nét -> Đạt mức confidence 0.50 ~ 0.60 (Bám 1 hàng an toàn)
-                single_score = min(0.60, 0.40 + (max_area / 10000.0) * 0.20)
+                single_score = min(0.60, 0.40 + (max_area / max(1.0, 10000.0 * area_scale)) * 0.20)
                 confidence = max(confidence, single_score)
 
         return confidence
