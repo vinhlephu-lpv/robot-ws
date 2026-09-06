@@ -44,17 +44,20 @@ ekf_filter_node_local:
     odom0_relative: false
 
     # Cảm biến 2: IMU ICM-20948 qua Madgwick (/imu/data)
+    # QUAN TRỌNG: Không dùng yaw tuyệt đối từ Madgwick vì không có từ kế (use_mag: false)
+    # → Madgwick không biết phương Bắc → yaw tuyệt đối luôn bị offset ngẫu nhiên!
+    # Giải pháp: Chỉ lấy vyaw (vận tốc góc), EKF tự tích phân thành yaw bắt đầu từ 0°.
     imu0: /imu/data
     imu0_config: [
       false, false, false,   # x, y, z
-      false, false, true,    # roll, pitch, yaw (Lấy góc quay Yaw mượt)
+      false, false, false,   # roll, pitch, yaw (TẮT - không dùng yaw tuyệt đối khi không có từ kế)
       false, false, false,   # vx, vy, vz
-      false, false, true,    # vroll, vpitch, vyaw (Lấy vận tốc góc quay Vyaw)
+      false, false, true,    # vroll, vpitch, vyaw (CHỈ LẤY vận tốc góc quay Vyaw)
       false, false, false    # ax, ay, az
     ]
     imu0_queue_size: 10
     imu0_differential: false
-    imu0_relative: true
+    imu0_relative: false
     imu0_remove_gravitational_acceleration: true
 
     # Process Noise Covariance cho tầng Local
