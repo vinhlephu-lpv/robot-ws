@@ -459,32 +459,11 @@ class CnnDriverNode(Node):
     # ── Image conversion ───────────────────────────────────────────────
     def convert_image(self, msg: Image) -> np.ndarray:
         if self.bridge is not None:
-            try:
-                return self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
-            except Exception:
-                pass
-        enc = (msg.encoding or '').lower()
-        if enc in ('jpeg', 'mjpeg', 'jpg'):
-            return cv2.imdecode(np.frombuffer(msg.data, dtype=np.uint8), cv2.IMREAD_COLOR)
-        elif enc == 'rgb8':
-            img = np.frombuffer(msg.data, dtype=np.uint8)[:msg.height * msg.width * 3].reshape(
+            return self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
+        if msg.encoding in ('rgb8', 'bgr8'):
+            img = np.frombuffer(msg.data, dtype=np.uint8).reshape(
                 (msg.height, msg.width, 3))
-            return cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
-        elif enc == 'bgr8':
-            return np.frombuffer(msg.data, dtype=np.uint8)[:msg.height * msg.width * 3].reshape(
-                (msg.height, msg.width, 3))
-        elif enc in ('yuv422_yuy2', 'yuv422', 'yuyv'):
-            img = np.frombuffer(msg.data, dtype=np.uint8)[:msg.height * msg.width * 2].reshape(
-                (msg.height, msg.width, 2))
-            return cv2.cvtColor(img, cv2.COLOR_YUV2BGR_YUYV)
-        elif enc == 'uyvy':
-            img = np.frombuffer(msg.data, dtype=np.uint8)[:msg.height * msg.width * 2].reshape(
-                (msg.height, msg.width, 2))
-            return cv2.cvtColor(img, cv2.COLOR_YUV2BGR_UYVY)
-        elif enc == 'mono8':
-            img = np.frombuffer(msg.data, dtype=np.uint8)[:msg.height * msg.width].reshape(
-                (msg.height, msg.width))
-            return cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+            return cv2.cvtColor(img, cv2.COLOR_RGB2BGR) if msg.encoding == 'rgb8' else img
         raise RuntimeError(f"Unsupported encoding: {msg.encoding}")
 
     # ── Transition helper ──────────────────────────────────────────────

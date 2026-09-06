@@ -61,17 +61,7 @@ def generate_launch_description():
         'enable_lidar', default_value='true',
         description='Enable RPLIDAR C1 sensor node')
 
-    color_width_arg = DeclareLaunchArgument(
-        'color_width', default_value='1920',
-        description='Color image width (1920 for 1080p Full HD)')
 
-    color_height_arg = DeclareLaunchArgument(
-        'color_height', default_value='1080',
-        description='Color image height (1080 for 1080p Full HD)')
-
-    pixel_format_arg = DeclareLaunchArgument(
-        'pixel_format', default_value='MJPG',
-        description='Camera pixel format: MJPG (1080p @ 60 FPS) or YUYV')
 
     enable_cnn_arg = DeclareLaunchArgument(
         'enable_cnn', default_value='false',
@@ -150,24 +140,19 @@ def generate_launch_description():
         condition=IfCondition(LaunchConfiguration('enable_lidar'))
     )
 
-    # ── Camera Driver (V4L2 USB Webcam 1080p @ 60 FPS MJPG) ──────────
-    v4l2_camera_node = Node(
-        package='v4l2_camera',
-        executable='v4l2_camera_node',
-        namespace='camera',
-        name='camera_node',
+    # ── Camera Driver (OpenCV MJPG — thay thế v4l2_camera vì nó không giải mã được MJPG) ─
+    camera_publisher_node = Node(
+        package='my_robot_bringup',
+        executable='camera_publisher',
+        name='camera_publisher',
         output='screen',
         parameters=[{
             'video_device': LaunchConfiguration('camera_device'),
+            'width': 1920,
+            'height': 1080,
+            'fps': 60.0,
             'camera_frame_id': 'camera_link',
-            'image_size': [1920, 1080],
-            'time_per_frame': [1, 60],
-            'pixel_format': LaunchConfiguration('pixel_format'),
         }],
-        remappings=[
-            ('image_raw', '/camera/color/image_raw'),
-            ('camera_info', '/camera/color/camera_info'),
-        ],
         condition=IfCondition(LaunchConfiguration('enable_camera'))
     )
 
@@ -320,9 +305,6 @@ def generate_launch_description():
         enable_esp32_arg,
         enable_camera_arg,
         enable_lidar_arg,
-        color_width_arg,
-        color_height_arg,
-        pixel_format_arg,
         enable_cnn_arg,
         enable_rviz_arg,
         record_arg,
@@ -335,7 +317,7 @@ def generate_launch_description():
         joint_state_pub,
         static_odom_tf,
         lidar_node,
-        v4l2_camera_node,
+        camera_publisher_node,
         wifi_cam_bridge,
         esp32_bridge,
         imu_node,
