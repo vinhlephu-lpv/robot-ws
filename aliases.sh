@@ -266,9 +266,17 @@ real_nav_func() {
     fi
 }
 # Lệnh TỰ HÀNH XE THẬT BÁM LUỐNG BẰNG AI CNN (Crop Row Following)
-alias real-cnn="load_ws && ros2 launch my_robot_bringup real_robot.launch.py enable_cnn:=true"
+real_cnn_func() {
+    load_ws
+    # Giải phóng tiến trình camera hoặc node AI kẹt từ lần chạy trước
+    fuser -k /dev/video* 2>/dev/null || true
+    killall -q -9 camera_publisher wifi_cam_bridge cnn_driver 2>/dev/null || true
+    ros2 launch my_robot_bringup real_robot.launch.py enable_cnn:=true "$@"
+}
+alias real-cnn="real_cnn_func"
 alias auto-cnn="real-cnn"
 alias cnn-auto="real-cnn"
+alias fix-cam="sudo fuser -k /dev/video* 2>/dev/null || true; echo '✅ Đã giải phóng cổng Camera USB /dev/video*!'"
 
 # Lệnh KIỂM TRA CHẨN ĐOÁN TOÀN DIỆN CHUỖI AI CNN
 alias check-cnn="load_ws && python3 \"$WS_DIR/scripts/verify_cnn_pipeline.py\""
@@ -546,8 +554,9 @@ stop_robot_func() {
     echo "🛑 Đang gửi lệnh phanh khẩn cấp & dừng toàn bộ động cơ..."
     ros2 topic pub --once /cmd_vel geometry_msgs/msg/Twist "{linear: {x: 0.0}, angular: {z: 0.0}}" 2>/dev/null || true
     echo "🧹 Đang dọn sạch các tiến trình ROS 2 còn sót lại..."
-    killall -9 rplidar_node sllidar_node esp32_bridge imu_driver costmap_node async_slam_toolbox_node 2>/dev/null || true
-    echo "✅ Toàn bộ hệ thống Robot đã dừng an toàn và giải phóng cổng Serial!"
+    killall -9 rplidar_node sllidar_node esp32_bridge imu_driver camera_publisher wifi_cam_bridge cnn_driver costmap_node async_slam_toolbox_node 2>/dev/null || true
+    fuser -k /dev/video* 2>/dev/null || true
+    echo "✅ Toàn bộ hệ thống Robot đã dừng an toàn và giải phóng cổng Serial / Camera!"
 }
 alias stop-robot="stop_robot_func"
 alias stop="stop_robot_func"

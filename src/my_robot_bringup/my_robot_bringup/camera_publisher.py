@@ -77,7 +77,7 @@ class CameraPublisher(Node):
         self._capture_thread.start()
 
     def _open_camera(self):
-        """Mở camera USB bằng OpenCV V4L2 backend + MJPG fourcc với cơ chế tự hạ độ phân giải nếu timeout."""
+        """Mở camera USB bằng OpenCV V4L2 backend + MJPG fourcc với cơ chế dự phòng an toàn."""
         candidates = []
         if os.path.exists(self.device):
             candidates.append(self.device)
@@ -86,30 +86,37 @@ class CameraPublisher(Node):
             if dev not in candidates and os.path.exists(dev):
                 candidates.append(dev)
 
-        resolutions_to_try = [
-            (self.width, self.height, self.fps),
-            (640, 480, 30.0),
-        ]
+        # Tránh lặp lại cấu hình giống nhau
+        resolutions_to_try = [(self.width, self.height, self.fps)]
+        if (self.width, self.height, self.fps) != (640, 480, 30.0):
+            resolutions_to_try.append((640, 480, 30.0))
 
         for dev in candidates:
+            # Bỏ qua /dev/video1 nếu đã có /dev/video0 (video1 thường là metadata V4L2 không phải luồng hình)
+            if dev.endswith('1') and '/dev/video0' in candidates and dev != self.device:
+                continue
+
             if dev.startswith('/dev/video') and dev.replace('/dev/video', '').isdigit():
                 dev_id = int(dev.replace('/dev/video', ''))
             else:
                 dev_id = dev
 
             for w, h, fps in resolutions_to_try:
+                cap = None
                 try:
                     cap = cv2.VideoCapture(dev_id, cv2.CAP_V4L2)
                     if not cap.isOpened():
                         cap = cv2.VideoCapture(dev_id)
 
                     if cap.isOpened():
+                        # Đặt buffer = 1 để chống đọng frame cũ và giảm trễ
+                        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
                         cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
                         cap.set(cv2.CAP_PROP_FRAME_WIDTH, w)
                         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
                         cap.set(cv2.CAP_PROP_FPS, fps)
 
-                        # Đọc thử 1 frame để kiểm tra device có sẵn sàng không
+                        # Đọc thử 1 frame để kiểm tra hardware có gửi dữ liệu không
                         ret, test_frame = cap.read()
                         if ret and test_frame is not None:
                             actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -121,7 +128,11 @@ class CameraPublisher(Node):
                             return cap
                         cap.release()
                 except Exception:
-                    pass
+                    if cap is not None:
+                        try:
+                            cap.release()
+                        except Exception:
+                            pass
         return None
 
     def _capture_loop(self):
@@ -139,9 +150,10 @@ class CameraPublisher(Node):
                     self.cap = self._open_camera()
                     if self.cap is None or not self.cap.isOpened():
                         self.get_logger().warn(
-                            f"⏳ Đang dò tìm & kết nối Camera USB ({self.device})...",
-                            throttle_duration_sec=5.0)
-                        time.sleep(2.0)
+                            f"⏳ Đang dò tìm & kết nối Camera USB ({self.device})... "
+                            f"(Nếu camera bị kẹt, chạy 'sudo fuser -k /dev/video*' hoặc rút cắm lại cổng USB)",
+                            throttle_duration_sec=4.0)
+                        time.sleep(1.5)
                         continue
                     consecutive_failures = 0
                 # Tạm redirect stderr để suppress libjpeg warnings
