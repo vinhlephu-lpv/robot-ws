@@ -95,26 +95,40 @@ class RawVideoRecorder(Node):
     def image_callback(self, msg: Image):
         """Nhận frame siêu tốc (<0.02ms) đẩy vào hàng đợi RAM."""
         try:
-            if msg.encoding in ('rgb8', 'RGB8'):
+            enc = (msg.encoding or '').lower()
+            if enc in ('rgb8',):
                 channels = 3
                 cvt = cv2.COLOR_RGB2BGR
-            elif msg.encoding in ('bgr8', 'BGR8'):
+            elif enc in ('bgr8',):
                 channels = 3
                 cvt = None
-            elif msg.encoding in ('mono8', 'MONO8'):
+            elif enc in ('mono8',):
                 channels = 1
                 cvt = cv2.COLOR_GRAY2BGR
+            elif enc in ('yuv422_yuy2', 'yuv422', 'yuyv'):
+                channels = 2
+                cvt = cv2.COLOR_YUV2BGR_YUYV
+            elif enc in ('uyvy',):
+                channels = 2
+                cvt = cv2.COLOR_YUV2BGR_UYVY
             else:
-                channels = 3
-                cvt = cv2.COLOR_RGB2BGR
+                total_pixels = msg.height * msg.width
+                bpp = (len(msg.data) // total_pixels) if total_pixels > 0 else 3
+                channels = 2 if bpp == 2 else 3
+                cvt = cv2.COLOR_YUV2BGR_YUYV if bpp == 2 else cv2.COLOR_RGB2BGR
 
             expected_size = msg.height * msg.width * channels
             if len(msg.data) < expected_size:
                 return
 
-            frame = np.frombuffer(msg.data, dtype=np.uint8)[:expected_size].reshape(
-                msg.height, msg.width, channels
-            )
+            if channels == 1:
+                frame = np.frombuffer(msg.data, dtype=np.uint8)[:expected_size].reshape(
+                    msg.height, msg.width
+                )
+            else:
+                frame = np.frombuffer(msg.data, dtype=np.uint8)[:expected_size].reshape(
+                    msg.height, msg.width, channels
+                )
             now = time.time()
             if self.start_time is None:
                 self.start_time = now

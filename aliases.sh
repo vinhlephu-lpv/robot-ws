@@ -135,7 +135,7 @@ alias rviz-cam="rviz_record_func"
 rviz_view_func() {
     load_ws
     killall -q wifi_cam_receiver 2>/dev/null || true
-    ros2 run my_robot_bringup wifi_cam_receiver &>/dev/null &
+    ros2 run my_robot_bringup wifi_cam_receiver &
     local receiver_pid=$!
     sleep 0.5
     rviz2 -d "$WS_DIR/src/my_robot_description/rviz/display.rviz" "$@"

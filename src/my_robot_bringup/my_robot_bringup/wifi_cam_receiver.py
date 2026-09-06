@@ -95,10 +95,10 @@ class WifiCamReceiver(Node):
             self.pub_raw.publish(img_msg)
 
             self._recv_count += 1
-            if self._recv_count % 100 == 0:
+            if self._recv_count == 1 or self._recv_count % 100 == 0:
                 self.get_logger().info(
-                    f'Đã giải nén {self._recv_count} frames',
-                    throttle_duration_sec=30.0)
+                    f'✅ [Camera Live] Đã nhận & giải nén {self._recv_count} frames cho RViz ({img_rgb.shape[1]}x{img_rgb.shape[0]})',
+                    throttle_duration_sec=15.0)
 
         except Exception as e:
             self.get_logger().error(

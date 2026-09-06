@@ -32,6 +32,21 @@ def _get_cv2():
     return _cv2
 
 
+# Lazy import cv_bridge
+_bridge = None
+
+
+def _get_bridge():
+    global _bridge
+    if _bridge is None:
+        try:
+            from cv_bridge import CvBridge
+            _bridge = CvBridge()
+        except ImportError:
+            _bridge = False
+    return _bridge if _bridge is not False else None
+
+
 class WifiCamBridge(Node):
     """Nén ảnh camera thành JPEG để gửi qua Wi-Fi."""
 
@@ -86,36 +101,63 @@ class WifiCamBridge(Node):
             return
 
         cv2 = _get_cv2()
+        bridge = _get_bridge()
 
         try:
-            # Chuyển ROS Image → numpy array
-            if msg.encoding in ('rgb8', 'RGB8'):
-                channels = 3
-                cvt_code = cv2.COLOR_RGB2BGR
-            elif msg.encoding in ('bgr8', 'BGR8'):
-                channels = 3
-                cvt_code = None
-            elif msg.encoding in ('mono8', 'MONO8'):
-                channels = 1
-                cvt_code = None
-            else:
-                # Fallback: giả sử RGB8
-                channels = 3
-                cvt_code = cv2.COLOR_RGB2BGR
+            img = None
+            # 1. Thử giải mã qua cv_bridge nếu có
+            if bridge is not None:
+                try:
+                    img = bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
+                except Exception:
+                    img = None
 
-            expected_size = msg.height * msg.width * channels
-            if len(msg.data) < expected_size:
+            # 2. Giải mã thủ công hỗ trợ toàn diện: RGB, BGR, MONO, YUYV (yuv422_yuy2), UYVY
+            if img is None:
+                enc = (msg.encoding or '').lower()
+                if enc in ('rgb8',):
+                    expected = msg.height * msg.width * 3
+                    if len(msg.data) >= expected:
+                        arr = np.frombuffer(msg.data, dtype=np.uint8)[:expected].reshape(msg.height, msg.width, 3)
+                        img = cv2.cvtColor(arr, cv2.COLOR_RGB2BGR)
+                elif enc in ('bgr8',):
+                    expected = msg.height * msg.width * 3
+                    if len(msg.data) >= expected:
+                        img = np.frombuffer(msg.data, dtype=np.uint8)[:expected].reshape(msg.height, msg.width, 3)
+                elif enc in ('mono8',):
+                    expected = msg.height * msg.width
+                    if len(msg.data) >= expected:
+                        arr = np.frombuffer(msg.data, dtype=np.uint8)[:expected].reshape(msg.height, msg.width)
+                        img = cv2.cvtColor(arr, cv2.COLOR_GRAY2BGR)
+                elif enc in ('yuv422_yuy2', 'yuv422', 'yuyv'):
+                    expected = msg.height * msg.width * 2
+                    if len(msg.data) >= expected:
+                        arr = np.frombuffer(msg.data, dtype=np.uint8)[:expected].reshape(msg.height, msg.width, 2)
+                        img = cv2.cvtColor(arr, cv2.COLOR_YUV2BGR_YUYV)
+                elif enc in ('uyvy',):
+                    expected = msg.height * msg.width * 2
+                    if len(msg.data) >= expected:
+                        arr = np.frombuffer(msg.data, dtype=np.uint8)[:expected].reshape(msg.height, msg.width, 2)
+                        img = cv2.cvtColor(arr, cv2.COLOR_YUV2BGR_UYVY)
+                else:
+                    # Fallback thông minh dựa trên độ dài dữ liệu
+                    total_pixels = msg.height * msg.width
+                    if total_pixels > 0:
+                        bpp = len(msg.data) / total_pixels
+                        if abs(bpp - 2.0) < 0.1:
+                            expected = total_pixels * 2
+                            arr = np.frombuffer(msg.data, dtype=np.uint8)[:expected].reshape(msg.height, msg.width, 2)
+                            img = cv2.cvtColor(arr, cv2.COLOR_YUV2BGR_YUYV)
+                        elif abs(bpp - 3.0) < 0.1:
+                            expected = total_pixels * 3
+                            arr = np.frombuffer(msg.data, dtype=np.uint8)[:expected].reshape(msg.height, msg.width, 3)
+                            img = cv2.cvtColor(arr, cv2.COLOR_RGB2BGR)
+
+            if img is None:
                 self.get_logger().warn(
-                    f'Image data quá nhỏ: {len(msg.data)} < {expected_size}',
+                    f'Không thể giải mã format ảnh: {msg.encoding} ({msg.width}x{msg.height}, len={len(msg.data)})',
                     throttle_duration_sec=5.0)
                 return
-
-            img = np.frombuffer(msg.data, dtype=np.uint8)
-            img = img[:expected_size].reshape(msg.height, msg.width, channels)
-
-            # Chuyển sang BGR cho cv2
-            if cvt_code is not None:
-                img = cv2.cvtColor(img, cvt_code)
 
             # Resize
             if (img.shape[1] != self.target_w) or (img.shape[0] != self.target_h):
@@ -136,12 +178,12 @@ class WifiCamBridge(Node):
             self.pub.publish(comp_msg)
 
             self._sent_count += 1
-            if self._sent_count % 100 == 0:
+            if self._sent_count == 1 or self._sent_count % 100 == 0:
                 kb = len(comp_msg.data) / 1024
                 self.get_logger().info(
-                    f'Đã gửi {self._sent_count} frames, '
-                    f'size={kb:.1f} KB/frame',
-                    throttle_duration_sec=30.0)
+                    f'✅ Đã gửi {self._sent_count} frames qua WiFi, '
+                    f'size={kb:.1f} KB/frame ({self.target_w}x{self.target_h})',
+                    throttle_duration_sec=15.0)
 
         except Exception as e:
             self.get_logger().error(
