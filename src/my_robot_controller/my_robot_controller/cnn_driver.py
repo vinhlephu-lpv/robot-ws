@@ -919,7 +919,11 @@ class CnnDriverNode(Node):
             inf_ms = self._latest_inf_ms
             fps_val = 1000.0 / inf_ms if inf_ms > 0 else 0.0
             gps_status = self._latest_gps_info.get('status', 'NO_FIX')
-            gps_str = f" | GPS: {self._latest_gps_info.get('latitude', 0.0):.6f}°, {self._latest_gps_info.get('longitude', 0.0):.6f}°" if gps_status not in ('NO_FIX', -1) else ""
+            gps_source = self._latest_gps_info.get('source', '')
+            if gps_status == 'FIX' and gps_source == 'DIRECT_SENSOR':
+                gps_str = f" | GPS (Thật): {self._latest_gps_info.get('latitude', 0.0):.6f}°, {self._latest_gps_info.get('longitude', 0.0):.6f}°"
+            else:
+                gps_str = ""
             status_msg = (
                 f"🌾 [AI Lái Xe] Góc lái: {self._latest_steer_deg:+5.2f}° | "
                 f"Trạng thái: [{current_state:^13s}] | "

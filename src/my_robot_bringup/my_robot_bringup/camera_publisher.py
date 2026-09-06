@@ -207,8 +207,13 @@ class CameraPublisher(Node):
                 msg.step = pw * pc
                 msg.data = pub_frame.tobytes()
 
-                self.image_pub.publish(msg)
-                self.image_alt_pub.publish(msg)
+                if not self.is_running or not rclpy.ok():
+                    break
+                try:
+                    self.image_pub.publish(msg)
+                    self.image_alt_pub.publish(msg)
+                except Exception:
+                    break
 
                 # Log thống kê mỗi 30 giây (giảm tải màn hình terminal)
                 self._frame_count += 1
