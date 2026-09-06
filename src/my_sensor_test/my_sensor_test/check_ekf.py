@@ -36,6 +36,8 @@ class DualEkfMonitor(Node):
         self.imu_hz = 0.0
         self.imu_last_time = time.time()
         self.imu_yaw = 0.0
+        self.imu_yaw_raw = 0.0       # Giá trị thô từ Madgwick (có offset)
+        self.imu_yaw_offset = None    # Offset ban đầu, tự động trừ khi nhận message đầu tiên
         self.imu_wz = 0.0
 
         self.wheel_count = 0
@@ -97,7 +99,12 @@ class DualEkfMonitor(Node):
             self.imu_hz = self.imu_count / dt
             self.imu_count = 0
             self.imu_last_time = now
-        self.imu_yaw = quat_to_yaw_deg(msg.orientation)
+        raw_yaw = quat_to_yaw_deg(msg.orientation)
+        self.imu_yaw_raw = raw_yaw
+        # Tự động trừ offset Madgwick ban đầu (vì không có từ kế nên yaw khởi đầu ngẫu nhiên)
+        if self.imu_yaw_offset is None:
+            self.imu_yaw_offset = raw_yaw
+        self.imu_yaw = raw_yaw - self.imu_yaw_offset
         self.imu_wz = msg.angular_velocity.z
 
     def cb_wheel(self, msg: Odometry):
