@@ -190,6 +190,7 @@ class ImuDriverNode(Node):
         self.declare_parameter('gyro_ema_alpha', 0.80)           # Làm mịn nhẹ gyro
         self.declare_parameter('adaptive_bias_tracking', True)   # Tự động bám bù trôi nhiệt độ khi xe dừng
         self.declare_parameter('stationary_speed_threshold', 0.02) # Ngưỡng coi xe đang dừng (m/s)
+        self.declare_parameter('mount_upside_down', True)        # Module ICM-20948 gắn úp mặt xuống sàn xe (quay 180° trục X)
 
         self.bus_num = int(self.get_parameter('i2c_bus').value)
         self.address = int(self.get_parameter('i2c_address').value)
@@ -204,6 +205,7 @@ class ImuDriverNode(Node):
         self.gyro_ema_alpha = float(self.get_parameter('gyro_ema_alpha').value)
         self.adaptive_bias_tracking = bool(self.get_parameter('adaptive_bias_tracking').value)
         self.stationary_speed_threshold = float(self.get_parameter('stationary_speed_threshold').value)
+        self.mount_upside_down = bool(self.get_parameter('mount_upside_down').value)
 
         # Publishers & Subscribers
         self.imu_pub = self.create_publisher(Imu, self.publish_topic, 10)
@@ -283,6 +285,19 @@ class ImuDriverNode(Node):
             return
 
         ax, ay, az, gx, gy, gz = raw
+
+        # Chuyển đổi hệ quy chiếu cảm biến sang hệ quy chiếu chuẩn Robot ROS REP-103
+        # Khi module ICM-20948 được bắt ốc úp mặt xuống sàn xe (quay 180° quanh trục X dọc thân xe):
+        # - X_robot =  X_sensor (tiến về phía trước)
+        # - Y_robot = -Y_sensor (hướng sang trái)
+        # - Z_robot = -Z_sensor (hướng thẳng đứng lên trên trời, trọng lực +9.81 m/s²)
+        # - Gyro: g_x = g_x, g_y = -g_y, g_z = -g_z (quay Trái thì Wz > 0 chuẩn CCW)
+        if self.mount_upside_down:
+            ay = -ay
+            az = -az
+            gy = -gy
+            gz = -gz
+
         now = time.time()
         dt = max(0.001, min(0.1, now - self.last_time))
         self.last_time = now

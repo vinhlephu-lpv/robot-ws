@@ -251,6 +251,7 @@ def generate_launch_description():
             'gyro_ema_alpha': 0.80,
             'adaptive_bias_tracking': True,
             'stationary_speed_threshold': 0.02,
+            'mount_upside_down': True,
         }],
         condition=IfCondition(LaunchConfiguration('enable_imu'))
     )

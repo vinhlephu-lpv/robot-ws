@@ -52,6 +52,7 @@ def generate_launch_description():
             'raw_topic': '/imu/data_raw',
             'rate_hz': 50.0,
             'calibrate_samples': 60,
+            'mount_upside_down': True,
         }]
     )
 

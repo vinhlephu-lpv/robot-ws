@@ -27,6 +27,20 @@ def quat_to_yaw_deg(q):
     return math.degrees(math.atan2(siny_cosp, cosy_cosp))
 
 
+def quat_to_euler_deg(q):
+    sinr_cosp = 2.0 * (q.w * q.x + q.y * q.z)
+    cosr_cosp = 1.0 - 2.0 * (q.x * q.x + q.y * q.y)
+    roll = math.degrees(math.atan2(sinr_cosp, cosr_cosp))
+
+    sinp = 2.0 * (q.w * q.y - q.z * q.x)
+    pitch = math.degrees(math.copysign(math.pi / 2.0, sinp)) if abs(sinp) >= 1.0 else math.degrees(math.asin(sinp))
+
+    siny_cosp = 2.0 * (q.w * q.z + q.x * q.y)
+    cosy_cosp = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
+    yaw = math.degrees(math.atan2(siny_cosp, cosy_cosp))
+    return roll, pitch, yaw
+
+
 class DualEkfMonitor(Node):
     def __init__(self):
         super().__init__('check_ekf_monitor')
@@ -36,6 +50,8 @@ class DualEkfMonitor(Node):
         self.imu_hz = 0.0
         self.imu_last_time = time.time()
         self.imu_yaw = 0.0
+        self.imu_roll = 0.0
+        self.imu_pitch = 0.0
         self.imu_yaw_raw = 0.0       # Giá trị thô từ Madgwick (có offset)
         self.imu_yaw_offset = None    # Offset ban đầu, tự động trừ khi nhận message đầu tiên
         self.imu_wz = 0.0
@@ -99,7 +115,9 @@ class DualEkfMonitor(Node):
             self.imu_hz = self.imu_count / dt
             self.imu_count = 0
             self.imu_last_time = now
-        raw_yaw = quat_to_yaw_deg(msg.orientation)
+        roll, pitch, raw_yaw = quat_to_euler_deg(msg.orientation)
+        self.imu_roll = roll
+        self.imu_pitch = pitch
         self.imu_yaw_raw = raw_yaw
         # Tự động trừ offset Madgwick ban đầu (vì không có từ kế nên yaw khởi đầu ngẫu nhiên)
         if self.imu_yaw_offset is None:
@@ -205,7 +223,7 @@ class DualEkfMonitor(Node):
             "======================================================================",
             f" [1. CẢM BIẾN ĐẦU VÀO]",
             f"   • IMU Madgwick (/imu/data)   : {imu_status}",
-            f"     -> Hướng Yaw: {self.imu_yaw:+6.1f}° | Vận tốc góc Wz: {self.imu_wz:+5.2f} rad/s",
+            f"     -> Hướng Yaw: {self.imu_yaw:+6.1f}° | Roll: {self.imu_roll:+5.1f}° | Pitch: {self.imu_pitch:+5.1f}° | Wz: {self.imu_wz:+5.2f} rad/s",
             f"   • 4 Bánh xe (/wheel/odom)    : {wheel_status}",
             f"     -> Vận tốc tiến Vx: {self.wheel_vx:+5.2f} m/s | Quay Wz: {self.wheel_wz:+5.2f} rad/s",
             f"     -> Trạng thái 4 bánh: {self.wheel_status_str}",
