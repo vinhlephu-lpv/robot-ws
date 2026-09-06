@@ -95,7 +95,7 @@ Visualization Manager:
         Value: /scan
       Value: true
     - Class: rviz_default_plugins/Image
-      Enabled: true
+      Enabled: false
       Max Value: 1
       Median window: 5
       Min Value: 0
