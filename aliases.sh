@@ -63,6 +63,12 @@ build_func() {
     fi
     colcon build --symlink-install "$@"
     local ret=$?
+    if [ $ret -ne 0 ]; then
+        echo "⚠️ Thử dọn dẹp cache build của my_robot_controller và biên dịch lại..."
+        rm -rf "$WS_DIR/build/my_robot_controller"
+        colcon build --symlink-install "$@"
+        ret=$?
+    fi
     if [ $ret -eq 0 ]; then
         if [ -f "$WS_DIR/install/setup.bash" ]; then
             source "$WS_DIR/install/setup.bash"
@@ -110,6 +116,7 @@ git_sync_func() {
     local branch
     branch=$(git branch --show-current 2>/dev/null || echo "main")
     git pull origin "$branch" 2>/dev/null || git pull origin main 2>/dev/null || git pull || true
+    rm -rf "$WS_DIR/build/my_robot_controller/models" 2>/dev/null || true
     echo "🔨 Đang biên dịch lại Workspace & cập nhật phím tắt..."
     build_func "$@"
 }
