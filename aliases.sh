@@ -23,6 +23,12 @@ load_ws() {
         source /opt/ros/humble/setup.bash
     fi
 
+    # Tự động khắc phục nếu build/my_robot_controller bị mất hook symlink
+    if [ -d "$WS_DIR/src/my_robot_controller" ] && [ ! -d "$WS_DIR/build/my_robot_controller" ]; then
+        echo "🔧 Phát hiện thiếu thư mục build, đang tự động build nhanh my_robot_controller..."
+        (cd "$WS_DIR" && colcon build --symlink-install --packages-select my_robot_controller >/dev/null 2>&1) || true
+    fi
+
     if [ -f "$WS_DIR/install/setup.bash" ]; then
         source "$WS_DIR/install/setup.bash"
     fi
@@ -268,6 +274,12 @@ real_nav_func() {
 # Lệnh TỰ HÀNH XE THẬT BÁM LUỐNG BẰNG AI CNN (Crop Row Following)
 real_cnn_func() {
     load_ws
+    # Tự động sửa chữa nếu my_robot_controller bị lỗi package not found
+    if ! ros2 pkg prefix my_robot_controller &>/dev/null; then
+        echo "🔧 Đang biên dịch lại package my_robot_controller..."
+        (cd "$WS_DIR" && colcon build --symlink-install --packages-select my_robot_controller)
+        [ -f "$WS_DIR/install/setup.bash" ] && source "$WS_DIR/install/setup.bash"
+    fi
     # Giải phóng tiến trình camera hoặc node AI kẹt từ lần chạy trước
     fuser -k /dev/video* 2>/dev/null || true
     killall -q -9 camera_publisher wifi_cam_bridge cnn_driver 2>/dev/null || true
