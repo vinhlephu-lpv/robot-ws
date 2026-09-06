@@ -322,6 +322,15 @@ class CnnDriverNode(Node):
             f"GPS topic={self.gps_topic} | Datum Lat/Lon=({self.datum_latitude:.6f}, {self.datum_longitude:.6f})"
         )
 
+        # ── State for Periodic 1Hz Status Logging ─────────────────────
+        self._last_image_time = 0.0
+        self._latest_confidence = 0.0
+        self._latest_steer_deg = 0.0
+        self._latest_twist = Twist()
+        self._latest_gps_info = {}
+        self._latest_inf_ms = 0.0
+        self.status_timer = self.create_timer(1.0, self.status_timer_callback)
+
     # ── Compatibility Properties ─────────────────────────────────────
     @property
     def state(self):
@@ -884,31 +893,44 @@ class CnnDriverNode(Node):
                 'gps_status': gps_info.get('status', 'NO_FIX')
             })
 
-        # Throttled Clean Terminal & Text Log Summary (Synchronized)
-        now_sec = now.nanoseconds / 1e9
-        if now_sec - self._last_terminal_log_time >= self.terminal_log_interval:
-            self._last_terminal_log_time = now_sec
-            display_steer_deg = self.smoothed_angle_deg
-            if current_state != FSMState.TRACKING and abs(twist.linear.x) > 0.01:
-                display_steer_deg = math.degrees(math.atan2(twist.angular.z * 0.58, twist.linear.x))
-            inf_ms = getattr(self, '_last_inference_ms', 0.0)
-            fps_val = 1000.0 / inf_ms if inf_ms > 0 else 0.0
+        # Update state cache for the 1Hz terminal status logger
+        display_steer_deg = self.smoothed_angle_deg
+        if current_state != FSMState.TRACKING and abs(twist.linear.x) > 0.01:
+            display_steer_deg = math.degrees(math.atan2(twist.angular.z * 0.58, twist.linear.x))
+        self._last_image_time = time.time()
+        self._latest_confidence = confidence
+        self._latest_steer_deg = display_steer_deg
+        self._latest_twist = twist
+        self._latest_gps_info = gps_info
+        self._latest_inf_ms = getattr(self, '_last_inference_ms', 0.0)
 
-            # Rút gọn trạng thái GPS nếu chưa FIX để terminal không bị rác
-            gps_status = gps_info.get('status', 'NO_FIX')
-            gps_str = f" | GPS: {gps_info.get('latitude', 0.0):.6f}°, {gps_info.get('longitude', 0.0):.6f}°" if gps_status not in ('NO_FIX', -1) else ""
-
+    def status_timer_callback(self):
+        """Định kỳ in trạng thái trực quan chuẩn 1 Hz ra terminal (không bao giờ im lặng kể cả khi chờ camera)."""
+        now_sec = time.time()
+        current_state = self.fsm.get_state()
+        if self._last_image_time == 0.0 or (now_sec - self._last_image_time) > 2.0:
             status_msg = (
-                f"🌾 [AI Lái Xe] Góc lái: {display_steer_deg:+5.2f}° | "
-                f"Trạng thái: [{current_state}] | "
-                f"Tin cậy: {confidence*100:4.1f}% | "
+                f"🌾 [AI Lái Xe] Góc lái:  +0.00° | "
+                f"Trạng thái: [{current_state:^13s}] | "
+                f"Tin cậy:   0.0% | "
+                f"⚠️ Đang chờ Camera ({self.image_topic})..."
+            )
+        else:
+            inf_ms = self._latest_inf_ms
+            fps_val = 1000.0 / inf_ms if inf_ms > 0 else 0.0
+            gps_status = self._latest_gps_info.get('status', 'NO_FIX')
+            gps_str = f" | GPS: {self._latest_gps_info.get('latitude', 0.0):.6f}°, {self._latest_gps_info.get('longitude', 0.0):.6f}°" if gps_status not in ('NO_FIX', -1) else ""
+            status_msg = (
+                f"🌾 [AI Lái Xe] Góc lái: {self._latest_steer_deg:+5.2f}° | "
+                f"Trạng thái: [{current_state:^13s}] | "
+                f"Tin cậy: {self._latest_confidence*100:4.1f}% | "
                 f"AI: {inf_ms:3.0f}ms ({fps_val:3.1f} FPS) | "
-                f"Vel: ({twist.linear.x:.2f}m/s, {twist.angular.z:+.2f}r/s)"
+                f"Vel: ({self._latest_twist.linear.x:.2f}m/s, {self._latest_twist.angular.z:+.2f}r/s)"
                 f"{gps_str}"
             )
-            self.get_logger().info(status_msg)
-            if self.enable_file_logging and self.telemetry_logger:
-                self.telemetry_logger.log_event("SYSTEM_STATUS", status_msg)
+        self.get_logger().info(status_msg)
+        if self.enable_file_logging and self.telemetry_logger:
+            self.telemetry_logger.log_event("SYSTEM_STATUS", status_msg)
 
     # ── Laser Scan Callback ──────────────────────────────────────────
     def scan_callback(self, msg: LaserScan):

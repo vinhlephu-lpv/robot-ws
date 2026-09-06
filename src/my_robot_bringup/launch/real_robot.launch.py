@@ -148,9 +148,9 @@ def generate_launch_description():
         output='screen',
         parameters=[{
             'video_device': LaunchConfiguration('camera_device'),
-            'width': 1920,
-            'height': 1080,
-            'fps': 60.0,
+            'width': 640,
+            'height': 480,
+            'fps': 30.0,
             'camera_frame_id': 'camera_link',
         }],
         condition=IfCondition(LaunchConfiguration('enable_camera'))

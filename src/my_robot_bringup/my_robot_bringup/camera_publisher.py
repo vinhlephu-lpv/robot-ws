@@ -71,75 +71,79 @@ class CameraPublisher(Node):
         self._frame_count = 0
         self._last_log_time = 0.0
 
-        # ── Open camera & start capture thread ────────────────────────
-        self.cap = self._open_camera()
-        if self.cap is not None and self.cap.isOpened():
-            self._capture_thread = threading.Thread(
-                target=self._capture_loop, daemon=True)
-            self._capture_thread.start()
-        else:
-            self.get_logger().error(
-                f"❌ Không thể mở camera tại {self.device}! "
-                "Kiểm tra kết nối USB và /dev/video*.")
+        # ── Start capture & auto-reconnect thread ─────────────────────
+        self._capture_thread = threading.Thread(
+            target=self._capture_loop, daemon=True)
+        self._capture_thread.start()
 
     def _open_camera(self):
-        """Mở camera USB bằng OpenCV V4L2 backend + MJPG fourcc."""
-        # Thử mở theo device path trước
+        """Mở camera USB bằng OpenCV V4L2 backend + MJPG fourcc với cơ chế tự hạ độ phân giải nếu timeout."""
         candidates = []
         if os.path.exists(self.device):
             candidates.append(self.device)
-        # Fallback: thử /dev/video0..5
         for i in range(6):
             dev = f'/dev/video{i}'
             if dev not in candidates and os.path.exists(dev):
                 candidates.append(dev)
 
+        resolutions_to_try = [
+            (self.width, self.height, self.fps),
+            (640, 480, 30.0),
+        ]
+
         for dev in candidates:
-            try:
-                # Dùng index số nếu có thể, hoặc path string
-                if dev.startswith('/dev/video') and dev.replace('/dev/video', '').isdigit():
-                    dev_id = int(dev.replace('/dev/video', ''))
-                else:
-                    dev_id = dev
+            if dev.startswith('/dev/video') and dev.replace('/dev/video', '').isdigit():
+                dev_id = int(dev.replace('/dev/video', ''))
+            else:
+                dev_id = dev
 
-                cap = cv2.VideoCapture(dev_id, cv2.CAP_V4L2)
-                if not cap.isOpened():
-                    cap = cv2.VideoCapture(dev_id)
+            for w, h, fps in resolutions_to_try:
+                try:
+                    cap = cv2.VideoCapture(dev_id, cv2.CAP_V4L2)
+                    if not cap.isOpened():
+                        cap = cv2.VideoCapture(dev_id)
 
-                if cap.isOpened():
-                    # Đặt MJPG fourcc TRƯỚC khi set resolution
-                    cap.set(cv2.CAP_PROP_FOURCC,
-                            cv2.VideoWriter_fourcc(*'MJPG'))
-                    cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
-                    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
-                    cap.set(cv2.CAP_PROP_FPS, self.fps)
+                    if cap.isOpened():
+                        cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
+                        cap.set(cv2.CAP_PROP_FRAME_WIDTH, w)
+                        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
+                        cap.set(cv2.CAP_PROP_FPS, fps)
 
-                    # Đọc thử 1 frame
-                    ret, test_frame = cap.read()
-                    if ret and test_frame is not None:
-                        actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-                        actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                        actual_fps = cap.get(cv2.CAP_PROP_FPS)
-                        self.get_logger().info(
-                            f"📷 Camera USB đã kết nối: {dev} "
-                            f"({actual_w}x{actual_h} @ {actual_fps:.0f} FPS, MJPG)")
-                        return cap
-                    cap.release()
-            except Exception as e:
-                self.get_logger().warn(f"Không mở được {dev}: {e}")
+                        # Đọc thử 1 frame để kiểm tra device có sẵn sàng không
+                        ret, test_frame = cap.read()
+                        if ret and test_frame is not None:
+                            actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                            actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                            actual_fps = cap.get(cv2.CAP_PROP_FPS)
+                            self.get_logger().info(
+                                f"📷 Camera USB đã kết nối thành công: {dev} "
+                                f"({actual_w}x{actual_h} @ {actual_fps:.0f} FPS, MJPG)")
+                            return cap
+                        cap.release()
+                except Exception:
+                    pass
         return None
 
     def _capture_loop(self):
-        """Background thread: đọc frame liên tục và publish lên ROS 2."""
-        # Tắt warning libjpeg rác ra stderr
+        """Background thread: đọc frame liên tục và tự động kết nối lại nếu camera bị ngắt."""
         null_fd = None
         try:
             null_fd = os.open(os.devnull, os.O_WRONLY)
         except Exception:
             pass
 
+        consecutive_failures = 0
         try:
-            while self.is_running and self.cap and self.cap.isOpened():
+            while self.is_running:
+                if self.cap is None or not self.cap.isOpened():
+                    self.cap = self._open_camera()
+                    if self.cap is None or not self.cap.isOpened():
+                        self.get_logger().warn(
+                            f"⏳ Đang dò tìm & kết nối Camera USB ({self.device})...",
+                            throttle_duration_sec=5.0)
+                        time.sleep(2.0)
+                        continue
+                    consecutive_failures = 0
                 # Tạm redirect stderr để suppress libjpeg warnings
                 old_err = None
                 if null_fd is not None:
@@ -160,8 +164,17 @@ class CameraPublisher(Node):
                         pass
 
                 if not ret or frame is None:
-                    time.sleep(0.002)
+                    consecutive_failures += 1
+                    if consecutive_failures >= 30:
+                        self.get_logger().warn("Mất tín hiệu camera, đang tự động kết nối lại...", throttle_duration_sec=5.0)
+                        try:
+                            self.cap.release()
+                        except Exception:
+                            pass
+                        self.cap = None
+                    time.sleep(0.01)
                     continue
+                consecutive_failures = 0
 
                 # Resize 1080p → 640x480 trước khi publish
                 # (CNN driver resize lại 512x512, wifi_cam_bridge resize 320x240)
