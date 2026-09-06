@@ -192,7 +192,7 @@ class CameraPublisher(Node):
                     elapsed = now - self._last_log_time if self._last_log_time > 0 else 10.0
                     fps_actual = self._frame_count / elapsed if elapsed > 0 else 0
                     self.get_logger().info(
-                        f"📷 Camera: {w}x{h} | {fps_actual:.1f} FPS | "
+                        f"📷 Camera: {pw}x{ph} | {fps_actual:.1f} FPS | "
                         f"Đã gửi {self._frame_count} frames")
                     self._frame_count = 0
                     self._last_log_time = now
