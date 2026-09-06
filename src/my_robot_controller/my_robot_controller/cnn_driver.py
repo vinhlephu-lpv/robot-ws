@@ -516,6 +516,7 @@ class CnnDriverNode(Node):
             return
 
         # ── Perception Processing via PerceptionManager ───────────────
+        t_infer_start = time.time()
         perception = self.perception_manager.process_sensors(
             cv_image=bgr_image,
             distance_traveled=self.distance_traveled,
@@ -525,6 +526,7 @@ class CnnDriverNode(Node):
             max_angle_deg=self.max_steering_angle_deg,
             inside_row=self.inside_row
         )
+        self._last_inference_ms = (time.time() - t_infer_start) * 1000.0
         
         confidence = perception["confidence"]
         obstacle_detected = perception["obstacle_detected"]
@@ -888,8 +890,11 @@ class CnnDriverNode(Node):
             display_steer_deg = self.smoothed_angle_deg
             if current_state != FSMState.TRACKING and abs(twist.linear.x) > 0.01:
                 display_steer_deg = math.degrees(math.atan2(twist.angular.z * 0.58, twist.linear.x))
+            inf_ms = getattr(self, '_last_inference_ms', 0.0)
+            fps_val = 1000.0 / inf_ms if inf_ms > 0 else 0.0
             status_msg = (
                 f"[STATUS] [{current_state:^15s}] | Steer: {display_steer_deg:+5.2f}° | "
+                f"Conf: {confidence:.2f} | AI: {inf_ms:.0f}ms ({fps_val:.1f}FPS) | "
                 f"Vel: ({twist.linear.x:4.2f}m/s, {twist.angular.z:+4.2f}r/s) | "
                 f"Pose: ({self.current_x:5.2f}m, {self.current_y:5.2f}m) | "
                 f"GPS: ({gps_info.get('latitude', 0.0):.6f}°, {gps_info.get('longitude', 0.0):.6f}° [{gps_info.get('status', 'NO_FIX')}])"

@@ -1,7 +1,19 @@
 #!/usr/bin/env bash
 
 # Tự động lấy thư mục gốc của Workspace (chạy đúng trên cả PC và Raspberry Pi)
-WS_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+if [ -n "${BASH_SOURCE[0]}" ] && [ -f "${BASH_SOURCE[0]}" ]; then
+    WS_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+fi
+if [ -z "$WS_DIR" ] || [ ! -d "$WS_DIR" ]; then
+    if [ -d "$HOME/Màn hình nền/robot_ws" ]; then
+        WS_DIR="$HOME/Màn hình nền/robot_ws"
+    elif [ -d "$HOME/robot-ws" ]; then
+        WS_DIR="$(readlink -f "$HOME/robot-ws")"
+    elif [ -d "$HOME/robot_ws" ]; then
+        WS_DIR="$(readlink -f "$HOME/robot_ws")"
+    fi
+fi
+export WS_DIR
 
 # Hàm nạp môi trường ROS 2 và Workspace
 load_ws() {
@@ -131,19 +143,56 @@ rviz_record_func() {
 alias rviz-record="rviz_record_func"
 alias rviz-cam="rviz_record_func"
 
-# Mở RViz hiển thị mô hình xe 3D, LiDAR và Camera (Tự động nhận cả Camera USB trực tiếp lẫn stream WiFi từ Pi)
 rviz_view_func() {
     load_ws
     killall -q wifi_cam_receiver 2>/dev/null || true
     ros2 run my_robot_bringup wifi_cam_receiver &>/dev/null &
     local receiver_pid=$!
     sleep 0.5
-    rviz2 -d "$WS_DIR/src/my_robot_description/rviz/display.rviz" "$@"
+
+    local rviz_file=""
+    for cand in \
+        "$WS_DIR/src/my_robot_description/rviz/display.rviz" \
+        "$HOME/robot-ws/src/my_robot_description/rviz/display.rviz" \
+        "$HOME/robot_ws/src/my_robot_description/rviz/display.rviz" \
+        "$HOME/Màn hình nền/robot_ws/src/my_robot_description/rviz/display.rviz"; do
+        if [ -f "$cand" ]; then
+            rviz_file="$cand"
+            break
+        fi
+    done
+
+    if [ -n "$rviz_file" ]; then
+        rviz2 -d "$rviz_file" "$@"
+    else
+        rviz2 "$@"
+    fi
     kill $receiver_pid 2>/dev/null || true
 }
 alias rviz="rviz_view_func"
 alias laptop-view="rviz_view_func"
-alias rviz-only="load_ws && rviz2 -d \"$WS_DIR/src/my_robot_description/rviz/display.rviz\""
+
+rviz_only_func() {
+    load_ws
+    local rviz_file=""
+    for cand in \
+        "$WS_DIR/src/my_robot_description/rviz/display.rviz" \
+        "$HOME/robot-ws/src/my_robot_description/rviz/display.rviz" \
+        "$HOME/robot_ws/src/my_robot_description/rviz/display.rviz" \
+        "$HOME/Màn hình nền/robot_ws/src/my_robot_description/rviz/display.rviz"; do
+        if [ -f "$cand" ]; then
+            rviz_file="$cand"
+            break
+        fi
+    done
+
+    if [ -n "$rviz_file" ]; then
+        rviz2 -d "$rviz_file" "$@"
+    else
+        rviz2 "$@"
+    fi
+}
+alias rviz-only="rviz_only_func"
 alias plot="load_ws && ros2 run my_robot_controller plot_response --mode telemetry"
 alias plot-pp="load_ws && ros2 run my_robot_controller plot_response --mode pure_pursuit"
 alias plot-smc="load_ws && ros2 run my_robot_controller plot_response --mode smc"
