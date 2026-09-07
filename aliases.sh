@@ -267,6 +267,9 @@ real_nav_func() {
     echo "📱 Trên PC: mở RViz → Fixed Frame = odom → Click '2D Nav Goal'"
     ros2 launch my_robot_bringup real_nav.launch.py "$@"
 }
+alias real-nav="real_nav_func"
+alias nav-real="real_nav_func"
+
 # Lệnh TỰ HÀNH XE THẬT BÁM LUỐNG BẰNG AI CNN (Crop Row Following)
 real_cnn_func() {
     load_ws
