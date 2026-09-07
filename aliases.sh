@@ -304,6 +304,17 @@ alias nav-gps="gps-nav"
 # Lệnh MỞ RVIZ TRÊN PC với đầy đủ Costmap + LiDAR + Nav2 Goal (Click chuột chọn điểm đích)
 alias pc-rviz="load_ws && rviz2 -d \"\$(ros2 pkg prefix my_robot_bringup)/share/my_robot_bringup/rviz/nav2_outdoor.rviz\""
 
+# Lệnh GỬI TOẠ ĐỘ ĐÍCH TEST TỰ HÀNH (Chạy trên Laptop hoặc Pi, không cần click chuột)
+send_nav_goal() {
+    load_ws
+    local x="${1:-1.0}"
+    local y="${2:-0.0}"
+    echo "🎯 Đang gửi lệnh tự hành đến toạ độ (X=$x m, Y=$y m) qua /goal_pose..."
+    ros2 topic pub --once /goal_pose geometry_msgs/msg/PoseStamped "{header: {frame_id: 'odom'}, pose: {position: {x: $x, y: $y, z: 0.0}, orientation: {w: 1.0}}}"
+}
+alias send-goal="send_nav_goal"
+alias test-goal="send_nav_goal"
+
 # Lệnh kích hoạt xe THẬT CÓ QUAY VIDEO THÔ (100% Raw, không hiện gì trên màn hình)
 real-record() {
     load_ws
@@ -483,6 +494,23 @@ find_pi_show() {
 }
 alias find-pi="find_pi_show"
 alias tim-pi="find-pi"
+
+# Hàm đồng bộ thời gian từ Laptop sang Pi qua SSH (Chạy trên Laptop)
+sync_time_func() {
+    local pi_ip="${1:-${PI_IP:-}}"
+    if [ -z "$pi_ip" ]; then
+        pi_ip=$(find_pi_func 2>/dev/null)
+    fi
+    if [ -z "$pi_ip" ]; then
+        pi_ip="10.30.249.69" # Thử IP gần nhất
+    fi
+    echo "⏱️ Đang đồng bộ thời gian từ Laptop sang Pi ($pi_ip)..."
+    local now_epoch
+    now_epoch=$(date +%s)
+    ssh -t -o ConnectTimeout=5 "${PI_USER:-bao}@${pi_ip}" "sudo date -s @${now_epoch} && sudo hwclock -w 2>/dev/null || true; echo '✅ Giờ trên Pi hiện tại: '\$(date '+%Y-%m-%d %H:%M:%S')"
+}
+alias sync-time="sync_time_func"
+alias dongbo-gio="sync_time_func"
 
 # Hàm cập nhật CycloneDDS cho unicast (khi hotspot chặn multicast)
 update_cyclone_peers() {

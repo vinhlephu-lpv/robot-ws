@@ -14,10 +14,9 @@
    - **Chuyển sang Hotspot (trên Pi SSH):** `switch-hotspot` (hoặc `hotspot "Tên" "Pass"`).
    - **Tìm IP Pi trên Laptop:** `find-pi` $\to$ hiện ngay lệnh SSH với IP mới.
    - **Chuyển về Mạng trường (trên Pi SSH):** `switch-school` (tự kết nối lại CTU).
-3. **Đồng bộ thời gian (Rất quan trọng để RViz mượt, không drop frame):**
-   ```bash
-   sudo systemctl restart systemd-timesyncd
-   ``` 
+3. **Đồng bộ thời gian (Rất quan trọng để RViz mượt, không drop frame và TF):**
+   - **Trên Pi:** `sudo systemctl restart systemd-timesyncd`
+   - **Hoặc từ Laptop:** `sync-time` (tự động đẩy giờ Laptop sang Pi qua SSH).
 
 ### 🤖 Bước 1: Trên Raspberry Pi (Khởi động phần cứng xe)
 Mở Terminal trên Pi (hoặc SSH từ Laptop):
@@ -53,7 +52,7 @@ wasd
 | **Bình thường: Chỉ xem, KHÔNG quay, KHÔNG lưu** | `real-robot` | `laptop-view` & `wasd` |
 | **Quay Video THÔ làm Dataset (Có lưu MP4 vào Pi)** | `real-record [tên]` | `get-video` $\to$ `extract-dataset` |
 | **Quét bản đồ SLAM** | `real-slam` | `laptop-view` & `wasd` $\to$ `savemap` |
-| **Tự hành Nav2 (Tự né vật cản)** | `real-nav` | `laptop-view` $\to$ chọn **2D Goal Pose** |
+| **Tự hành Nav2 (Tự né vật cản ngoài trời)** | `real-nav` | `pc-rviz` $\to$ phím **G** (nhấn giữ & kéo chuột chọn hướng) |
 | **Tự hành AI CNN (Bám luống bắp)** | `real-cnn` *(hoặc `check-cnn` để kiểm tra)* | `laptop-view` để quan sát |
 
 ---
