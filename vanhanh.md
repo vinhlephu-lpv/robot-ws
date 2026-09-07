@@ -9,7 +9,11 @@
 
 ### 📋 Bước 0: Bật nguồn & Mạng Wi-Fi
 1. **Nguồn 24V:** Bật công tắc pin 24V cấp nguồn cho 4 mạch cầu H BTS7960 và cắm cáp USB nối Pi với ESP32.
-2. **Wi-Fi:** Đảm bảo Raspberry Pi và Laptop kết nối **cùng một mạng Wi-Fi** (hoặc phát Hotspot từ điện thoại).
+2. **Wi-Fi & Chuyển đổi Mạng (Hotspot điện thoại hoặc Mạng trường):**
+   - Cấu hình thông tin mạng tại file: `network_config.env` (gõ lệnh `edit-net` để mở sửa).
+   - **Chuyển sang Hotspot (trên Pi SSH):** `switch-hotspot` (hoặc `hotspot "Tên" "Pass"`).
+   - **Tìm IP Pi trên Laptop:** `find-pi` $\to$ hiện ngay lệnh SSH với IP mới.
+   - **Chuyển về Mạng trường (trên Pi SSH):** `switch-school` (tự kết nối lại CTU).
 3. **Đồng bộ thời gian (Rất quan trọng để RViz mượt, không drop frame):**
    ```bash
    sudo systemctl restart systemd-timesyncd

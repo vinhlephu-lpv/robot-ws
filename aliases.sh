@@ -331,26 +331,269 @@ alias quay-rviz="rviz-record"
 alias quay="rviz-record"
 alias quay-video="rviz-record"
 
-# Lệnh tải video từ Pi xuống Laptop (Chạy trên Laptop)
-get-video() {
-    local pi_ip="${1:-}"
-    if [ -z "$pi_ip" ]; then
-        for ip in 10.10.178.200 10.10.177.141; do
+# =====================================================
+# TÌM PI & CHUYỂN MẠNG (Hotspot / Mạng trường)
+# =====================================================
+
+# Nạp file cấu hình mạng riêng biệt nếu tồn tại
+if [ -f "$WS_DIR/network_config.env" ]; then
+    # shellcheck source=/dev/null
+    source "$WS_DIR/network_config.env"
+fi
+
+# Giá trị mặc định dự phòng (nếu chưa điền trong network_config.env)
+WIFI_TRUONG="${WIFI_TRUONG:-CTU}"
+WIFI_HOTSPOT="${WIFI_HOTSPOT:-VinhHotspot}"
+WIFI_HOTSPOT_PASS="${WIFI_HOTSPOT_PASS:-12345678}"
+PI_USER="${PI_USER:-bao}"
+PI_HOSTNAME="${PI_HOSTNAME:-bao}"
+PI_STATIC_IP="${PI_STATIC_IP:-10.10.178.200}"
+
+# Lệnh mở nhanh file cấu hình mạng để chỉnh sửa
+edit_net_func() {
+    local cfg="$WS_DIR/network_config.env"
+    if [ ! -f "$cfg" ]; then
+        echo "⚠️ Không tìm thấy file $cfg, đang tạo mới..."
+        cat > "$cfg" << 'ENVEOF'
+# ==============================================================================
+# 📡 CẤU HÌNH THÔNG TIN MẠNG (HOTSPOT ĐIỆN THOẠI & MẠNG TRƯỜNG)
+# ==============================================================================
+WIFI_TRUONG="CTU"
+WIFI_HOTSPOT="VinhHotspot"
+WIFI_HOTSPOT_PASS="12345678"
+PI_USER="bao"
+PI_HOSTNAME="bao"
+PI_STATIC_IP="10.10.178.200"
+ENVEOF
+    fi
+
+    if command -v nano &>/dev/null; then
+        nano "$cfg"
+    elif command -v gedit &>/dev/null; then
+        gedit "$cfg" &
+    else
+        echo "📝 Hãy mở file sau để chỉnh sửa:"
+        echo "   $cfg"
+    fi
+    # Tự động nạp lại sau khi đóng trình sửa
+    if [ -f "$cfg" ]; then
+        source "$cfg"
+        echo "✅ Đã nạp cấu hình mạng mới: Hotspot='$WIFI_HOTSPOT', Trường='$WIFI_TRUONG', User='$PI_USER'"
+    fi
+}
+alias edit-net="edit_net_func"
+alias cauhinh-mang="edit_net_func"
+alias sua-mang="edit_net_func"
+
+# Hàm tìm IP của Raspberry Pi trên bất kỳ mạng nào (Chạy trên PC)
+find_pi_func() {
+    local found_ip=""
+
+    # Cách 1: Thử mDNS (avahi) — nhanh nhất
+    if command -v avahi-resolve &>/dev/null; then
+        found_ip=$(avahi-resolve -4 -n "${PI_HOSTNAME}.local" 2>/dev/null | awk '{print $2}')
+    fi
+    if [ -z "$found_ip" ]; then
+        found_ip=$(getent ahosts "${PI_HOSTNAME}.local" 2>/dev/null | awk 'NR==1{print $1}')
+    fi
+
+    # Cách 2: Thử ping các IP đã biết (mạng trường)
+    if [ -z "$found_ip" ] && [ -n "$PI_STATIC_IP" ]; then
+        for ip in $PI_STATIC_IP; do
             if ping -c 1 -W 1 "$ip" &>/dev/null; then
-                pi_ip="$ip"
+                found_ip="$ip"
                 break
             fi
         done
     fi
+
+    # Cách 3: Quét ARP table (tìm trên cùng subnet hiện tại)
+    if [ -z "$found_ip" ]; then
+        # Lấy subnet hiện tại
+        local my_ip my_subnet iface
+        iface=$(ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="dev") print $(i+1)}' | head -1)
+        if [ -z "$iface" ]; then
+            iface=$(ip -4 route show default 2>/dev/null | awk '{print $5}' | head -1)
+        fi
+        my_ip=$(ip -4 addr show dev "$iface" 2>/dev/null | grep -oP 'inet \K[\d.]+' | head -1)
+        if [ -n "$my_ip" ]; then
+            my_subnet=$(echo "$my_ip" | sed 's/\.[0-9]*$/.0\/24/')
+            # Quét nhanh subnet bằng ping sweep + kiểm tra SSH port 22
+            echo "🔍 Đang quét mạng $my_subnet tìm Pi..." >&2
+            # Ping sweep nền (kích ARP cache)
+            for i in $(seq 1 254); do
+                ping -c 1 -W 0.3 "$(echo "$my_subnet" | sed "s|\.0/24|.$i|")" &>/dev/null &
+            done
+            wait 2>/dev/null
+            sleep 1
+            # Kiểm tra ARP table, thử SSH vào từng IP tìm Pi
+            while IFS= read -r candidate; do
+                if [ -n "$candidate" ] && [ "$candidate" != "$my_ip" ]; then
+                    # Thử kết nối SSH nhanh (timeout 2s)
+                    if timeout 2 bash -c "echo >/dev/tcp/$candidate/22" 2>/dev/null; then
+                        # Xác nhận đây là Pi bằng hostname
+                        local remote_host
+                        remote_host=$(ssh -o StrictHostKeyChecking=no -o ConnectTimeout=2 -o BatchMode=yes "${PI_USER}@${candidate}" "hostname" 2>/dev/null)
+                        if [ "$remote_host" = "$PI_HOSTNAME" ]; then
+                            found_ip="$candidate"
+                            break
+                        fi
+                    fi
+                fi
+            done < <(arp -n 2>/dev/null | awk '/ether/{print $1}')
+        fi
+    fi
+
+    if [ -n "$found_ip" ]; then
+        echo "$found_ip"
+    else
+        echo "" >&2
+        echo "❌ Không tìm thấy Raspberry Pi ($PI_HOSTNAME) trên mạng hiện tại!" >&2
+        echo "   Hãy kiểm tra Pi đã kết nối cùng mạng Wi-Fi chưa." >&2
+        echo "   Hoặc chỉ định IP thủ công: find-pi 192.168.x.y" >&2
+        return 1
+    fi
+}
+
+# Alias find-pi: hiển thị IP Pi và hướng dẫn SSH
+find_pi_show() {
+    if [ -n "${1:-}" ]; then
+        # Người dùng truyền IP thủ công → kiểm tra nhanh
+        if ping -c 1 -W 2 "$1" &>/dev/null; then
+            echo "✅ Pi tìm thấy tại: $1"
+            echo "   👉 SSH:  ssh ${PI_USER}@${1}"
+            export PI_IP="$1"
+        else
+            echo "❌ Không ping được $1"
+        fi
+        return
+    fi
+
+    echo "🔍 Đang tìm Raspberry Pi trên mạng..."
+    local ip
+    ip=$(find_pi_func)
+    if [ -n "$ip" ]; then
+        echo "✅ Tìm thấy Pi tại: $ip"
+        echo "   👉 SSH:  ssh ${PI_USER}@${ip}"
+        export PI_IP="$ip"
+    fi
+}
+alias find-pi="find_pi_show"
+alias tim-pi="find-pi"
+
+# Hàm cập nhật CycloneDDS cho unicast (khi hotspot chặn multicast)
+update_cyclone_peers() {
+    local pi_ip="${1:-}"
+    local my_ip
+    my_ip=$(ip route get 1.1.1.1 2>/dev/null | grep -oP 'src \K[\d.]+')
     if [ -z "$pi_ip" ]; then
-        pi_ip="10.10.178.200"
+        pi_ip=$(find_pi_func)
+    fi
+    if [ -z "$pi_ip" ] || [ -z "$my_ip" ]; then
+        echo "❌ Không xác định được IP Pi hoặc PC để cập nhật CycloneDDS"
+        return 1
+    fi
+
+    cat > "$WS_DIR/cyclonedds.xml" <<XMLEOF
+<?xml version="1.0" encoding="UTF-8"?>
+<CycloneDDS xmlns="https://cdds.io/config">
+  <Domain>
+    <General>
+      <AllowMulticast>false</AllowMulticast>
+      <MaxMessageSize>65500B</MaxMessageSize>
+    </General>
+    <Discovery>
+      <ParticipantIndex>auto</ParticipantIndex>
+      <MaxAutoParticipantIndex>100</MaxAutoParticipantIndex>
+      <Peers>
+        <Peer address="${pi_ip}"/>
+        <Peer address="${my_ip}"/>
+      </Peers>
+    </Discovery>
+  </Domain>
+</CycloneDDS>
+XMLEOF
+    echo "✅ Đã cập nhật cyclonedds.xml: Pi=$pi_ip, PC=$my_ip (unicast, tắt multicast)"
+}
+
+# Khôi phục CycloneDDS về multicast (dùng trên mạng trường)
+restore_cyclone_multicast() {
+    cat > "$WS_DIR/cyclonedds.xml" <<'XMLEOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<CycloneDDS xmlns="https://cdds.io/config">
+  <Domain>
+    <General>
+      <AllowMulticast>true</AllowMulticast>
+      <MaxMessageSize>65500B</MaxMessageSize>
+    </General>
+    <Discovery>
+      <ParticipantIndex>auto</ParticipantIndex>
+      <MaxAutoParticipantIndex>100</MaxAutoParticipantIndex>
+    </Discovery>
+  </Domain>
+</CycloneDDS>
+XMLEOF
+    echo "✅ Đã khôi phục cyclonedds.xml về multicast (mạng trường)"
+}
+
+# =====================================================
+# LỆNH CHUYỂN MẠNG CHO PI (chạy trên Pi qua SSH)
+# =====================================================
+# Chuyển Pi sang Hotspot điện thoại
+switch_hotspot_func() {
+    local ssid="${1:-$WIFI_HOTSPOT}"
+    local pass="${2:-$WIFI_HOTSPOT_PASS}"
+    echo "📱 Đang chuyển Pi sang hotspot: $ssid ..."
+    sudo nmcli device wifi connect "$ssid" password "$pass"
+    sleep 2
+    local new_ip
+    new_ip=$(hostname -I | awk '{print $1}')
+    echo "✅ Pi đã kết nối hotspot '$ssid'"
+    echo "   📍 IP mới của Pi: $new_ip"
+    echo "   👉 Trên PC hãy chạy: ssh ${PI_USER}@${new_ip}"
+    echo "   👉 Hoặc chạy: find-pi"
+}
+alias switch-hotspot="switch_hotspot_func"
+alias hotspot="switch_hotspot_func"
+alias doi-mang="switch_hotspot_func"
+
+# Chuyển Pi về mạng trường
+switch_school_func() {
+    local ssid="${1:-$WIFI_TRUONG}"
+    echo "🏫 Đang chuyển Pi về mạng trường: $ssid ..."
+    sudo nmcli device wifi connect "$ssid"
+    sleep 2
+    local new_ip
+    new_ip=$(hostname -I | awk '{print $1}')
+    echo "✅ Pi đã kết nối lại mạng trường '$ssid'"
+    echo "   📍 IP mới của Pi: $new_ip"
+    echo "   👉 Trên PC hãy chạy: ssh ${PI_USER}@${new_ip}"
+}
+alias switch-school="switch_school_func"
+alias mang-truong="switch_school_func"
+alias ve-truong="switch_school_func"
+
+# Xem mạng hiện tại
+alias check-wifi="nmcli -t -f NAME,DEVICE connection show --active | grep wifi && echo '📍 IP:' && hostname -I"
+alias xem-mang="check-wifi"
+
+# Lệnh tải video từ Pi xuống Laptop (Chạy trên Laptop) — tự động tìm Pi
+get-video() {
+    local pi_ip="${1:-}"
+    if [ -z "$pi_ip" ]; then
+        echo "🔍 Đang tìm Pi trên mạng..."
+        pi_ip=$(find_pi_func 2>/dev/null)
+    fi
+    if [ -z "$pi_ip" ]; then
+        echo "❌ Không tìm thấy Pi! Hãy truyền IP thủ công: get-video 192.168.x.y"
+        return 1
     fi
     mkdir -p "$WS_DIR/dataset"
     echo "📥 Đang kéo video thô từ Pi ($pi_ip) về $WS_DIR/dataset/ ..."
-    rsync -avP --include='*.mp4' "bao@$pi_ip:~/robot-ws/recordings/" "$WS_DIR/dataset/" 2>/dev/null || \
-    rsync -avP --include='*.mp4' "bao@$pi_ip:~/robot_ws/recordings/" "$WS_DIR/dataset/" 2>/dev/null || \
-    scp "bao@$pi_ip:~/robot-ws/recordings/*.mp4" "$WS_DIR/dataset/" 2>/dev/null || \
-    scp "bao@$pi_ip:~/robot_ws/recordings/*.mp4" "$WS_DIR/dataset/"
+    rsync -avP --include='*.mp4' "${PI_USER}@$pi_ip:~/robot-ws/recordings/" "$WS_DIR/dataset/" 2>/dev/null || \
+    rsync -avP --include='*.mp4' "${PI_USER}@$pi_ip:~/robot_ws/recordings/" "$WS_DIR/dataset/" 2>/dev/null || \
+    scp "${PI_USER}@$pi_ip:~/robot-ws/recordings/*.mp4" "$WS_DIR/dataset/" 2>/dev/null || \
+    scp "${PI_USER}@$pi_ip:~/robot_ws/recordings/*.mp4" "$WS_DIR/dataset/"
     echo "✅ File video đã được lưu tại: $WS_DIR/dataset/"
 }
 alias get-videos="get-video"
@@ -502,7 +745,7 @@ cat << 'EOF'
                        (Tên khác: rviz-record, laptop-record)
   laptop-view        : Mở RViz2 nhận luồng Camera nén từ Pi qua Wi-Fi (mượt, không lag)
   teleop (lai-xe)    : Bàn phím lái xe chuẩn gốc ROS 2 (i=tiến, ,=lùi, j/l=rẽ, k=dừng)
-  get-video          : Tự động kéo video MP4 mới quay từ Pi về máy tính
+  get-video          : Tự động tìm Pi và kéo video MP4 mới quay về máy tính
   play-video (xem)   : Xem ngay video vừa quay bằng trình duyệt Firefox
   clean-video        : Dọn dẹp các video cũ giải phóng ổ đĩa
   extract-dataset <f>: Cắt video thành bộ ảnh sạch (JPG) để gán nhãn train CNN
@@ -550,6 +793,13 @@ cat << 'EOF'
   build              : Build nhanh workspace (colcon build)
   build-all          : Build toàn bộ tất cả package
   ros-help           : Xem lại bảng hướng dẫn này bất cứ lúc nào
+
+📡 [CHUYỂN MẠNG & TÌM PI] (Hotspot điện thoại / Mạng trường)
+  edit-net (sua-mang): Mở file cấu hình mạng network_config.env để điền tên/pass Wi-Fi
+  find-pi (tim-pi)   : Tự động tìm IP của Pi trên bất kỳ mạng nào (Chạy trên PC)
+  switch-hotspot     : Chuyển Pi sang Hotspot điện thoại (Chạy trên Pi SSH)
+  switch-school      : Chuyển Pi về mạng trường CTU (Chạy trên Pi SSH)
+  check-wifi (xem-mang): Xem mạng Wi-Fi đang kết nối và IP hiện tại
 ================================================================================
 EOF
 }
