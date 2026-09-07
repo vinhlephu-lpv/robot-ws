@@ -433,8 +433,8 @@ void updatePID(float dt) {
     }
 
     // 1. Feedforward có bù ma sát tĩnh (Deadband Friction Offset)
-    // Cung cấp mức sàn 55 PWM + thành phần tuyến tính theo tốc độ cho tải nặng
-    float ff_pwm = 55.0f + (target / 220.0f) * (255.0f - 55.0f);
+    // Cung cấp mức sàn 30 PWM + thành phần tuyến tính theo tốc độ cho tải nặng
+    float ff_pwm = 30.0f + (target / 220.0f) * (255.0f - 30.0f);
 
     // 2. Sai số bám tốc độ mục tiêu độc lập cho từng bánh
     float track_error = target - rpm_act;
@@ -443,7 +443,8 @@ void updatePID(float dt) {
     }
 
     // 3. Khâu tích phân (Integral) có Anti-Windup (bơm thêm lực khi tải nặng bị ỳ)
-    wpid[i].integral = constrain(wpid[i].integral + track_error * dt, -50.0f, 50.0f);
+    // Tăng giới hạn tích phân để PID tự vượt ma sát tĩnh một cách tự nhiên
+    wpid[i].integral = constrain(wpid[i].integral + track_error * dt, -100.0f, 100.0f);
 
     // 4. Khâu vi phân (Derivative) có lọc nhiễu tần số cao
     float rawDeriv = (track_error - wpid[i].lastError) / dt;
@@ -457,9 +458,9 @@ void updatePID(float dt) {
     // Loại bỏ hoàn toàn các khâu giằng co và ghì phanh phi tuyến gây giật cục
     int desired = constrain((int)(ff_pwm + pid_corr), 0, 255);
 
-    // Sàn PWM tối thiểu để động cơ 775 duy trì lăn bánh khi có lệnh chạy (đủ lực kéo tải nặng)
-    if (target > 1.0f && desired < 55) {
-      desired = 55;
+    // Sàn PWM tối thiểu để động cơ 775 duy trì lăn bánh nhẹ nhàng
+    if (target > 1.0f && desired < 25) {
+      desired = 25;
     }
 
     // Giới hạn biến thiên PWM bất đối xứng (chống giật sốc cơ khí)

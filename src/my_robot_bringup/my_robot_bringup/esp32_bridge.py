@@ -46,7 +46,7 @@ class ESP32Bridge(Node):
         self.declare_parameter('base_frame', 'base_footprint')
         self.declare_parameter('min_moving_rpm', 24.0)  # Sàn RPM tối thiểu khi lăn bánh để thắng ma sát tải nặng
         self.declare_parameter('rpm_scale', 1.25)       # Hệ số bù lực kéo tải nặng (+25%)
-        self.declare_parameter('encoder_sign', -1.0)    # -1.0: Đảo dấu xung encoder chuẩn xác với chuyển động thực tế
+        self.declare_parameter('encoder_sign', 1.0)     # Dấu mặc định: 1.0 (ESP32 đã đồng bộ 4 bánh dương khi tiến)
 
         self.mode = self.get_parameter('connection_mode').value
         self.port = self.get_parameter('serial_port').value
@@ -188,13 +188,8 @@ class ESP32Bridge(Node):
             rpm_l = (v_left * 60.0) / self.wheel_circ
             rpm_r = (v_right * 60.0) / self.wheel_circ
 
-            # Chỉ trợ lực xoay tối thiểu khi xoay tại chỗ thuần túy (v = 0, w != 0) để thắng ma sát bánh cao su
-            if abs(v) < 0.005 and abs(w) > 0.02:
-                min_spin = 10.0  # ~0.10 m/s tại bánh xe, xoay từ từ nhẹ nhàng dễ kiểm soát
-                if 0.1 < abs(rpm_l) < min_spin:
-                    rpm_l = math.copysign(min_spin, rpm_l)
-                if 0.1 < abs(rpm_r) < min_spin:
-                    rpm_r = math.copysign(min_spin, rpm_r)
+            # Không cần ép min_spin nữa vì PID dưới ESP32 đã được tăng cường dải hoạt động tốc độ thấp
+            # PID ESP32 giờ đây có thể tự vượt ma sát tĩnh nhờ khâu Tích phân (Integral) lớn hơn.
 
             self.target_rpm_left = rpm_l
             self.target_rpm_right = rpm_r
@@ -281,12 +276,6 @@ class ESP32Bridge(Node):
                                                 self._last_vr = v_r
                                                 self.vx = (v_r + v_l) / 2.0
                                                 self.vth = (v_r - v_l) / self.wheel_base
-
-                                                # Giám sát đồng bộ hướng: Nếu robot đang được lệnh tiến mà vx bị âm, tự động hiệu chỉnh
-                                                if self._cmd_v > 0.02 and self.vx < -0.01:
-                                                    self.vx = abs(self.vx)
-                                                elif self._cmd_v < -0.02 and self.vx > 0.01:
-                                                    self.vx = -abs(self.vx)
 
                                     self._last_raw_us = t_us
                                     self._last_fl = fl
