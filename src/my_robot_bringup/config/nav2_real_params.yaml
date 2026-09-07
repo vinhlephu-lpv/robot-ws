@@ -105,7 +105,7 @@ controller_server:
       use_cost_regulated_linear_velocity_scaling: true
       cost_scaling_dist: 0.35
       cost_scaling_gain: 1.0
-      inflation_cost_scaling_factor: 4.0
+      inflation_cost_scaling_factor: 5.0
       use_regulated_linear_velocity_scaling: true
       regulated_linear_scaling_min_radius: 0.70
       regulated_linear_scaling_min_speed: 0.06
@@ -211,8 +211,8 @@ global_costmap:
           obstacle_min_range: 0.15
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 4.0
-        inflation_radius: 0.65
+        cost_scaling_factor: 5.0
+        inflation_radius: 0.50
       always_send_full_costmap: True
 
 local_costmap:
@@ -245,8 +245,8 @@ local_costmap:
           obstacle_min_range: 0.15
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 4.0
-        inflation_radius: 0.65
+        cost_scaling_factor: 5.0
+        inflation_radius: 0.50
       always_send_full_costmap: True
 
 velocity_smoother:

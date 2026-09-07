@@ -211,8 +211,8 @@ global_costmap:
           obstacle_min_range: 0.25
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 4.0
-        inflation_radius: 0.65
+        cost_scaling_factor: 5.0
+        inflation_radius: 0.50
       always_send_full_costmap: True
 
 local_costmap:
@@ -245,8 +245,8 @@ local_costmap:
           obstacle_min_range: 0.25
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 4.0
-        inflation_radius: 0.65
+        cost_scaling_factor: 5.0
+        inflation_radius: 0.50
       always_send_full_costmap: True
 
 velocity_smoother:
