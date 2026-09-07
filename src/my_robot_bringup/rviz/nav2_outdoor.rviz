@@ -91,20 +91,20 @@ Visualization Manager:
 
     - Class: rviz_default_plugins/TF
       Name: TF
-      Enabled: true
-      Value: true
+      Enabled: false
+      Value: false
       Show Arrows: false
-      Show Axes: true
-      Show Names: true
+      Show Axes: false
+      Show Names: false
       Frame Timeout: 15
       Frames:
         All Enabled: false
         base_footprint:
-          Value: true
+          Value: false
         odom:
-          Value: true
+          Value: false
         laser_frame:
-          Value: true
+          Value: false
 
   Global Options:
     Background Color: 30; 30; 30
