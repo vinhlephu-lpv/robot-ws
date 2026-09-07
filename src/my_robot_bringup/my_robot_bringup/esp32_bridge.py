@@ -88,10 +88,6 @@ class ESP32Bridge(Node):
         self.vth = 0.0
         self._cmd_v = 0.0
         self._cmd_w = 0.0
-        self._kickstart_active = False
-        self._kickstart_time = 0.0
-        self._torque_trim_l = 0.0
-        self._torque_trim_r = 0.0
         self.last_time = self.get_clock().now()
 
         # ── Publishers & Subscribers ──────────────────────────────────
@@ -181,57 +177,34 @@ class ESP32Bridge(Node):
         if abs(v) < 0.005 and abs(w) < 0.005:
             self.target_rpm_left = 0.0
             self.target_rpm_right = 0.0
-            self._kickstart_active = False
-            self._torque_trim_l = 0.0
-            self._torque_trim_r = 0.0
         else:
-            now_sec = now.nanoseconds / 1e9
-            actual_v = (abs(self._last_vl) + abs(self._last_vr)) / 2.0
-
-            # Differential drive kinematics
+            # Differential drive kinematics chuẩn mực
             v_left = v - (w * self.wheel_base / 2.0)
             v_right = v + (w * self.wheel_base / 2.0)
 
-            # Target RPM danh định theo tốc độ đặt (0.2 m/s -> ~19.1 RPM)
+            # Đổi m/s -> RPM
             rpm_l = (v_left * 60.0) / self.wheel_circ
             rpm_r = (v_right * 60.0) / self.wheel_circ
 
-            # 1. KICKSTART PULSE: Xung kích thắng ma sát tĩnh cho xe tải nặng khi bắt đầu lăn bánh
-            if actual_v < 0.03:
-                if not self._kickstart_active:
-                    self._kickstart_active = True
-                    self._kickstart_time = now_sec
-            else:
-                self._kickstart_active = False
-
-            is_kickstarting = self._kickstart_active and ((now_sec - self._kickstart_time) < 0.35)
-
-            if is_kickstarting:
-                # Xung kích ~45 RPM (~95 PWM) trong 0.35s đầu để phá ma sát nghỉ dứt khoát
-                kick_rpm = 45.0
-                if abs(rpm_l) > 0.1:
-                    rpm_l = math.copysign(max(abs(rpm_l), kick_rpm), rpm_l)
-                if abs(rpm_r) > 0.1:
-                    rpm_r = math.copysign(max(abs(rpm_r), kick_rpm), rpm_r)
-            else:
-                # 2. CLOSED-LOOP TORQUE TRIM: Tự động bơm thêm lực khi tải nặng bị ghì
-                # So sánh tốc độ thực tế với tốc độ đặt để giữ xe chạy đúng tốc độ chỉ định mà không bị đứng khựng
-                if abs(v) > 0.01:
-                    err_l = abs(v_left) - abs(self._last_vl)
-                    err_r = abs(v_right) - abs(self._last_vr)
-                    self._torque_trim_l = max(-5.0, min(30.0, self._torque_trim_l + err_l * dt * 8.0))
-                    self._torque_trim_r = max(-5.0, min(30.0, self._torque_trim_r + err_r * dt * 8.0))
-                else:
-                    self._torque_trim_l = 0.0
-                    self._torque_trim_r = 0.0
-
-                # Lực xoay tại chỗ: Skid-steer quay 4 bánh cần lực xoay cực lớn (tối thiểu 35 RPM)
-                min_rpm = 35.0 if abs(w) > 0.1 else self.min_moving_rpm
-
-                if abs(rpm_l) > 0.1:
-                    rpm_l = math.copysign(max(abs(rpm_l) + max(0.0, self._torque_trim_l), min_rpm), rpm_l)
-                if abs(rpm_r) > 0.1:
-                    rpm_r = math.copysign(max(abs(rpm_r) + max(0.0, self._torque_trim_r), min_rpm), rpm_r)
+            # Sàn RPM tối thiểu khi lăn bánh để thắng ma sát tĩnh tải nặng
+            # QUAN TRỌNG: Khi chạy tiến/lùi (v != 0), bù lực chung (common-mode)
+            # để BẢO TOÀN NGUYÊN VẸN sai phân (rpm_r - rpm_l), xe đi thẳng tắp không bị đảo lắc!
+            if abs(v) > 0.005:
+                max_mag = max(abs(rpm_l), abs(rpm_r))
+                min_floor = 16.0  # ~55 PWM, đủ mô-men xoắn lăn bánh êm ái
+                if 0.1 < max_mag < min_floor:
+                    boost = min_floor - max_mag
+                    if abs(rpm_l) > 0.1:
+                        rpm_l += math.copysign(boost, rpm_l)
+                    if abs(rpm_r) > 0.1:
+                        rpm_r += math.copysign(boost, rpm_r)
+            elif abs(w) > 0.01:
+                # Khi xoay tại chỗ thuần túy (v = 0, w != 0)
+                min_spin = 18.0
+                if 0.1 < abs(rpm_l) < min_spin:
+                    rpm_l = math.copysign(min_spin, rpm_l)
+                if 0.1 < abs(rpm_r) < min_spin:
+                    rpm_r = math.copysign(min_spin, rpm_r)
 
             self.target_rpm_left = rpm_l
             self.target_rpm_right = rpm_r
