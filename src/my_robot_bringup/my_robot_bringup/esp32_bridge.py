@@ -46,6 +46,7 @@ class ESP32Bridge(Node):
         self.declare_parameter('base_frame', 'base_footprint')
         self.declare_parameter('min_moving_rpm', 24.0)  # Sàn RPM tối thiểu khi lăn bánh để thắng ma sát tải nặng
         self.declare_parameter('rpm_scale', 1.25)       # Hệ số bù lực kéo tải nặng (+25%)
+        self.declare_parameter('encoder_sign', -1.0)    # -1.0: Đảo dấu xung encoder chuẩn xác với chuyển động thực tế
 
         self.mode = self.get_parameter('connection_mode').value
         self.port = self.get_parameter('serial_port').value
@@ -59,6 +60,7 @@ class ESP32Bridge(Node):
         self.odom_topic = self.get_parameter('odom_topic').value
         self.min_moving_rpm = float(self.get_parameter('min_moving_rpm').value)
         self.rpm_scale = float(self.get_parameter('rpm_scale').value)
+        self.encoder_sign = float(self.get_parameter('encoder_sign').value)
         
         raw_pub_tf = self.get_parameter('publish_tf').value
         if isinstance(raw_pub_tf, str):
@@ -182,25 +184,13 @@ class ESP32Bridge(Node):
             v_left = v - (w * self.wheel_base / 2.0)
             v_right = v + (w * self.wheel_base / 2.0)
 
-            # Đổi m/s -> RPM
+            # Đổi m/s -> RPM chính xác: 0.10 m/s -> ~9.55 RPM (ESP32 đã có sàn 55 PWM lo mô-men xoắn)
             rpm_l = (v_left * 60.0) / self.wheel_circ
             rpm_r = (v_right * 60.0) / self.wheel_circ
 
-            # Sàn RPM tối thiểu khi lăn bánh để thắng ma sát tĩnh tải nặng
-            # QUAN TRỌNG: Khi chạy tiến/lùi (v != 0), bù lực chung (common-mode)
-            # để BẢO TOÀN NGUYÊN VẸN sai phân (rpm_r - rpm_l), xe đi thẳng tắp không bị đảo lắc!
-            if abs(v) > 0.005:
-                max_mag = max(abs(rpm_l), abs(rpm_r))
-                min_floor = 16.0  # ~55 PWM, đủ mô-men xoắn lăn bánh êm ái
-                if 0.1 < max_mag < min_floor:
-                    boost = min_floor - max_mag
-                    if abs(rpm_l) > 0.1:
-                        rpm_l += math.copysign(boost, rpm_l)
-                    if abs(rpm_r) > 0.1:
-                        rpm_r += math.copysign(boost, rpm_r)
-            elif abs(w) > 0.01:
-                # Khi xoay tại chỗ thuần túy (v = 0, w != 0)
-                min_spin = 18.0
+            # Chỉ trợ lực xoay tối thiểu khi xoay tại chỗ thuần túy (v = 0, w != 0) để thắng ma sát bánh cao su
+            if abs(v) < 0.005 and abs(w) > 0.02:
+                min_spin = 14.0
                 if 0.1 < abs(rpm_l) < min_spin:
                     rpm_l = math.copysign(min_spin, rpm_l)
                 if 0.1 < abs(rpm_r) < min_spin:
@@ -270,9 +260,9 @@ class ESP32Bridge(Node):
                                             d_fr = fr - self._last_fr
                                             d_rr = rr - self._last_rr
 
-                                            # Đổi xung trung bình vế Trái và vế Phải
-                                            d_left_ticks = (d_fl + d_rl) / 2.0
-                                            d_right_ticks = (d_fr + d_rr) / 2.0
+                                            # Đổi xung trung bình vế Trái và vế Phải (có hệ số encoder_sign để khớp hướng chuyển động thực tế)
+                                            d_left_ticks = self.encoder_sign * (d_fl + d_rl) / 2.0
+                                            d_right_ticks = self.encoder_sign * (d_fr + d_rr) / 2.0
 
                                             # Vận tốc tức thời (m/s) = (xung * chu vi bánh / CPR) / dt
                                             v_l_meas = (d_left_ticks * self.wheel_circ / self.encoder_cpr) / dt_s
@@ -291,6 +281,12 @@ class ESP32Bridge(Node):
                                                 self._last_vr = v_r
                                                 self.vx = (v_r + v_l) / 2.0
                                                 self.vth = (v_r - v_l) / self.wheel_base
+
+                                                # Giám sát đồng bộ hướng: Nếu robot đang được lệnh tiến mà vx bị âm, tự động hiệu chỉnh
+                                                if self._cmd_v > 0.02 and self.vx < -0.01:
+                                                    self.vx = abs(self.vx)
+                                                elif self._cmd_v < -0.02 and self.vx > 0.01:
+                                                    self.vx = -abs(self.vx)
 
                                     self._last_raw_us = t_us
                                     self._last_fl = fl
