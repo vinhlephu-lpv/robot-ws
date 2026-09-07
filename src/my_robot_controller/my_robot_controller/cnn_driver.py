@@ -406,7 +406,7 @@ class CnnDriverNode(Node):
 
         twist = Twist()
         if dist < self.recovery_backup_distance:
-            twist.linear.x = -0.2  # Back up slowly
+            twist.linear.x = -self.linear_speed  # Back up slowly
             twist.angular.z = 0.0
             finished = False
         else:
@@ -838,7 +838,7 @@ class CnnDriverNode(Node):
         elif current_state == FSMState.UTURN_EXECUTION:
             # Pivot/rotate continuously in place until CNN detects the new row
             # Use forward velocity so it traces a smooth wider arc into the row
-            twist.linear.x  = 0.18
+            twist.linear.x  = self.turn_linear_speed
             twist.angular.z = self.turn_direction * self.turn_angular_speed
             
             turn_angle_deg = np.rad2deg(self.accumulated_turn_angle)

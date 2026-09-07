@@ -257,32 +257,15 @@ real_robot_func() {
 alias real-robot="real_robot_func"
 alias real-slam="load_ws && ros2 launch my_robot_bringup real_slam.launch.py"
 
-# Lệnh TỰ HÀNH XE THẬT THEO BẢN ĐỒ ĐÃ LƯU (Tự động nhận map mới nhất hoặc chỉ định tên map)
+# Lệnh TỰ HÀNH XE THẬT NGOÀI TRỜI VỚI NAV2 (Odom-Only, không cần bản đồ)
+# Trên Pi: chạy real-nav → phần cứng + Nav2 (LiDAR obstacle avoidance)
+# Trên PC: mở RViz (Fixed Frame = odom) → Click "2D Nav Goal" → Robot tự đi
 unalias real-nav 2>/dev/null || true
 real_nav_func() {
     load_ws
-    local map_arg="${1:-}"
-    if [ -z "$map_arg" ]; then
-        local latest_map=$(ls -t "$WS_DIR/maps/"*.yaml 2>/dev/null | head -n 1)
-        if [ -n "$latest_map" ]; then
-            echo "🗺️ Tự động nạp bản đồ mới nhất: $latest_map"
-            ros2 launch my_robot_bringup real_nav.launch.py map:="$latest_map"
-        else
-            echo "❌ Chưa tìm thấy bản đồ nào trong thư mục maps/! Hãy chạy real-slam trước rồi dùng savemap."
-        fi
-    elif [[ "$map_arg" == map:=* ]]; then
-        ros2 launch my_robot_bringup real_nav.launch.py "$@"
-    else
-        if [ -f "$WS_DIR/maps/$map_arg.yaml" ]; then
-            echo "🗺️ Nạp bản đồ: $WS_DIR/maps/$map_arg.yaml"
-            ros2 launch my_robot_bringup real_nav.launch.py map:="$WS_DIR/maps/$map_arg.yaml"
-        elif [ -f "$map_arg" ]; then
-            echo "🗺️ Nạp bản đồ: $map_arg"
-            ros2 launch my_robot_bringup real_nav.launch.py map:="$map_arg"
-        else
-            echo "❌ Không tìm thấy bản đồ '$map_arg' trong $WS_DIR/maps/"
-        fi
-    fi
+    echo "🧭 Khởi động Nav2 Odom-Only (LiDAR obstacle avoidance, không cần bản đồ)"
+    echo "📱 Trên PC: mở RViz → Fixed Frame = odom → Click '2D Nav Goal'"
+    ros2 launch my_robot_bringup real_nav.launch.py "$@"
 }
 # Lệnh TỰ HÀNH XE THẬT BÁM LUỐNG BẰNG AI CNN (Crop Row Following)
 real_cnn_func() {
@@ -314,6 +297,9 @@ alias pc-nav="load_ws && ros2 launch my_robot_bringup pc_nav.launch.py"
 alias nav-slam="load_ws && ros2 launch my_robot_bringup pc_nav.launch.py"
 alias gps-nav="load_ws && ros2 launch my_robot_navigation gps_nav.launch.py"
 alias nav-gps="gps-nav"
+
+# Lệnh MỞ RVIZ TRÊN PC với đầy đủ Costmap + LiDAR + Nav2 Goal (Click chuột chọn điểm đích)
+alias pc-rviz="load_ws && rviz2 -d \"\$(ros2 pkg prefix my_robot_bringup)/share/my_robot_bringup/rviz/nav2_outdoor.rviz\""
 
 # Lệnh kích hoạt xe THẬT CÓ QUAY VIDEO THÔ (100% Raw, không hiện gì trên màn hình)
 real-record() {
@@ -530,7 +516,7 @@ cat << 'EOF'
   real-record [tên]  : BẬT XE THẬT + QUAY VIDEO THÔ (100% Raw, lưu MP4 vào Pi)
   real-cnn           : BẬT XE THẬT TỰ HÀNH BÁM LUỐNG BẰNG AI CNN (1-Click)
   real-slam          : Bật Xe Thật + SLAM Toolbox vẽ bản đồ
-  real-nav [tên_map] : Bật Xe Thật + Nav2 tự né vật cản (Tự động nạp map mới nhất)
+  real-nav            : Bật Xe Thật + Nav2 ngoài trời (Odom-Only, LiDAR obstacle avoidance)
   savemap <tên_map>  : Lưu bản đồ SLAM vừa quét xong vào thư mục maps/
 
 🔍 [KIỂM TRA CẢM BIẾN & AI] (1-Click Test trên Pi / Laptop)

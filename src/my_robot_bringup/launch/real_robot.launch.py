@@ -150,7 +150,7 @@ def generate_launch_description():
             'video_device': LaunchConfiguration('camera_device'),
             'width': 640,
             'height': 480,
-            'fps': 30.0,
+            'fps': 15.0,
             'camera_frame_id': 'camera_link',
         }],
         condition=IfCondition(LaunchConfiguration('enable_camera'))

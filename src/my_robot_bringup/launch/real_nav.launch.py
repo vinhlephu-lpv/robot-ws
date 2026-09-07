@@ -1,13 +1,15 @@
 """
-Launch file TỰ HÀNH THẬT với Nav2 trên Raspberry Pi.
-Yêu cầu: Đã quét bản đồ trước đó bằng real_slam.launch.py.
-Bao gồm:
-  - Toàn bộ hệ thống xe thật (real_robot.launch.py)
-  - Nav2 Stack (AMCL Localization + Planner + Controller + Collision Monitor)
-  - Nạp bản đồ từ file .yaml
+Launch file TỰ HÀNH THẬT với Nav2 trên Raspberry Pi (KHÔNG CẦN BẢN ĐỒ).
+Chế độ Odom-Only: Robot điều hướng dựa trên EKF odometry + LiDAR obstacle avoidance.
+Người dùng click "2D Nav Goal" trên RViz (PC) để chọn điểm đích.
+
+Pipeline:
+  - Pi: LiDAR C1 + ESP32 Encoder + IMU + Madgwick + EKF → /odometry/filtered
+  - Pi: Nav2 (SmacPlanner2D + RegulatedPurePursuit + Costmaps + CollisionMonitor)
+  - PC: RViz2 (Fixed Frame = odom) → Click "2D Nav Goal" → /navigate_to_pose action
 
 Sử dụng:
-  ros2 launch my_robot_bringup real_nav.launch.py map:=/path/to/my_map.yaml
+  ros2 launch my_robot_bringup real_nav.launch.py
 """
 
 import os
@@ -30,10 +32,6 @@ def generate_launch_description():
         'serial_port', default_value='/dev/rplidar',
         description='RPLIDAR C1 serial port')
 
-    map_arg = DeclareLaunchArgument(
-        'map', default_value='',
-        description='Full path to map yaml file')
-
     # ── Include Real Robot Bringup (LiDAR + ESP32 + IMU + Madgwick + EKF) ─
     real_robot_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -51,19 +49,9 @@ def generate_launch_description():
         }.items()
     )
 
-    # ── Nav2 Localization (AMCL + Map Server) ────────────────────────
-    localization_launch = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            os.path.join(pkg_nav2_bringup, 'launch', 'localization_launch.py')
-        ),
-        launch_arguments={
-            'use_sim_time': 'false',
-            'map': LaunchConfiguration('map'),
-            'params_file': nav2_params,
-        }.items()
-    )
-
-    # ── Nav2 Navigation (Planner + Controller + Collision Monitor) ───
+    # ── Nav2 Navigation (Planner + Controller + Costmaps + CollisionMonitor) ─
+    # Chế độ Odom-Only: global_frame = odom, rolling_window = true
+    # Không cần AMCL / Map Server vì chạy ngoài trời không có bản đồ
     navigation_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(pkg_nav2_bringup, 'launch', 'navigation_launch.py')
@@ -77,8 +65,7 @@ def generate_launch_description():
 
     return LaunchDescription([
         serial_port_arg,
-        map_arg,
         real_robot_launch,
-        localization_launch,
         navigation_launch,
     ])
+

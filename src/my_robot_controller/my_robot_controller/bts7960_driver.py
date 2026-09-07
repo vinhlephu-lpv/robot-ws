@@ -46,8 +46,9 @@ class BTS7960DriverNode(Node):
 
         # ── Robot physical parameters ────────────────────────────────────
         self.declare_parameter('wheel_base', 0.58)       # m  (chassis 0.53 + 2×wheel_ygap)
-        self.declare_parameter('max_linear_speed', 0.3)  # m/s → 100% PWM
+        self.declare_parameter('max_linear_speed', 0.15) # m/s → 100% PWM (lực mạnh, tốc độ chậm)
         self.declare_parameter('pwm_frequency', 1000)    # Hz
+        self.declare_parameter('min_duty_cycle', 25.0)   # % — Ngưỡng sàn PWM tối thiểu để motor đủ momen đẩy trên cỏ/nền
 
         # ── GPIO pin numbers (BCM numbering) ─────────────────────────────
         self.declare_parameter('left_rpwm_pin', 17)   # trái tiến
@@ -60,6 +61,7 @@ class BTS7960DriverNode(Node):
         self.wheel_base       = self.get_parameter('wheel_base').value
         self.max_linear_speed = self.get_parameter('max_linear_speed').value
         self.pwm_freq         = self.get_parameter('pwm_frequency').value
+        self.min_duty_cycle   = self.get_parameter('min_duty_cycle').value
 
         self.left_rpwm_pin  = self.get_parameter('left_rpwm_pin').value
         self.left_lpwm_pin  = self.get_parameter('left_lpwm_pin').value
@@ -141,10 +143,19 @@ class BTS7960DriverNode(Node):
 
     # ────────────────────────────────────────────────────────────────────
     def _vel_to_duty(self, velocity_ms: float) -> float:
-        """Chuyển vận tốc (m/s) → duty cycle có dấu (−100 .. +100)."""
+        """Chuyển vận tốc (m/s) → duty cycle có dấu (−100 .. +100).
+        Áp dụng ngưỡng sàn min_duty_cycle để motor có đủ momen khởi động
+        trên nền cỏ/đất, tránh bị kẹt ở PWM quá thấp."""
         clamped = max(-self.max_linear_speed,
                       min(self.max_linear_speed, velocity_ms))
-        return clamped / self.max_linear_speed * 100.0
+        raw_duty = clamped / self.max_linear_speed * 100.0
+
+        # Áp dụng ngưỡng sàn PWM: nếu yêu cầu quay (|duty| > 0.5%)
+        # nhưng PWM thấp hơn min_duty_cycle → nâng lên min_duty_cycle
+        if abs(raw_duty) > 0.5 and abs(raw_duty) < self.min_duty_cycle:
+            raw_duty = self.min_duty_cycle if raw_duty > 0 else -self.min_duty_cycle
+
+        return raw_duty
 
     def _set_motor(self, side: str, duty: float):
         """
