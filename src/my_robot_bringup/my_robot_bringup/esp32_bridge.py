@@ -190,7 +190,7 @@ class ESP32Bridge(Node):
 
             # Chỉ trợ lực xoay tối thiểu khi xoay tại chỗ thuần túy (v = 0, w != 0) để thắng ma sát bánh cao su
             if abs(v) < 0.005 and abs(w) > 0.02:
-                min_spin = 14.0
+                min_spin = 10.0  # ~0.10 m/s tại bánh xe, xoay từ từ nhẹ nhàng dễ kiểm soát
                 if 0.1 < abs(rpm_l) < min_spin:
                     rpm_l = math.copysign(min_spin, rpm_l)
                 if 0.1 < abs(rpm_r) < min_spin:
