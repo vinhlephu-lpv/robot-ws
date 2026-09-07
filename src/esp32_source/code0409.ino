@@ -17,10 +17,10 @@
 
 // Giới hạn gia tốc & Vùng an toàn PWM
 #define MIN_PWM                 0         // Cho phép toàn dải 0-255 PWM cho tốc độ cực chậm
-#define MAX_PWM_CHANGE_UP       35        // Bước tăng PWM tối đa mỗi chu kỳ (tăng lực êm, không giật sốc)
+#define MAX_PWM_CHANGE_UP       45        // Bước tăng PWM tối đa mỗi chu kỳ (tăng lực nhanh, dứt khoát đẩy tải nặng)
 #define MAX_PWM_CHANGE_DOWN     25        // Bước giảm PWM tối đa (bảo vệ cơ cấu nhông hộp số)
 #define RAMP_STEP_MAX           12.0f     // Bước ramp gia tốc tối đa
-#define RAMP_STEP_MIN           2.5f      // Bước ramp khởi động dứt khoát
+#define RAMP_STEP_MIN           4.0f      // Bước ramp khởi động dứt khoát để thắng tải nặng
 #define RAMP_STEP_STOP_MAX      5.0f      // Bước giảm tốc êm ái khi dừng
 
 // Lọc nhiễu Encoder & Ngưỡng vật lý
@@ -433,8 +433,8 @@ void updatePID(float dt) {
     }
 
     // 1. Feedforward có bù ma sát tĩnh (Deadband Friction Offset)
-    // Cung cấp mức sàn 32 PWM + thành phần tuyến tính theo tốc độ
-    float ff_pwm = 32.0f + (target / 220.0f) * (255.0f - 32.0f);
+    // Cung cấp mức sàn 55 PWM + thành phần tuyến tính theo tốc độ cho tải nặng
+    float ff_pwm = 55.0f + (target / 220.0f) * (255.0f - 55.0f);
 
     // 2. Sai số bám tốc độ mục tiêu độc lập cho từng bánh
     float track_error = target - rpm_act;
@@ -442,8 +442,8 @@ void updatePID(float dt) {
       track_error = 0.0f;
     }
 
-    // 3. Khâu tích phân (Integral) có Anti-Windup chặt chẽ (chống dồn tích phân gây giật)
-    wpid[i].integral = constrain(wpid[i].integral + track_error * dt, -30.0f, 30.0f);
+    // 3. Khâu tích phân (Integral) có Anti-Windup (bơm thêm lực khi tải nặng bị ỳ)
+    wpid[i].integral = constrain(wpid[i].integral + track_error * dt, -50.0f, 50.0f);
 
     // 4. Khâu vi phân (Derivative) có lọc nhiễu tần số cao
     float rawDeriv = (track_error - wpid[i].lastError) / dt;
@@ -457,9 +457,9 @@ void updatePID(float dt) {
     // Loại bỏ hoàn toàn các khâu giằng co và ghì phanh phi tuyến gây giật cục
     int desired = constrain((int)(ff_pwm + pid_corr), 0, 255);
 
-    // Sàn PWM tối thiểu để động cơ 775 duy trì lăn bánh khi có lệnh chạy
-    if (target > 1.0f && desired < 32) {
-      desired = 32;
+    // Sàn PWM tối thiểu để động cơ 775 duy trì lăn bánh khi có lệnh chạy (đủ lực kéo tải nặng)
+    if (target > 1.0f && desired < 55) {
+      desired = 55;
     }
 
     // Giới hạn biến thiên PWM bất đối xứng (chống giật sốc cơ khí)

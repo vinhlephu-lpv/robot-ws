@@ -44,6 +44,8 @@ class ESP32Bridge(Node):
         self.declare_parameter('publish_tf', False)
         self.declare_parameter('odom_frame', 'odom')
         self.declare_parameter('base_frame', 'base_footprint')
+        self.declare_parameter('min_moving_rpm', 24.0)  # Sàn RPM tối thiểu khi lăn bánh để thắng ma sát tải nặng
+        self.declare_parameter('rpm_scale', 1.25)       # Hệ số bù lực kéo tải nặng (+25%)
 
         self.mode = self.get_parameter('connection_mode').value
         self.port = self.get_parameter('serial_port').value
@@ -55,6 +57,8 @@ class ESP32Bridge(Node):
         self.gear_ratio = float(self.get_parameter('gear_ratio').value)
         self.encoder_cpr = float(self.encoder_ppr * self.quadrature * self.gear_ratio)
         self.odom_topic = self.get_parameter('odom_topic').value
+        self.min_moving_rpm = float(self.get_parameter('min_moving_rpm').value)
+        self.rpm_scale = float(self.get_parameter('rpm_scale').value)
         
         raw_pub_tf = self.get_parameter('publish_tf').value
         if isinstance(raw_pub_tf, str):
@@ -159,8 +163,17 @@ class ESP32Bridge(Node):
         v_right = v + (w * self.wheel_base / 2.0)
 
         # Convert m/s -> RPM: RPM = (v * 60) / (pi * D)
-        self.target_rpm_left = (v_left * 60.0) / self.wheel_circ
-        self.target_rpm_right = (v_right * 60.0) / self.wheel_circ
+        rpm_l = (v_left * 60.0) / self.wheel_circ
+        rpm_r = (v_right * 60.0) / self.wheel_circ
+
+        # Trợ lực kéo tải nặng: bù hệ số scale và đảm bảo sàn RPM không bị kẹt ma sát tĩnh
+        if abs(rpm_l) > 0.1:
+            rpm_l = math.copysign(max(abs(rpm_l) * self.rpm_scale, self.min_moving_rpm), rpm_l)
+        if abs(rpm_r) > 0.1:
+            rpm_r = math.copysign(max(abs(rpm_r) * self.rpm_scale, self.min_moving_rpm), rpm_r)
+
+        self.target_rpm_left = rpm_l
+        self.target_rpm_right = rpm_r
 
         # Store for mock odometry
         self.vx = v
