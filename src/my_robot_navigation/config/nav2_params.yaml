@@ -207,6 +207,7 @@ global_costmap:
           clearing: True
           marking: True
           data_type: "LaserScan"
+          inf_is_valid: True
           raytrace_max_range: 8.0
           raytrace_min_range: 0.25
           obstacle_max_range: 6.0
@@ -241,6 +242,7 @@ local_costmap:
           clearing: True
           marking: True
           data_type: "LaserScan"
+          inf_is_valid: True
           raytrace_max_range: 8.0
           raytrace_min_range: 0.25
           obstacle_max_range: 6.0

@@ -23,9 +23,9 @@ cnn_driver_node:
     mask_threshold: 0.35        # cao hơn sim vì model nhận diện ảnh thật tốt hơn
 
     # Tốc độ di chuyển (m/s) — Giảm phù hợp CNN ~2 FPS trên Pi (6cm/frame thay vì 10cm/frame)
-    linear_speed: 0.12
-    turn_linear_speed: 0.12
-    turn_angular_speed: 0.45
+    linear_speed: 0.10
+    turn_linear_speed: 0.10
+    turn_angular_speed: 0.40
 
     kp: 1.5                     # có thể cần giảm xuống nếu xe dao động
     max_steering_angle_deg: 7.0 # góc bẻ lái tối đa mở rộng gấp đôi (7.0 độ)
