@@ -46,9 +46,9 @@ class WifiCamReceiver(Node):
         self.sub = self.create_subscription(
             CompressedImage, '/camera/compressed', self._on_compressed, wifi_qos)
 
-        # Publish raw image (local cho RViz, Best Effort tương thích hiển thị RViz2)
+        # Publish raw image (local cho RViz, dùng RELIABLE để RViz2 không bị incompatible QoS)
         local_qos = QoSProfile(
-            reliability=ReliabilityPolicy.BEST_EFFORT,
+            reliability=ReliabilityPolicy.RELIABLE,
             history=HistoryPolicy.KEEP_LAST,
             depth=1,
             durability=DurabilityPolicy.VOLATILE,
@@ -114,7 +114,11 @@ def main(args=None):
         pass
     finally:
         node.destroy_node()
-        rclpy.shutdown()
+        try:
+            if rclpy.ok():
+                rclpy.shutdown()
+        except Exception:
+            pass
 
 
 if __name__ == '__main__':

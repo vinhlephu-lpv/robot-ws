@@ -126,3 +126,14 @@ class TelemetryLogger:
                 f.write(log_line)
         except Exception as e:
             print(f"[TelemetryLogger Error] Failed to write text log: {e}")
+
+
+def main(args=None):
+    logger = TelemetryLogger()
+    print(f"TelemetryLogger initialized. CSV log: {logger.csv_filename}, Text log: {logger.log_filename}")
+    logger.log_event("SYSTEM", "TelemetryLogger test event recorded successfully.")
+    print("✅ Logged test event successfully.")
+
+
+if __name__ == '__main__':
+    main()

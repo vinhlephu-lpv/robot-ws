@@ -153,6 +153,78 @@ Visualization Manager:
         Reliability Policy: Reliable
         Value: /plan
       Value: true
+    - Angle Tolerance: 0.1
+      Class: rviz_default_plugins/Odometry
+      Color: 0; 255; 0
+      Enabled: true
+      Keep: 100
+      Name: Filtered Odometry (EKF)
+      Position Tolerance: 0.05
+      Shape:
+        Alpha: 1.0
+        Axes Length: 0.3
+        Axes Radius: 0.03
+        Color: 0; 255; 0
+        Head Length: 0.15
+        Head Radius: 0.06
+        Shaft Length: 0.3
+        Shaft Radius: 0.02
+        Value: Arrow
+      Covariance:
+        Orientation:
+          Alpha: 0.3
+          Color: 255; 255; 0
+          Scale: 1
+          Value: false
+        Position:
+          Alpha: 0.3
+          Color: 204; 204; 0
+          Scale: 1
+          Value: false
+        Value: false
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /odometry/filtered
+      Value: true
+    - Angle Tolerance: 0.1
+      Class: rviz_default_plugins/Odometry
+      Color: 255; 165; 0
+      Enabled: true
+      Keep: 100
+      Name: Wheel Odometry (ESP32)
+      Position Tolerance: 0.05
+      Shape:
+        Alpha: 0.7
+        Axes Length: 0.2
+        Axes Radius: 0.02
+        Color: 255; 165; 0
+        Head Length: 0.1
+        Head Radius: 0.05
+        Shaft Length: 0.2
+        Shaft Radius: 0.015
+        Value: Arrow
+      Covariance:
+        Orientation:
+          Alpha: 0.3
+          Color: 255; 255; 0
+          Scale: 1
+          Value: false
+        Position:
+          Alpha: 0.3
+          Color: 204; 204; 0
+          Scale: 1
+          Value: false
+        Value: false
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /wheel/odom
+      Value: true
   Enabled: true
   Global Options:
     Background Color: 35; 35; 38

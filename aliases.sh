@@ -240,6 +240,22 @@ alias flash-esp32="nap_esp32_func"
 alias test-all="load_ws && ros2 launch my_sensor_test test_all_sensors.launch.py"
 alias test-slam="load_ws && bash \"$WS_DIR/src/my_sensor_test/scripts/run_test_slam.sh\""
 
+# Hàm tự động phát hiện nguồn camera tối ưu (iPhone qua cáp USB hoặc USB Webcam)
+detect_camera_device() {
+    for arg in "$@"; do
+        if [[ "$arg" == camera_device* ]]; then
+            echo "$arg"
+            return 0
+        fi
+    done
+    if ip route 2>/dev/null | grep -q "172.20.10" || [ ! -e "/dev/video0" ]; then
+        echo "camera_device:=http://172.20.10.1:4747/video"
+        return 0
+    fi
+    echo "camera_device:=/dev/video0"
+    return 0
+}
+
 # 4. Các lệnh chạy trên Robot Thật (Raspberry Pi)
 real_robot_func() {
     load_ws
@@ -252,7 +268,19 @@ real_robot_func() {
     # Giải phóng tiến trình camera hoặc serial kẹt từ lần chạy trước
     fuser -k /dev/video* 2>/dev/null || true
     killall -q -9 camera_publisher wifi_cam_bridge 2>/dev/null || true
-    ros2 launch my_robot_bringup real_robot.launch.py "$@"
+
+    local cam_arg
+    cam_arg=$(detect_camera_device "$@")
+    local has_cam=false
+    for a in "$@"; do [[ "$a" == camera_device* ]] && has_cam=true; done
+    if [ "$has_cam" = true ]; then
+        ros2 launch my_robot_bringup real_robot.launch.py "$@"
+    else
+        if [[ "$cam_arg" == *"172.20.10.1"* ]]; then
+            echo "📱 Phát hiện iPhone qua cáp USB (172.20.10.1), tự động kích hoạt: $cam_arg"
+        fi
+        ros2 launch my_robot_bringup real_robot.launch.py "$cam_arg" "$@"
+    fi
 }
 alias real-robot="real_robot_func"
 alias real-slam="load_ws && ros2 launch my_robot_bringup real_slam.launch.py"
@@ -282,12 +310,66 @@ real_cnn_func() {
     # Giải phóng tiến trình camera hoặc node AI kẹt từ lần chạy trước
     fuser -k /dev/video* 2>/dev/null || true
     killall -q -9 camera_publisher wifi_cam_bridge cnn_driver 2>/dev/null || true
-    ros2 launch my_robot_bringup real_robot.launch.py enable_cnn:=true "$@"
+
+    local cam_arg
+    cam_arg=$(detect_camera_device "$@")
+    local has_cam=false
+    for a in "$@"; do [[ "$a" == camera_device* ]] && has_cam=true; done
+    if [ "$has_cam" = true ]; then
+        ros2 launch my_robot_bringup real_robot.launch.py enable_cnn:=true "$@"
+    else
+        if [[ "$cam_arg" == *"172.20.10.1"* ]]; then
+            echo "📱 [AI CNN] Tự động kết nối Camera iPhone qua cáp USB: $cam_arg"
+        fi
+        ros2 launch my_robot_bringup real_robot.launch.py enable_cnn:=true "$cam_arg" "$@"
+    fi
 }
 alias real-cnn="real_cnn_func"
 alias auto-cnn="real-cnn"
 alias cnn-auto="real-cnn"
 alias fix-cam="sudo fuser -k /dev/video* 2>/dev/null || true; echo '✅ Đã giải phóng cổng Camera USB /dev/video*!'"
+
+# Lệnh chạy xe với Camera iPhone (qua cáp USB hoặc Wi-Fi)
+test-iphone() {
+    load_ws
+    local target="${1:-172.20.10.1}"
+    if [[ "$target" != http* ]]; then
+        target="http://${target}:4747/video"
+    fi
+    echo "📱 Đang kết nối kiểm tra Camera iPhone tại: $target"
+    ros2 run my_robot_bringup camera_publisher --ros-args -p video_device:="$target"
+}
+alias test-iphone="test-iphone"
+
+robot-iphone() {
+    load_ws
+    local target="${1:-172.20.10.1}"
+    shift 2>/dev/null || true
+    if [[ "$target" != http* && "$target" != camera_device* ]]; then
+        target="http://${target}:4747/video"
+    fi
+    if [[ "$target" == camera_device* ]]; then
+        real-robot "$target" "$@"
+    else
+        real-robot camera_device:="$target" "$@"
+    fi
+}
+alias robot-iphone="robot-iphone"
+
+cnn-iphone() {
+    load_ws
+    local target="${1:-172.20.10.1}"
+    shift 2>/dev/null || true
+    if [[ "$target" != http* && "$target" != camera_device* ]]; then
+        target="http://${target}:4747/video"
+    fi
+    if [[ "$target" == camera_device* ]]; then
+        real-cnn "$target" "$@"
+    else
+        real-cnn camera_device:="$target" "$@"
+    fi
+}
+alias cnn-iphone="cnn-iphone"
 
 # Lệnh KIỂM TRA CHẨN ĐOÁN TOÀN DIỆN CHUỖI AI CNN
 alias check-cnn="load_ws && python3 \"$WS_DIR/scripts/verify_cnn_pipeline.py\""
@@ -502,7 +584,7 @@ sync_time_func() {
         pi_ip=$(find_pi_func 2>/dev/null)
     fi
     if [ -z "$pi_ip" ]; then
-        pi_ip="10.30.249.69" # Thử IP gần nhất
+        pi_ip="10.10.178.200" # IP Raspberry Pi hiện tại
     fi
     echo "⏱️ Đang đồng bộ thời gian từ Laptop sang Pi ($pi_ip)..."
     local now_epoch
@@ -708,6 +790,7 @@ def cb(msg):
 
 rclpy.init()
 node = rclpy.create_node("xem_enc_cli")
+node.create_subscription(Odometry, "/wheel/odom", cb, 10)
 node.create_subscription(Odometry, "/odom/raw", cb, 10)
 try:
     rclpy.spin(node)

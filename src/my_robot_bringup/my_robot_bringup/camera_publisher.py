@@ -77,7 +77,34 @@ class CameraPublisher(Node):
         self._capture_thread.start()
 
     def _open_camera(self):
-        """Mở camera USB bằng OpenCV V4L2 backend + MJPG fourcc với cơ chế dự phòng an toàn."""
+        """Mở camera USB bằng OpenCV V4L2 backend + MJPG fourcc hoặc luồng Stream từ iPhone/IP Camera."""
+        # 0. Hỗ trợ trực tiếp Camera iPhone / IP Camera Stream qua cáp USB hoặc Wi-Fi
+        if isinstance(self.device, str) and self.device.startswith(('http://', 'https://', 'rtsp://')):
+            urls_to_try = [self.device]
+            if self.device.endswith('/video'):
+                urls_to_try.append(self.device.replace('/video', '/mjpegfeed'))
+            elif self.device.endswith('/mjpegfeed'):
+                urls_to_try.append(self.device.replace('/mjpegfeed', '/video'))
+
+            for url in urls_to_try:
+                for api in [cv2.CAP_FFMPEG, cv2.CAP_ANY]:
+                    try:
+                        cap = cv2.VideoCapture(url, api)
+                        if cap.isOpened():
+                            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                            ret, test_frame = cap.read()
+                            if ret and test_frame is not None:
+                                actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                                actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                                self.get_logger().info(
+                                    f"📱 Camera iPhone / IP Stream đã kết nối thành công: {url} "
+                                    f"({actual_w}x{actual_h})")
+                                return cap
+                            cap.release()
+                    except Exception as e:
+                        pass
+            return None
+
         candidates = []
         if os.path.exists(self.device):
             candidates.append(self.device)
@@ -126,13 +153,31 @@ class CameraPublisher(Node):
                                 f"📷 Camera USB đã kết nối thành công: {dev} "
                                 f"({actual_w}x{actual_h} @ {actual_fps:.0f} FPS, MJPG)")
                             return cap
-                        cap.release()
                 except Exception:
                     if cap is not None:
                         try:
                             cap.release()
                         except Exception:
                             pass
+
+        # Fallback tự động: Nếu không tìm thấy USB Webcam (/dev/video*), tự động dò luồng iPhone qua cáp USB
+        iphone_url = 'http://172.20.10.1:4747/video'
+        try:
+            cap = cv2.VideoCapture(iphone_url)
+            if cap.isOpened():
+                cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                ret, test_frame = cap.read()
+                if ret and test_frame is not None:
+                    actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                    actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                    self.get_logger().info(
+                        f"📱 Tự động phát hiện & kết nối luồng Camera iPhone: {iphone_url} "
+                        f"({actual_w}x{actual_h})")
+                    return cap
+                cap.release()
+        except Exception:
+            pass
+
         return None
 
     def _capture_loop(self):
@@ -223,7 +268,7 @@ class CameraPublisher(Node):
                     fps_actual = self._frame_count / elapsed if elapsed > 0 else 0
                     self.get_logger().info(
                         f"📷 Camera: {pw}x{ph} | {fps_actual:.1f} FPS | "
-                        f"Đã gửi {self._frame_count} frames")
+                        f"Đang cấp dữ liệu trực tiếp cho AI CNN ({self._frame_count} frames)")
                     self._frame_count = 0
                     self._last_log_time = now
 

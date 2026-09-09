@@ -164,3 +164,38 @@ class LidarProcessor:
             "lane_center": lane_center,
             "side": side
         }
+
+
+def main(args=None):
+    import rclpy
+    from rclpy.node import Node
+    from sensor_msgs.msg import LaserScan
+
+    rclpy.init(args=args)
+    processor = LidarProcessor()
+
+    class LidarDiagnosticNode(Node):
+        def __init__(self):
+            super().__init__('lidar_processor_node')
+            self.sub = self.create_subscription(LaserScan, '/scan', self.scan_cb, 10)
+            self.get_logger().info('LidarProcessor diagnostic node started, listening to /scan...')
+
+        def scan_cb(self, msg):
+            processor.update_scan(msg)
+            obs = processor.check_obstacle_in_front()
+            if obs:
+                self.get_logger().warn('⚠️ Obstacle detected in front driving corridor!')
+
+    node = LidarDiagnosticNode()
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        node.destroy_node()
+        if rclpy.ok():
+            rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()

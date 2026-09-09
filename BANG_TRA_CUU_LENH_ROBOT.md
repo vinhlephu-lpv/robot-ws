@@ -21,7 +21,8 @@
 | Lệnh tắt | Chạy ở đâu? | Chức năng chi tiết (1 câu) | Ví von dễ nhớ |
 | :--- | :---: | :--- | :--- |
 | **`test-lidar`** | **Pi (SSH)** | Bật riêng mắt quét LiDAR để kiểm tra xem laser có quay và đo khoảng cách không. | *"Khám mắt LiDAR"* |
-| **`test-cam`** | **Pi (SSH)** | Bật riêng Camera để kiểm tra xem có thu được hình ảnh màu RGB và độ sâu không. | *"Khám mắt Camera"* |
+| **`test-cam`** | **Pi (SSH)** | Bật riêng Camera USB để kiểm tra xem có thu được hình ảnh màu RGB không. | *"Khám mắt Camera USB"* |
+| **`test-iphone`** | **Pi / PC** | Bật nhận luồng camera từ iPhone (mặc định cáp USB: `172.20.10.1` hoặc truyền IP Wi-Fi). | *"Khám mắt Camera iPhone"* |
 | **`test-all`** | **Pi (SSH)** | Mở bảng báo cáo kiểm tra toàn bộ cảm biến (thấy hiện chữ **`[OK]`** là xe sẵn sàng chạy). | *"Khám sức khỏe tổng quát"* |
 | **`xem-imu`** | Cả hai | Xem trực tiếp góc Roll, Pitch, Yaw (theo Độ °) từ bộ lọc Madgwick IMU. | *"Xem hướng la bàn IMU"* |
 | **`xem-enc`** | Cả hai | Xem trực tiếp vận tốc bánh xe $v_x$ và góc xoay bánh đo từ Encoder ESP32. | *"Xem công-tơ-mét bánh xe"* |
@@ -33,7 +34,10 @@
 
 | Lệnh tắt | Chạy ở đâu? | Chức năng chi tiết (1 câu) | Ví von dễ nhớ |
 | :--- | :---: | :--- | :--- |
-| **`real-robot`** | **Pi (SSH)** | Khởi động toàn bộ phần cứng (bật LiDAR + kết nối ESP32 + nổ máy xe chờ lệnh). | *"Nổ máy xe (chờ đạp ga)"* |
+| **`real-robot`** | **Pi (SSH)** | Khởi động toàn bộ xe thật (LiDAR, ESP32, IMU, Camera tự nhận diện iPhone/USB). | *"Nổ máy xe (chờ đạp ga)"* |
+| **`real-cnn`** | **Pi (SSH)** | **Xe thật tự hành bám luống AI CNN** (Tự động nhận diện Camera iPhone qua cáp USB). | *"Bật tự lái AI CNN bám hàng bắp"* |
+| **`cnn-iphone`** | **Pi (SSH)** | Chỉ định chạy tự lái AI CNN trực tiếp với Camera iPhone. | *"Bật tự lái AI bằng Camera iPhone"* |
+| **`robot-iphone`** | **Pi (SSH)** | Khởi động toàn bộ xe thật nhưng dùng Camera iPhone thay cho USB webcam. | *"Nổ máy xe bằng Camera iPhone"* |
 | **`real-slam`** | **Pi (SSH)** | Bật chế độ quét và vẽ bản đồ môi trường thực tế bằng LiDAR + Encoder. | *"Bật chế độ vẽ bản đồ"* |
 | **`real-nav`** | **Pi (SSH)** | Bật hệ thống tự hành Nav2 để xe tự tính đường né vật cản chạy đến điểm click chuột. | *"Bật chế độ tự lái thông minh"* |
 

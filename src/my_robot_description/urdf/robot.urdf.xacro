@@ -3,7 +3,7 @@
 
   <!-- Materials -->
   <material name="blue">
-    <color rgba="0.15 0.45 0.95 0.8"/>
+    <color rgba="0.15 0.45 0.95 1.0"/>
   </material>
   <material name="black">
     <color rgba="0.0 0.0 0.0 1.0"/>

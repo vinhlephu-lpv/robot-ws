@@ -27,7 +27,7 @@ ekf_filter_node:
       false, false, false,   # x, y, z
       false, false, false,   # roll, pitch, yaw
       true,  false, false,   # vx, vy, vz (chỉ lấy vận tốc tiến vx)
-      false, false, false,   # vroll, vpitch, vyaw
+      false, false, true,    # vroll, vpitch, vyaw (Bật Vyaw từ bánh xe: giữ góc quay khi mất IMU)
       false, false, false    # ax, ay, az
     ]
     odom0_queue_size: 10

@@ -107,7 +107,11 @@ def generate_launch_description():
         package='joint_state_publisher',
         executable='joint_state_publisher',
         output='screen',
-        parameters=[{'use_sim_time': False}]
+        parameters=[{
+            'robot_description': robot_description,
+            'use_sim_time': False,
+            'rate': 30
+        }]
     )
 
     # ── Static TF: odom -> base_footprint (Khi không có encoder ESP32 và không có EKF) ─

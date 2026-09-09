@@ -54,7 +54,9 @@ def main():
         is_laptop_cam = any(k in cam_name.lower() for k in ["user facing", "integrated", "internal", "facetime"])
         type_str = "(Webcam tích hợp của Laptop)" if is_laptop_cam else "(Webcam ngoài USB)"
         print(f"  ✅ Tìm thấy cổng thiết bị camera: {cam_device} ➔ {cam_name} {type_str}")
-        cap = cv2.VideoCapture(0)
+        cap = cv2.VideoCapture(0, cv2.CAP_V4L2)
+        if not cap.isOpened():
+            cap = cv2.VideoCapture(0)
         if cap.isOpened():
             # Yêu cầu định dạng chuẩn
             cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
