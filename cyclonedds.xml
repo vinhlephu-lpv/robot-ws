@@ -3,7 +3,7 @@
   <Domain>
     <General>
       <AllowMulticast>false</AllowMulticast>
-      <MaxMessageSize>65500B</MaxMessageSize>
+      <MaxMessageSize>1300B</MaxMessageSize>
     </General>
     <Discovery>
       <ParticipantIndex>auto</ParticipantIndex>
