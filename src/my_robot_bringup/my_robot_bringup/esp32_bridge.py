@@ -184,12 +184,20 @@ class ESP32Bridge(Node):
             v_left = v - (w * self.wheel_base / 2.0)
             v_right = v + (w * self.wheel_base / 2.0)
 
+            # Smooth Forward-Bias Kinematics:
+            # Khi xe đang có lệnh tiến (v > 0.03 m/s), cả 2 bánh luôn quay tiến để duy trì lực kéo ổn định,
+            # tránh giật lùi bánh trong làm mất lực hoặc khựng xe trên nền đất/cỏ.
+            if v > 0.03:
+                min_fwd = 0.035
+                min_v = min(v_left, v_right)
+                if min_v < min_fwd:
+                    shift = min_fwd - min_v
+                    v_left += shift
+                    v_right += shift
+
             # Đổi m/s -> RPM chính xác: 0.10 m/s -> ~9.55 RPM (ESP32 đã có sàn 55 PWM lo mô-men xoắn)
             rpm_l = (v_left * 60.0) / self.wheel_circ
             rpm_r = (v_right * 60.0) / self.wheel_circ
-
-            # Không cần ép min_spin nữa vì PID dưới ESP32 đã được tăng cường dải hoạt động tốc độ thấp
-            # PID ESP32 giờ đây có thể tự vượt ma sát tĩnh nhờ khâu Tích phân (Integral) lớn hơn.
 
             self.target_rpm_left = rpm_l
             self.target_rpm_right = rpm_r

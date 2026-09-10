@@ -58,7 +58,7 @@ class CnnDriverNode(Node):
         self.declare_parameter('k_smc', 3.5)
         self.declare_parameter('eta_smc', 0.6)
         self.declare_parameter('phi_smc', 0.5)
-        self.declare_parameter('max_steering_angle_deg', 10.0)
+        self.declare_parameter('max_steering_angle_deg', 14.0)
         self.declare_parameter('ema_alpha', 0.45)
         self.declare_parameter('warmup_time', 1.0)
         self.declare_parameter('navigation_mode', 'auto_three_lanes')
@@ -544,6 +544,8 @@ class CnnDriverNode(Node):
         raw_angle = perception["heading_error"]
         lane_center = perception["lane_center"]
         lane_offset = perception["lane_offset"]
+        left_side_dist = perception.get("left_side_dist", float('inf'))
+        right_side_dist = perception.get("right_side_dist", float('inf'))
 
         # ── FSM ───────────────────────────────────────────────────────
         twist        = Twist()
@@ -664,14 +666,20 @@ class CnnDriverNode(Node):
                     self.cmd_vel_pub.publish(twist)
                     return
 
-            # Skip-zero: ignore steering commands if confidence is low, and decay to straight driving
+            # Xử lý góc lái: Khi camera đủ tin cậy HOẶC khi LiDAR/đơn hàng phát hiện xe áp sát thành hàng (< 0.45m)
+            # Tuyệt đối KHÔNG triệt tiêu góc lái về 0 khi xe đang ở vị trí sát sườn nguy hiểm!
             failed = (confidence < self.low_confidence_threshold)
-            if not failed:
+            near_side_wall = (left_side_dist < 0.45 or right_side_dist < 0.45)
+            
+            if not failed or near_side_wall:
+                # Nếu đang áp sát thành hàng, tăng độ nhạy phản xạ (alpha >= 0.65) để bẻ lái thoát hiểm tức thì
+                effective_alpha = max(self.ema_alpha, 0.65) if near_side_wall else self.ema_alpha
                 self.smoothed_angle_deg = (
-                    self.ema_alpha * raw_angle
-                    + (1.0 - self.ema_alpha) * self.smoothed_angle_deg
+                    effective_alpha * raw_angle
+                    + (1.0 - effective_alpha) * self.smoothed_angle_deg
                 )
             else:
+                # Chỉ triệt tiêu góc lái về 0 khi thực sự ở bãi đất trống ngoài luống
                 self.smoothed_angle_deg *= 0.90
 
             # Sliding Mode Control (SMC) via modular TrackingControllerSMC
@@ -684,6 +692,18 @@ class CnnDriverNode(Node):
             dt_actual = np.clip(dt_actual, 0.001, 1.0)
             
             lin_speed, ang_vel = self.StartTracking(dt_actual)
+
+            # --- TÙY CHỈNH: Dừng xoay căn chỉnh nếu góc lệch > 0.3 độ ---
+            if abs(self.smoothed_angle_deg) > 0.3:
+                lin_speed = 0.0
+                self.get_logger().info(f"Góc lệch {self.smoothed_angle_deg:.2f}° > 0.3°. Dừng tiến, chỉ xoay căn chỉnh.", throttle_duration_sec=1.0)
+                
+                # Xác nhận xoay bằng IMU (chỉ log cảnh báo nếu cấp lệnh xoay mà IMU không báo xe đang xoay)
+                imu_angular_z = self.localization_manager.get_pose().get('imu', {}).get('angular_vel_z', 0.0)
+                if abs(ang_vel) > 0.1 and abs(imu_angular_z) < 0.05:
+                    self.get_logger().warn("Cảnh báo: Đang cấp lệnh xoay nhưng IMU báo xe không xoay (có thể kẹt bánh).", throttle_duration_sec=2.0)
+            # -------------------------------------------------------------
+
             twist.linear.x = lin_speed
             twist.angular.z = ang_vel
 

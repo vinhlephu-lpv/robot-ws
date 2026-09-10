@@ -98,7 +98,7 @@ controller_server:
       min_lookahead_dist: 0.30
       max_lookahead_dist: 0.90
       lookahead_time: 1.5
-      rotate_to_heading_angular_vel: 0.40
+      rotate_to_heading_angular_vel: 0.60
       use_velocity_scaled_lookahead_dist: true
       min_approach_linear_velocity: 0.04
       approach_velocity_scaling_dist: 0.4
@@ -178,9 +178,9 @@ behavior_server:
     transform_tolerance: 0.5
     use_sim_time: true
     simulate_ahead_time: 2.0
-    max_rotational_vel: 0.30
-    min_rotational_vel: 0.15
-    rotational_acc_lim: 0.6
+    max_rotational_vel: 0.60
+    min_rotational_vel: 0.25
+    rotational_acc_lim: 0.8
 
 global_costmap:
   global_costmap:
@@ -259,10 +259,10 @@ velocity_smoother:
     smoothing_frequency: 40.0
     scale_velocities: false
     feedback: "OPEN_LOOP"
-    max_velocity: [0.10, 0.0, 0.40]
-    min_velocity: [-0.10, 0.0, -0.40]
-    max_accel: [0.15, 0.0, 0.6]
-    max_decel: [-0.15, 0.0, -0.6]
+    max_velocity: [0.10, 0.0, 0.60]
+    min_velocity: [-0.10, 0.0, -0.60]
+    max_accel: [0.15, 0.0, 0.8]
+    max_decel: [-0.15, 0.0, -0.8]
     odom_topic: "odom"
     odom_duration: 0.1
     deadband_velocity: [0.0, 0.0, 0.0]

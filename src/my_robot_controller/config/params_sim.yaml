@@ -27,7 +27,7 @@ cnn_driver_node:
     k_smc: 3.5                  # hệ số hồi tiếp bề mặt trượt S (tăng từ 2.0 -> 3.5 để đánh lái mạnh mẽ dứt khoát)
     eta_smc: 0.6                # hệ số chuyển mạch (tăng từ 0.5 -> 0.6 để triệt tiêu sai số nhanh)
     phi_smc: 0.5                # độ dày lớp biên (boundary layer) để tránh rung chattering
-    max_steering_angle_deg: 10.0 # giới hạn góc lái (độ) — tăng từ 3.5 lên 10.0 độ giúp xe đánh lái mạnh khi vừa vào luống
+    max_steering_angle_deg: 14.0 # giới hạn góc lái (độ) — nâng lên 14.0 độ giúp xe đánh lái mạnh mẽ khi lệch luống
     ema_alpha: 0.45             # độ nhạy EMA (tăng từ 0.25 -> 0.45 giúp giảm delay, phản ứng nhanh hơn)
 
     # Ngưỡng confidence để phát hiện hết hàng (với mặt nạ HSV lọc sạch sẽ)

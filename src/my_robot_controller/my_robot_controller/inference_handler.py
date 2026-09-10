@@ -195,17 +195,37 @@ class InferenceHandler:
                 if (c_right - c_left) >= min_lane_width:
                     return float((c_left + c_right) * 0.5)
 
-            # Trường hợp 2: Chỉ có 1 hàng đơn lẻ (hoặc hàng chéo chiếm ưu thế)
-            # Áp dụng quy tắc phối cảnh hội tụ điểm tụ:
-            # - Hàng có chân ở bên trái mũi xe (bot_x < center_idx) hoặc dấu sắc [/] -> HÀNG BÊN TRÁI
-            #   => Lối đi xe chạy nằm ở bên PHẢI hàng này (+ half_lane)
-            # - Hàng có chân ở bên phải mũi xe (bot_x >= center_idx) hoặc dấu huyền [\] -> HÀNG BÊN PHẢI
-            #   => Lối đi xe chạy nằm ở bên TRÁI hàng này (- half_lane)
+            # Trường hợp 2: Chỉ có 1 hàng đơn lẻ (hoặc hàng chéo chiếm ưu thế khi xe chạy sát mép)
+            # Áp dụng phối hợp tọa độ chân hàng (bot_x), tâm (cx) và độ dốc phối cảnh (dx_up = top_x - bot_x):
+            # - Hàng BÊN TRÁI: Thường nằm ở nửa trái, hoặc có độ dốc nghiêng sang phải về điểm tụ xa (dx_up > 0)
+            #   => Lối đi giữa hàng nằm ở bên PHẢI hàng này (+ half_lane)
+            # - Hàng BÊN PHẢI: Thường nằm ở nửa phải, hoặc có độ dốc nghiêng sang trái về điểm tụ xa (dx_up < 0)
+            #   => Lối đi giữa hàng nằm ở bên TRÁI hàng này (- half_lane)
             main_comp = max(valid_comps, key=lambda c: c["area"])
-            if main_comp["bot_x"] < center_idx:
-                return float(np.clip(main_comp["cx"] + half_lane_px, 0.0, w - 1.0))
+            bot_x = main_comp["bot_x"]
+            dx_up = main_comp["dx_up"]
+            
+            is_left_row = False
+            if bot_x < 0.40 * w:
+                is_left_row = True
+            elif bot_x > 0.60 * w:
+                is_left_row = False
             else:
-                return float(np.clip(main_comp["cx"] - half_lane_px, 0.0, w - 1.0))
+                # Gốc hàng nằm ở vùng giữa (do xe đang đi chéo áp sát hàng):
+                # Dùng hướng nghiêng phối cảnh về điểm tụ
+                if dx_up > 3.0:
+                    is_left_row = True   # Nghiêng [/] -> Hàng bên trái
+                elif dx_up < -3.0:
+                    is_left_row = False  # Nghiêng [\] -> Hàng bên phải
+                else:
+                    is_left_row = (main_comp["cx"] < center_idx)
+
+            if is_left_row:
+                target_center = bot_x + half_lane_px
+            else:
+                target_center = bot_x - half_lane_px
+
+            return float(np.clip(target_center, 0.0, w - 1.0))
 
         return image_center
 
@@ -269,12 +289,12 @@ class InferenceHandler:
         # Nếu chưa đủ 2 hàng (confidence thấp) nhưng có 1 hàng cây/thùng rõ nét (diện tích lớn)
         if confidence < 0.35:
             area_scale = (h * w) / (512.0 * 512.0)
-            min_single_area = max(150, int(1200 * area_scale))
+            min_single_area = max(100, int(600 * area_scale))
             num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(binary_closed)
             max_area = max([stats[i, cv2.CC_STAT_AREA] for i in range(1, num_labels)], default=0)
             if max_area >= min_single_area:
-                # 1 hàng rất rõ nét -> Đạt mức confidence 0.50 ~ 0.60 (Bám 1 hàng an toàn)
-                single_score = min(0.60, 0.40 + (max_area / max(1.0, 10000.0 * area_scale)) * 0.20)
+                # 1 hàng rất rõ nét -> Đạt mức confidence 0.45 ~ 0.65 (Bám 1 hàng an toàn không bị skip-zero)
+                single_score = min(0.65, 0.42 + (max_area / max(1.0, 6000.0 * area_scale)) * 0.23)
                 confidence = max(confidence, single_score)
 
         return confidence

@@ -22,14 +22,20 @@ cnn_driver_node:
 
     mask_threshold: 0.35        # cao hơn sim vì model nhận diện ảnh thật tốt hơn
 
-    # Tốc độ di chuyển (m/s) — Giảm phù hợp CNN ~2 FPS trên Pi (6cm/frame thay vì 10cm/frame)
+    # Tốc độ di chuyển (m/s) — Chạy thẳng chậm ổn định, lực quay bẻ lái mạnh mẽ
     linear_speed: 0.10
     turn_linear_speed: 0.10
-    turn_angular_speed: 0.40
+    turn_angular_speed: 0.65    # Tăng từ 0.40 lên 0.65 rad/s để tạo mô-men bẻ lái mạnh mẽ, trơn tru
+
+    # Bộ điều khiển trượt SMC bám luống với lực bẻ lái mạnh mẽ, dứt khoát
+    lambda_smc: 2.5             # hệ số bề mặt trượt S = de + lambda * e
+    k_smc: 4.2                  # hệ số hồi tiếp mô-men quay dứt khoát
+    eta_smc: 0.8                # hệ số chuyển mạch triệt tiêu nhanh sai số
+    phi_smc: 0.4                # lớp biên chống rung chattering
 
     kp: 1.5                     # có thể cần giảm xuống nếu xe dao động
-    max_steering_angle_deg: 7.0 # góc bẻ lái tối đa mở rộng gấp đôi (7.0 độ)
-    ema_alpha: 0.30             # giảm nhẹ EMA cho mượt hơn ở tốc độ chậm 0.12 m/s
+    max_steering_angle_deg: 14.0 # góc bẻ lái tối đa nâng lên 14.0 độ giúp xe bẻ lái dứt khoát về giữa hàng
+    ema_alpha: 0.35             # tăng nhẹ độ nhạy EMA phản xạ bẻ lái
 
     # Ngưỡng confidence — CAO hơn sim vì ảnh thật cho mask rõ ràng hơn
     low_confidence_threshold: 0.30
@@ -64,8 +70,8 @@ gps_driver_node:
 bts7960_driver_node:
   ros__parameters:
     wheel_base: 0.58            # m (đo thực tế khoảng cách tâm 2 bánh)
-    max_linear_speed: 0.15      # m/s = 100% PWM → 0.12 m/s = 80% PWM (lực mạnh, tốc độ chậm)
-    min_duty_cycle: 25.0        # % — Ngưỡng sàn PWM tối thiểu để motor đủ momen đẩy trên cỏ/nền
+    max_linear_speed: 0.18      # m/s = 100% PWM (tăng nhẹ dải trần để mở rộng dải PWM quay xe)
+    min_duty_cycle: 32.0        # % — Nâng lên 32% để motor luôn đủ momen xoắn đẩy xe vượt ma sát tĩnh trên cỏ/đất
     pwm_frequency: 1000         # Hz
 
     # GPIO BCM pin numbers — chỉnh theo sơ đồ nối dây thực tế

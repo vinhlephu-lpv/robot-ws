@@ -594,6 +594,14 @@ sync_time_func() {
 alias sync-time="sync_time_func"
 alias dongbo-gio="sync_time_func"
 
+# Hàm đồng bộ toàn bộ mã nguồn sang Raspberry Pi và tự động build
+sync_to_pi_func() {
+    local pi_ip="${1:-${PI_STATIC_IP:-10.10.178.200}}"
+    "$WS_DIR/scripts/sync_to_pi.sh" "$pi_ip"
+}
+alias sync-pi="sync_to_pi_func"
+alias dongbo-pi="sync_to_pi_func"
+
 # Hàm cập nhật CycloneDDS cho unicast (khi hotspot chặn multicast)
 update_cyclone_peers() {
     local pi_ip="${1:-}"
@@ -790,7 +798,6 @@ def cb(msg):
 
 rclpy.init()
 node = rclpy.create_node("xem_enc_cli")
-node.create_subscription(Odometry, "/wheel/odom", cb, 10)
 node.create_subscription(Odometry, "/odom/raw", cb, 10)
 try:
     rclpy.spin(node)

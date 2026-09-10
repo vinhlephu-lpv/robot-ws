@@ -42,17 +42,17 @@ class TrackingControllerSMC(ControllerInterface):
     Sliding Mode Controller for Lane Tracking.
     """
     def __init__(self):
-        self.lambda_smc = 2.0
-        self.k_smc = 3.5
-        self.eta_smc = 0.6
-        self.phi_smc = 0.5
-        self.linear_speed = 0.20
-        self.turn_angular_speed = 0.50
+        self.lambda_smc = 2.5
+        self.k_smc = 4.2
+        self.eta_smc = 0.8
+        self.phi_smc = 0.4
+        self.linear_speed = 0.10
+        self.turn_angular_speed = 0.65
         self.prev_error = 0.0
         self.enabled = False
 
-    def initialize(self, lambda_smc=2.0, k_smc=3.5, eta_smc=0.6, phi_smc=0.5, 
-                   linear_speed=0.20, turn_angular_speed=0.50):
+    def initialize(self, lambda_smc=2.5, k_smc=4.2, eta_smc=0.8, phi_smc=0.4, 
+                   linear_speed=0.10, turn_angular_speed=0.65):
         self.lambda_smc = lambda_smc
         self.k_smc = k_smc
         self.eta_smc = eta_smc
@@ -92,15 +92,13 @@ class TrackingControllerSMC(ControllerInterface):
         S = de + self.lambda_smc * e
         sat_val = np.clip(S / self.phi_smc, -1.0, 1.0)
         
+        # Tính mô-men quay góc dứt khoát
         angular_velocity = -self.k_smc * S - self.eta_smc * sat_val
         angular_velocity = np.clip(angular_velocity, -self.turn_angular_speed, self.turn_angular_speed)
 
-        # NOTE: Đã bỏ constraint Direction Consistency (cũ: khoá angular_vel chỉ 1 chiều theo dấu e).
-        # Constraint đó tạo vòng lặp dương tính (positive feedback loop) khi heading_error
-        # liên tục cùng dấu — xe bị khoá quay 1 hướng, không thể tự sửa.
-        # Sliding surface S = de + λ·e tự cân bằng qua thành phần đạo hàm de,
-        # không cần ép cứng hướng angular_velocity.
-
+        # Duy trì vận tốc tiến đều đặn và ổn định (linear_speed):
+        # Không giảm đột ngột tốc độ khi rẽ, đảm bảo lực kéo của xe luôn ổn định
+        # cả khi chạy thẳng lẫn khi quẹo trái/quẹo phải.
         return {
             "linear_velocity": self.linear_speed,
             "angular_velocity": angular_velocity,
@@ -215,7 +213,7 @@ class PurePursuitController(ControllerInterface):
 
         # Standard curvature: kappa = 2 * sin(alpha) / L_d
         # Angular velocity: w = v * kappa
-        linear_vel = max(0.12, self.turn_linear_speed * math.cos(yaw_error * 0.5))
+        linear_vel = float(np.clip(self.turn_linear_speed * math.cos(yaw_error * 0.5), 0.06, self.turn_linear_speed))
         angular_vel = 2.0 * linear_vel * math.sin(yaw_error) / max(0.20, dist)
         angular_vel = np.clip(angular_vel, -self.turn_angular_speed, self.turn_angular_speed)
         
