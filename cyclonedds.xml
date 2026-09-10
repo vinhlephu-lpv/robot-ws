@@ -2,13 +2,16 @@
 <CycloneDDS xmlns="https://cdds.io/config">
   <Domain>
     <General>
-      <NetworkInterfaceAddress>wlan0</NetworkInterfaceAddress>
-      <AllowMulticast>true</AllowMulticast>
+      <AllowMulticast>false</AllowMulticast>
       <MaxMessageSize>65500B</MaxMessageSize>
     </General>
     <Discovery>
       <ParticipantIndex>auto</ParticipantIndex>
       <MaxAutoParticipantIndex>100</MaxAutoParticipantIndex>
+      <Peers>
+        <Peer address="10.10.178.200"/>
+        <Peer address="10.10.160.2"/>
+      </Peers>
     </Discovery>
   </Domain>
 </CycloneDDS>
