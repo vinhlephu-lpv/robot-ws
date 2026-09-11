@@ -14,24 +14,32 @@ class LidarProcessor:
         if self.latest_scan is None:
             return False
 
-        lane_center = round(ry - 0.5) + 0.5
         dir_x = 1.0 if math.cos(ryaw) >= 0 else -1.0
         angle_min = self.latest_scan.angle_min
         angle_increment = self.latest_scan.angle_increment
         ranges = self.latest_scan.ranges
 
+        # Trong luống hẹp (~1.0m), xe rộng 0.58m (bán bề rộng 0.29m).
+        # Hàng cây nằm ở sườn |y_lat| ~ 0.35m - 0.50m.
+        # Khi inside_row=True: CHỈ xét hành lang va chạm trực diện ngay trước mũi cản xe (|y_lat| <= 0.16m)
+        # và cự ly gần (max_dist <= 0.85m) để tránh nhận nhầm thân hàng cây thành vật cản trước mặt!
+        effective_max_dist = 0.85 if inside_row else max_dist
+        corridor_lat = 0.16 if inside_row else 0.30
+
+        obstacle_hits = 0
         for idx, r in enumerate(ranges):
-            if math.isnan(r) or math.isinf(r) or r < 0.10 or r > max_dist:
+            if math.isnan(r) or math.isinf(r) or r < 0.12 or r > effective_max_dist:
                 continue
 
             angle = angle_min + idx * angle_increment
             x_fwd = r * math.cos(angle)
             y_lat = r * math.sin(angle)
             
-            # True obstacle strictly in the robot's forward driving corridor (width 1.0m, robot half-width 0.25m, buffer 0.07m)
-            # Ignoring boundary carton stacks at |y_lat| >= 0.38m
-            if 0.10 < x_fwd <= max_dist and abs(y_lat) <= 0.32:
-                return True
+            # Kiểm tra vật cản nằm trực diện trước mũi xe
+            if 0.15 < x_fwd <= effective_max_dist and abs(y_lat) <= corridor_lat:
+                obstacle_hits += 1
+                if obstacle_hits >= 3:  # Cần ít nhất 3 tia LiDAR liên tiếp để loại bỏ nhiễu bụi/ngọn cỏ
+                    return True
         return False
 
     def get_obstacles_global(self, rx, ry, ryaw, max_dist=6.0):
@@ -115,7 +123,8 @@ class LidarProcessor:
         if self.latest_scan is None:
             return {"detected": False, "dist": 1.0, "x_obs": rx + 1.0, "y_obs": ry, "lane_center": ry, "side": "LEFT"}
 
-        lane_center = round(ry - 0.5) + 0.5
+        # Dùng vị trí ry thực tế của robot làm trục quy chiếu thay vì giả định cứng 0.5m
+        lane_center = ry
         dir_x = 1.0 if math.cos(ryaw) >= 0 else -1.0
         angle_min = self.latest_scan.angle_min
         angle_increment = self.latest_scan.angle_increment
@@ -123,7 +132,7 @@ class LidarProcessor:
 
         obs_points = []
         for idx, r in enumerate(ranges):
-            if math.isnan(r) or math.isinf(r) or r < 0.10 or r > max_dist:
+            if math.isnan(r) or math.isinf(r) or r < 0.12 or r > max_dist:
                 continue
 
             beam_yaw = ryaw + (angle_min + idx * angle_increment)
@@ -133,7 +142,8 @@ class LidarProcessor:
             fwd_dist = dir_x * (xg - rx)
             lat_err = abs(yg - lane_center)
             
-            if 0.10 < fwd_dist <= max_dist and lat_err <= 0.35:
+            # Chỉ coi là chướng ngại vật phía trước nếu nằm trong khoảng hẹp (|lat_err| <= 0.20m)
+            if 0.15 < fwd_dist <= max_dist and lat_err <= 0.20:
                 obs_points.append((fwd_dist, xg, yg))
 
         if not obs_points:

@@ -155,7 +155,9 @@ class InferenceHandler:
             return float(np.clip(np.median(centers), 0.0, w - 1.0))
 
         # Phân tích liên thông 2D (Connected Components Analysis) khi chỉ bắt được 1 hàng hoặc hàng chéo:
-        half_lane_px = 0.22 * w  # Nửa bề rộng hành lang 1.0m (~112.6px trên ảnh 512px)
+        # Bán bề rộng xe thực tế: ~0.30m (track width 0.58m, bánh xe 0.63m).
+        # Hành lang 1.0m cần chừa tâm xe cách hàng cây ít nhất 0.50m (tương ứng ~0.38*w trên ảnh).
+        half_lane_px = 0.38 * w  # Nửa bề rộng hành lang an toàn (~146px trên ảnh 384px, ~195px trên ảnh 512px)
         num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(binary)
 
         # Lọc bỏ các cụm nhiễu nhỏ (tự động co giãn theo độ phân giải h x w)
@@ -229,15 +231,102 @@ class InferenceHandler:
 
         return image_center
 
+    def compute_vehicle_clearance_bias(self, mask: np.ndarray, max_angle_deg: float) -> float:
+        """
+        Tính toán góc bù trừ hao kích thước xe thật (Vehicle Footprint Clearance Bias)
+        ở vùng cận cảnh (30% chiều cao đáy ảnh, ngay trước bánh xe và cản trước).
+        
+        Kích thước xe thật:
+        - Bề rộng cầu bánh (track width): 0.58m, mép ngoài bánh xe: 0.63m.
+        - Bán bề rộng xe từ tâm camera: ~0.315m.
+        - Đệm an toàn sườn xe (margin): ~0.10m.
+        - Tổng bán kính an toàn cần thiết: ~0.40m (~0.38*w trên FOV camera).
+        - Ngưỡng nguy hiểm tối thiểu (mép bánh xe): ~0.28*w.
+        """
+        if mask.ndim == 3:
+            mask = mask[..., 0]
+
+        h, w = mask.shape
+        image_center = (w - 1) * 0.5
+        center_idx = int(round(image_center))
+
+        # Quét vùng đáy ảnh (30% chiều cao cuối)
+        y_start = int(h * 0.70)
+        near_roi = mask[y_start:, :]
+        binary = (near_roi >= self.mask_threshold).astype(np.uint8)
+
+        safe_half_px = 0.38 * w   # Khoảng cách sườn an toàn (~146px trên 384x384)
+        crit_half_px = 0.28 * w   # Ngưỡng mép bánh xe chạm cây (~107px trên 384x384)
+
+        left_edges = []
+        right_edges = []
+
+        for row in binary[::2]:
+            cols = np.flatnonzero(row > 0)
+            if cols.size == 0:
+                continue
+            left_cols = cols[cols < center_idx]
+            right_cols = cols[cols > center_idx]
+
+            if left_cols.size > 0:
+                left_edges.append(float(left_cols[-1]))
+            if right_cols.size > 0:
+                right_edges.append(float(right_cols[0]))
+
+        bias_deg = 0.0
+        med_left = np.median(left_edges) if len(left_edges) >= 3 else None
+        med_right = np.median(right_edges) if len(right_edges) >= 3 else None
+
+        # Trường hợp 1: Thấy cả 2 bên mép hàng ở cận cảnh
+        if med_left is not None and med_right is not None:
+            clearance_l = image_center - med_left
+            clearance_r = med_right - image_center
+
+            # Kiểm tra xem có bên nào vi phạm vùng an toàn thân xe không
+            if clearance_l < safe_half_px or clearance_r < safe_half_px:
+                diff = clearance_r - clearance_l
+                total_span = max(1.0, clearance_l + clearance_r)
+                ratio = diff / total_span
+                bias_deg = ratio * max_angle_deg * 1.5
+
+                # Nguy hiểm cận kề bánh xe: cưỡng bức bẻ lái thoát hiểm
+                if clearance_l < crit_half_px:
+                    crit_pen = (crit_half_px - clearance_l) / crit_half_px
+                    bias_deg = max(bias_deg, crit_pen * max_angle_deg)
+                elif clearance_r < crit_half_px:
+                    crit_pen = (crit_half_px - clearance_r) / crit_half_px
+                    bias_deg = min(bias_deg, -crit_pen * max_angle_deg)
+
+        # Trường hợp 2: Chỉ phát hiện mép hàng bên TRÁI ở cận cảnh
+        elif med_left is not None:
+            clearance_l = image_center - med_left
+            if clearance_l < safe_half_px:
+                pen = (safe_half_px - clearance_l) / safe_half_px
+                bias_deg = pen * max_angle_deg * 1.2
+                if clearance_l < crit_half_px:
+                    bias_deg = max(bias_deg, 0.75 * max_angle_deg)
+
+        # Trường hợp 3: Chỉ phát hiện mép hàng bên PHẢI ở cận cảnh
+        elif med_right is not None:
+            clearance_r = med_right - image_center
+            if clearance_r < safe_half_px:
+                pen = (safe_half_px - clearance_r) / safe_half_px
+                bias_deg = -pen * max_angle_deg * 1.2
+                if clearance_r < crit_half_px:
+                    bias_deg = min(bias_deg, -0.75 * max_angle_deg)
+
+        return float(np.clip(bias_deg, -max_angle_deg, max_angle_deg))
+
     def compute_steering_angle(self, mask: np.ndarray, max_angle_deg: float = 3.5) -> float:
-        """Translates offset of lane center to steering angle (in degrees)."""
+        """Translates offset of lane center to steering angle (in degrees), factoring in vehicle footprint."""
         _, w = mask.shape[:2]
         lane_center = self.find_lane_center(mask)
         image_center = (w - 1) * 0.5
 
         offset = (lane_center - image_center) / max(image_center, 1.0)
-        angle = float(np.clip(offset * max_angle_deg, -max_angle_deg, max_angle_deg))
-        return angle
+        base_angle = float(np.clip(offset * max_angle_deg, -max_angle_deg, max_angle_deg))
+        clearance_bias = self.compute_vehicle_clearance_bias(mask, max_angle_deg)
+        return float(np.clip(base_angle + clearance_bias, -max_angle_deg, max_angle_deg))
 
     def compute_row_confidence(self, mask_prob: np.ndarray, roi_ratio: float = 0.70) -> float:
         """Computes a confidence score based on crop row lane detection density."""
@@ -334,12 +423,16 @@ class InferenceHandler:
                     mask_prob = hsv_prob
                     confidence = hsv_conf
 
-        # Lane center and heading error without duplicate computations
+        # Lane center and heading error factoring in vehicle footprint clearance
         lane_center = self.find_lane_center(mask_prob)
         _, w = mask_prob.shape[:2]
         image_center = (w - 1) * 0.5
         lane_offset = (lane_center - image_center) / max(image_center, 1.0)
-        heading_error = float(np.clip(lane_offset * max_angle_deg, -max_angle_deg, max_angle_deg))
+        base_heading_error = float(np.clip(lane_offset * max_angle_deg, -max_angle_deg, max_angle_deg))
+        
+        # Trừ hao kích thước xe thật ở cận cảnh (Vehicle Footprint Clearance Bias)
+        clearance_bias = self.compute_vehicle_clearance_bias(mask_prob, max_angle_deg)
+        heading_error = float(np.clip(base_heading_error + clearance_bias, -max_angle_deg, max_angle_deg))
         
         self.latest_mask = mask_prob
         return heading_error, lane_offset, lane_center, confidence

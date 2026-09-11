@@ -632,8 +632,8 @@ class CnnDriverNode(Node):
             # 1. Obstacle avoidance check (ONLY active when inside the crop row)
             post_path_cooldown = (now_sec - self.last_path_completion_time) < 0.6
             if self.inside_row and obstacle_detected and not post_path_cooldown:
-                self.get_logger().warn("Confirmed obstacle in front corridor! Starting smooth avoidance maneuver...")
-                self.transition_to_state(FSMState.AVOID_PLANNING, now)
+                self.get_logger().warn("Phát hiện vật cản trực diện trong luống! Dừng xe tạm thời (REACTIVE_AVOID) để đảm bảo an toàn...")
+                self.transition_to_state(FSMState.REACTIVE_AVOID, now)
                 self.StopRobot()
                 return
 
@@ -693,16 +693,12 @@ class CnnDriverNode(Node):
             
             lin_speed, ang_vel = self.StartTracking(dt_actual)
 
-            # --- TÙY CHỈNH: Dừng xoay căn chỉnh nếu góc lệch > 0.3 độ ---
-            if abs(self.smoothed_angle_deg) > 0.3:
-                lin_speed = 0.0
-                self.get_logger().info(f"Góc lệch {self.smoothed_angle_deg:.2f}° > 0.3°. Dừng tiến, chỉ xoay căn chỉnh.", throttle_duration_sec=1.0)
-                
-                # Xác nhận xoay bằng IMU (chỉ log cảnh báo nếu cấp lệnh xoay mà IMU không báo xe đang xoay)
-                imu_angular_z = self.localization_manager.get_pose().get('imu', {}).get('angular_vel_z', 0.0)
-                if abs(ang_vel) > 0.1 and abs(imu_angular_z) < 0.05:
-                    self.get_logger().warn("Cảnh báo: Đang cấp lệnh xoay nhưng IMU báo xe không xoay (có thể kẹt bánh).", throttle_duration_sec=2.0)
-            # -------------------------------------------------------------
+            # Điều tiết tốc độ tiến mượt mà theo góc bẻ lái (không dừng khựng tại 0.3° gây trượt bánh)
+            if abs(self.smoothed_angle_deg) > 8.0:
+                lin_speed = max(0.05, self.linear_speed * 0.5)
+                self.get_logger().info(f"Góc lệch {self.smoothed_angle_deg:.2f}° > 8.0°. Giảm tốc độ bò căn chỉnh.", throttle_duration_sec=2.0)
+            elif abs(self.smoothed_angle_deg) > 4.0:
+                lin_speed = max(0.07, self.linear_speed * 0.75)
 
             twist.linear.x = lin_speed
             twist.angular.z = ang_vel
@@ -1009,23 +1005,24 @@ class CnnDriverNode(Node):
         x_obs = obs_info["x_obs"]
         side = obs_info["side"]
         
-        # Target lateral shift: 0.09m from center (balanced ~16cm clearance to stalks, ~12cm to obstacle)
+        # Target lateral shift: Tối đa 0.04m (trong luống hẹp 1.0m với xe rộng 0.58m, không được lệch quá 4cm)
+        shift_amount = 0.04
         if side == "LEFT":
-            nudge_y = lane_center - (0.09 if dir_x > 0 else -0.09)
-            self.get_logger().info(f"Obstacle on LEFT at x={x_obs:.2f}m, y={obs_info['y_obs']:.2f}m -> Weaving to y={nudge_y:.2f}m")
+            nudge_y = lane_center - (shift_amount if dir_x > 0 else -shift_amount)
+            self.get_logger().info(f"Obstacle on LEFT at x={x_obs:.2f}m, y={obs_info['y_obs']:.2f}m -> Gentle weave to y={nudge_y:.2f}m")
         else:
-            nudge_y = lane_center + (0.09 if dir_x > 0 else -0.09)
-            self.get_logger().info(f"Obstacle on RIGHT at x={x_obs:.2f}m, y={obs_info['y_obs']:.2f}m -> Weaving to y={nudge_y:.2f}m")
+            nudge_y = lane_center + (shift_amount if dir_x > 0 else -shift_amount)
+            self.get_logger().info(f"Obstacle on RIGHT at x={x_obs:.2f}m, y={obs_info['y_obs']:.2f}m -> Gentle weave to y={nudge_y:.2f}m")
 
-        # Hard clamp nudge_y to remain strictly within the safe 1.0m crop lane
-        nudge_y = float(np.clip(nudge_y, lane_center - 0.10, lane_center + 0.10))
+        # Hard clamp nudge_y trong biên an toàn cực hẹp
+        nudge_y = float(np.clip(nudge_y, lane_center - 0.05, lane_center + 0.05))
 
         waypoints = []
         
-        # ── Stage 1: Weave Out (Reaches nudge_y at 0.25m before x_obs)
-        x_weave_end = x_obs - dir_x * 0.25
-        weave_length = max(0.35, dir_x * (x_weave_end - rx))
-        for t in np.linspace(0.05, 1.0, 8):
+        # ── Stage 1: Weave Out (kéo dài tối thiểu 0.85m để góc lái êm ái < 10 độ, không bẻ giật 53 độ)
+        x_weave_end = x_obs - dir_x * 0.35
+        weave_length = max(0.85, dir_x * (x_weave_end - rx))
+        for t in np.linspace(0.05, 1.0, 10):
             s = 10.0 * (t**3) - 15.0 * (t**4) + 6.0 * (t**5)
             wp_x = rx + dir_x * (t * weave_length)
             wp_y = ry + s * (nudge_y - ry)
@@ -1033,16 +1030,16 @@ class CnnDriverNode(Node):
             
         # ── Stage 2: Parallel Clearance Corridor (Past x_obs by 0.30m)
         x_clear_end = x_obs + dir_x * 0.30
-        clear_length = max(0.30, dir_x * (x_clear_end - (rx + dir_x * weave_length)))
+        clear_length = max(0.40, dir_x * (x_clear_end - (rx + dir_x * weave_length)))
         for d in np.linspace(0.06, clear_length, 6):
             wp_x = rx + dir_x * (weave_length + d)
             wp_y = nudge_y
             waypoints.append([wp_x, wp_y])
             
-        # ── Stage 3: Smooth Quintic Polynomial Return (over 0.35m to lane_center)
+        # ── Stage 3: Smooth Quintic Polynomial Return (kéo dài 0.70m trở về giữa luống)
         x_return_start = rx + dir_x * (weave_length + clear_length)
-        return_length = 0.35
-        for t in np.linspace(0.05, 1.0, 6):
+        return_length = 0.70
+        for t in np.linspace(0.05, 1.0, 8):
             s = 10.0 * (t**3) - 15.0 * (t**4) + 6.0 * (t**5)
             wp_x = x_return_start + dir_x * (t * return_length)
             wp_y = nudge_y + s * (lane_center - nudge_y)
