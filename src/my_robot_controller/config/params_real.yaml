@@ -22,10 +22,11 @@ cnn_driver_node:
 
     mask_threshold: 0.35        # cao hơn sim vì model nhận diện ảnh thật tốt hơn
 
-    # Tốc độ di chuyển (m/s) — Chạy thẳng chậm ổn định, lực quay bẻ lái mạnh mẽ
+    # Tốc độ di chuyển (m/s) — Chạy thẳng chậm ổn định, lực quay bẻ lái êm ái chống trượt trên cỏ
     linear_speed: 0.10
     turn_linear_speed: 0.10
-    turn_angular_speed: 0.65    # Tăng từ 0.40 lên 0.65 rad/s để tạo mô-men bẻ lái mạnh mẽ, trơn tru
+    turn_angular_speed: 0.48    # 0.48 rad/s: đủ mô-men xoay 4 bánh vi sai trên cỏ, xử lý êm ái ở FPS thấp (~2 FPS), chống trượt xới đất
+    turn_in_place_threshold_deg: 0.3 # Ngưỡng dừng xoay căn chỉnh hướng: lệch > 0.3° dừng tiến xoay tại chỗ, <= 0.3° chạy thẳng 0.1 m/s
 
     # Bộ điều khiển trượt SMC bám luống với lực bẻ lái mạnh mẽ, dứt khoát
     lambda_smc: 2.5             # hệ số bề mặt trượt S = de + lambda * e

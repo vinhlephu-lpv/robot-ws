@@ -59,6 +59,7 @@ class CnnDriverNode(Node):
         self.declare_parameter('eta_smc', 0.6)
         self.declare_parameter('phi_smc', 0.5)
         self.declare_parameter('max_steering_angle_deg', 14.0)
+        self.declare_parameter('turn_in_place_threshold_deg', 0.3)
         self.declare_parameter('ema_alpha', 0.45)
         self.declare_parameter('warmup_time', 1.0)
         self.declare_parameter('navigation_mode', 'auto_three_lanes')
@@ -103,6 +104,7 @@ class CnnDriverNode(Node):
         self.eta_smc                  = p('eta_smc').value
         self.phi_smc                  = p('phi_smc').value
         self.max_steering_angle_deg   = p('max_steering_angle_deg').value
+        self.turn_in_place_threshold_deg = p('turn_in_place_threshold_deg').value
         self.ema_alpha                = p('ema_alpha').value
         self.warmup_time              = p('warmup_time').value
         self.navigation_mode          = p('navigation_mode').value
@@ -246,6 +248,7 @@ class CnnDriverNode(Node):
         self.low_confidence_counter = 0
         self.high_confidence_counter = 0
         self.inside_row             = False
+        self.is_adjusting_heading   = False
 
         # ── Odometry tracking ─────────────────────────────────────────
         self.distance_traveled  = 0.0    # m — cộng dồn từ đầu hàng
@@ -491,6 +494,7 @@ class CnnDriverNode(Node):
             self.state_start_time = now
             if new_state == FSMState.TRACKING:
                 self.tracking_controller.reset()
+                self.is_adjusting_heading = False
             elif new_state == FSMState.RECOVERY:
                 self.recovery_start_x = self.current_x
                 self.recovery_start_y = self.current_y
@@ -608,17 +612,23 @@ class CnnDriverNode(Node):
                 except Exception as save_err:
                     self.get_logger().error(f"Failed to save diagnostic frame: {save_err}")
 
-        # Check if we have entered the row dynamically (arm when settled inside the lane)
+        # Phân định rõ: Xe đang tiếp cận đầu luống (bên ngoài) vs Đã thực sự tiến vào trong luống.
+        # Khi xe đặt trước đầu hàng (như trong ảnh thực tế), xe chưa được coi là inside_row.
+        # Xe chỉ chính thức vào luống khi:
+        # 1. Đã di chuyển tiến vào tối thiểu 0.40m (distance_traveled >= 0.40m)
+        # HOẶC
+        # 2. LiDAR phát hiện cả 2 bên sườn xe đều có thành hàng (< 0.65m)
+        # VÀ độ tin cậy camera đủ cao (confidence >= low_confidence_threshold)
         if current_state == FSMState.TRACKING and not self.inside_row:
-            dir_fwd = (math.cos(self.current_yaw) >= 0)
-            in_row_zone = (self.current_x >= 0.20 or confidence >= self.low_confidence_threshold) if dir_fwd else (self.current_x <= 4.30 or confidence >= self.low_confidence_threshold)
+            has_entered_dist = (self.distance_traveled >= 0.40)
+            has_entered_walls = (left_side_dist < 0.65 and right_side_dist < 0.65)
             
-            if in_row_zone and confidence >= 0.15:
+            if (has_entered_dist or has_entered_walls) and confidence >= self.low_confidence_threshold:
                 self.inside_row = True
                 if self.row_start_x is None:
                     self.row_start_x = self.current_x
                 self.row_completed = False
-                self.get_logger().info(f"--- Robot dynamically entered crop row at x={self.row_start_x:.2f}m (confidence={confidence:.2f}) ---")
+                self.get_logger().info(f"--- Robot đã chính thức tiến vào trong luống tại x={self.row_start_x:.2f}m (dist={self.distance_traveled:.2f}m, conf={confidence:.2f}) ---")
 
         # ── IDLE ──────────────────────────────────────────────────────
         if current_state == FSMState.IDLE:
@@ -666,10 +676,10 @@ class CnnDriverNode(Node):
                     self.cmd_vel_pub.publish(twist)
                     return
 
-            # Xử lý góc lái: Khi camera đủ tin cậy HOẶC khi LiDAR/đơn hàng phát hiện xe áp sát thành hàng (< 0.45m)
+            # Xử lý góc lái: Khi camera đủ tin cậy HOẶC khi LiDAR phát hiện xe áp sát thành hàng (< 0.32m)
             # Tuyệt đối KHÔNG triệt tiêu góc lái về 0 khi xe đang ở vị trí sát sườn nguy hiểm!
             failed = (confidence < self.low_confidence_threshold)
-            near_side_wall = (left_side_dist < 0.45 or right_side_dist < 0.45)
+            near_side_wall = (left_side_dist < 0.32 or right_side_dist < 0.32)
             
             if not failed or near_side_wall:
                 # Nếu đang áp sát thành hàng, tăng độ nhạy phản xạ (alpha >= 0.65) để bẻ lái thoát hiểm tức thì
@@ -682,7 +692,7 @@ class CnnDriverNode(Node):
                 # Chỉ triệt tiêu góc lái về 0 khi thực sự ở bãi đất trống ngoài luống
                 self.smoothed_angle_deg *= 0.90
 
-            # Sliding Mode Control (SMC) via modular TrackingControllerSMC
+            # Cập nhật controller nội bộ để lưu vết sai số
             now_sec = now.nanoseconds / 1e9
             if hasattr(self, '_prev_image_time'):
                 dt_actual = now_sec - self._prev_image_time
@@ -691,14 +701,38 @@ class CnnDriverNode(Node):
             self._prev_image_time = now_sec
             dt_actual = np.clip(dt_actual, 0.001, 1.0)
             
-            lin_speed, ang_vel = self.StartTracking(dt_actual)
+            _lin_smc, _ang_smc = self.StartTracking(dt_actual)
 
-            # Điều tiết tốc độ tiến mượt mà theo góc bẻ lái (không dừng khựng tại 0.3° gây trượt bánh)
-            if abs(self.smoothed_angle_deg) > 8.0:
-                lin_speed = max(0.05, self.linear_speed * 0.5)
-                self.get_logger().info(f"Góc lệch {self.smoothed_angle_deg:.2f}° > 8.0°. Giảm tốc độ bò căn chỉnh.", throttle_duration_sec=2.0)
-            elif abs(self.smoothed_angle_deg) > 4.0:
-                lin_speed = max(0.07, self.linear_speed * 0.75)
+            # ── LOGIC ĐIỀU HƯỚNG CHUẨN XÁC THEO YÊU CẦU ──────────────
+            # 1. Nếu |góc lái| > 0.3°: DỪNG TIẾN (lin_speed = 0.0 m/s), xoay xe tại chỗ căn chỉnh hướng.
+            #    Cấp vận tốc góc ghim ổn định (turn_angular_speed) để 4 bánh vi sai thắng ma sát cỏ,
+            #    chống trượt và phù hợp với FPS thấp (~2 FPS) trên Pi.
+            # 2. Khi |góc lái| <= 0.3°: Hướng đã chuẩn, xe chạy thẳng tiến với 0.10 m/s (ang_vel = 0.0).
+            # 3. Khi đang chạy mà lệch tiếp (> 0.3°): Dừng lại xoay căn chỉnh tiếp.
+            turn_threshold = getattr(self, 'turn_in_place_threshold_deg', 0.30)
+
+            if not self.is_adjusting_heading:
+                if abs(self.smoothed_angle_deg) > turn_threshold:
+                    self.is_adjusting_heading = True
+                    self.get_logger().info(
+                        f"🌾 [ĐIỀU HƯỚNG] Góc lệch {self.smoothed_angle_deg:+.2f}° > {turn_threshold}°. Dừng tiến, bắt đầu xoay tại chỗ căn chỉnh..."
+                    )
+            else:
+                if abs(self.smoothed_angle_deg) <= turn_threshold:
+                    self.is_adjusting_heading = False
+                    self.get_logger().info(
+                        f"✅ [ĐIỀU HƯỚNG] Đã căn chỉnh chuẩn hướng (|góc|={abs(self.smoothed_angle_deg):.2f}° <= {turn_threshold}°). Chạy thẳng tiếp với {self.linear_speed:.2f} m/s!"
+                    )
+
+            if self.is_adjusting_heading:
+                lin_speed = 0.0
+                # smoothed_angle_deg > 0: tâm luống lệch phải -> xoay phải (ROS REP-103: ang_vel âm)
+                # smoothed_angle_deg < 0: tâm luống lệch trái -> xoay trái (ROS REP-103: ang_vel dương)
+                turn_dir = -1.0 if self.smoothed_angle_deg > 0 else 1.0
+                ang_vel = turn_dir * self.turn_angular_speed
+            else:
+                lin_speed = self.linear_speed
+                ang_vel = 0.0  # Chạy thẳng ổn định tuyệt đối
 
             twist.linear.x = lin_speed
             twist.angular.z = ang_vel

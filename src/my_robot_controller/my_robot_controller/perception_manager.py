@@ -100,31 +100,32 @@ class PerceptionManager:
         active_sensor = self.sensor_priority.select_active_tracking_sensor(confidence, lidar_available=(self.lidar is not None))
 
         # 3a. Trợ lái căn giữa luống bằng LiDAR (LiDAR Corridor Centering Assistance)
-        # Khi cả 2 bên thành hàng đều nằm trong tầm quét (hành lang ~1.0m):
-        if self.lidar is not None and (0.20 < left_side_dist < 0.75) and (0.20 < right_side_dist < 0.75):
+        # Khi cả 2 bên thành hàng đều nằm trong tầm quét (hành lang thực tế ~0.9m):
+        if self.lidar is not None and (0.15 < left_side_dist < 0.65) and (0.15 < right_side_dist < 0.65):
             corridor_width = left_side_dist + right_side_dist
-            if 0.75 <= corridor_width <= 1.35:
+            if 0.65 <= corridor_width <= 1.15:
                 delta_side = right_side_dist - left_side_dist
                 # delta_side > 0: lệch sang trái luống -> cần đánh lái sang phải (> 0)
                 # delta_side < 0: lệch sang phải luống -> cần đánh lái sang trái (< 0)
-                lidar_centering_bias = float(np.clip((delta_side / 0.25) * (max_angle_deg * 0.7), -max_angle_deg * 0.7, max_angle_deg * 0.7))
+                lidar_centering_bias = float(np.clip((delta_side / 0.20) * (max_angle_deg * 0.7), -max_angle_deg * 0.7, max_angle_deg * 0.7))
                 
                 # Pha trộn linh hoạt: nếu camera confidence thấp, tăng trọng số LiDAR; nếu camera tốt vẫn giữ 25% LiDAR trợ lái
                 lidar_weight = float(np.clip(1.0 - confidence, 0.25, 0.85))
                 heading_error = (1.0 - lidar_weight) * heading_error + lidar_weight * lidar_centering_bias
 
         # 3b. Active LiDAR Emergency Side Collision Guard:
-        # Khi khoảng cách tới mép hàng < 0.38m (nguy hiểm cận kề bánh xe ~0.25m), cưỡng bức đánh lái gấp ngược ra giữa
-        danger_threshold = 0.38
+        # Với hàng cách hàng 0.9m, thân xe rộng 0.58m (bán bề rộng 0.29m).
+        # Khi khoảng cách mép hàng < 0.28m (nguy cơ va chạm mép bánh xe ~0.29m), cưỡng bức đánh lái thoát hiểm
+        danger_threshold = 0.28
         if self.lidar is not None:
             if left_side_dist < danger_threshold:
                 penetration = danger_threshold - left_side_dist
-                repulsion_deg = float(np.clip((penetration / 0.15) * max_angle_deg, 2.0, max_angle_deg))
+                repulsion_deg = float(np.clip((penetration / 0.10) * max_angle_deg, 2.0, max_angle_deg))
                 # Phải rẽ phải (dương) để thoát khỏi thành trái:
                 heading_error = max(heading_error, repulsion_deg)
             elif right_side_dist < danger_threshold:
                 penetration = danger_threshold - right_side_dist
-                repulsion_deg = float(np.clip((penetration / 0.15) * max_angle_deg, 2.0, max_angle_deg))
+                repulsion_deg = float(np.clip((penetration / 0.10) * max_angle_deg, 2.0, max_angle_deg))
                 # Phải rẽ trái (âm) để thoát khỏi thành phải:
                 heading_error = min(heading_error, -repulsion_deg)
 

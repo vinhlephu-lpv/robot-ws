@@ -19,12 +19,13 @@ class LidarProcessor:
         angle_increment = self.latest_scan.angle_increment
         ranges = self.latest_scan.ranges
 
-        # Trong luống hẹp (~1.0m), xe rộng 0.58m (bán bề rộng 0.29m).
-        # Hàng cây nằm ở sườn |y_lat| ~ 0.35m - 0.50m.
-        # Khi inside_row=True: CHỈ xét hành lang va chạm trực diện ngay trước mũi cản xe (|y_lat| <= 0.16m)
-        # và cự ly gần (max_dist <= 0.85m) để tránh nhận nhầm thân hàng cây thành vật cản trước mặt!
-        effective_max_dist = 0.85 if inside_row else max_dist
-        corridor_lat = 0.16 if inside_row else 0.30
+        # Với luống bắp thực tế: hàng cách hàng 0.9m (tim xe cách mép hàng 0.45m), cây cách cây 0.8m.
+        # Xe rộng 0.58m. 
+        # Để tránh nhận nhầm cây phía trước (cách 0.8m) hoặc mép thùng ở 2 bên sườn (|y| >= 0.30m):
+        # - effective_max_dist = 0.45m (nhỏ hơn khoảng cách cây 0.8m, xe chạy 0.1m/s phanh an toàn trong < 5cm)
+        # - corridor_lat = 0.12m (hành lang trực diện tim xe, loại trừ hoàn toàn mép thùng/hàng 2 bên)
+        effective_max_dist = 0.45
+        corridor_lat = 0.12
 
         obstacle_hits = 0
         for idx, r in enumerate(ranges):
@@ -35,8 +36,8 @@ class LidarProcessor:
             x_fwd = r * math.cos(angle)
             y_lat = r * math.sin(angle)
             
-            # Kiểm tra vật cản nằm trực diện trước mũi xe
-            if 0.15 < x_fwd <= effective_max_dist and abs(y_lat) <= corridor_lat:
+            # Kiểm tra vật cản nằm trực diện trong hành lang tim xe
+            if 0.12 < x_fwd <= effective_max_dist and abs(y_lat) <= corridor_lat:
                 obstacle_hits += 1
                 if obstacle_hits >= 3:  # Cần ít nhất 3 tia LiDAR liên tiếp để loại bỏ nhiễu bụi/ngọn cỏ
                     return True
@@ -142,8 +143,8 @@ class LidarProcessor:
             fwd_dist = dir_x * (xg - rx)
             lat_err = abs(yg - lane_center)
             
-            # Chỉ coi là chướng ngại vật phía trước nếu nằm trong khoảng hẹp (|lat_err| <= 0.20m)
-            if 0.15 < fwd_dist <= max_dist and lat_err <= 0.20:
+            # Chỉ coi là chướng ngại vật phía trước nếu nằm trong khoảng hẹp (|lat_err| <= 0.14m)
+            if 0.12 < fwd_dist <= max_dist and lat_err <= 0.14:
                 obs_points.append((fwd_dist, xg, yg))
 
         if not obs_points:
