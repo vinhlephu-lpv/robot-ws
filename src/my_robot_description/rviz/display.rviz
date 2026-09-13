@@ -100,14 +100,14 @@ Visualization Manager:
       Max Value: 1
       Median window: 5
       Min Value: 0
-      Name: Camera (WiFi Stream)
+      Name: Camera (Live Stream)
       Normalize Range: true
       Topic:
-        Depth: 1
+        Depth: 5
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /camera/wifi_image
+        Value: /camera/color/image_raw
       Value: true
     - Angle Tolerance: 0.1
       Class: rviz_default_plugins/Odometry

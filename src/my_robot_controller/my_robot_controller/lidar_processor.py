@@ -4,8 +4,10 @@ class LidarProcessor:
     """
     Decoupled Lidar processing and obstacle detection layer.
     """
-    def __init__(self):
+    def __init__(self, effective_max_dist=0.45, corridor_lat=0.12):
         self.latest_scan = None
+        self.effective_max_dist = effective_max_dist
+        self.corridor_lat = corridor_lat
 
     def update_scan(self, msg):
         self.latest_scan = msg
@@ -24,8 +26,8 @@ class LidarProcessor:
         # Để tránh nhận nhầm cây phía trước (cách 0.8m) hoặc mép thùng ở 2 bên sườn (|y| >= 0.30m):
         # - effective_max_dist = 0.45m (nhỏ hơn khoảng cách cây 0.8m, xe chạy 0.1m/s phanh an toàn trong < 5cm)
         # - corridor_lat = 0.12m (hành lang trực diện tim xe, loại trừ hoàn toàn mép thùng/hàng 2 bên)
-        effective_max_dist = 0.45
-        corridor_lat = 0.12
+        effective_max_dist = self.effective_max_dist
+        corridor_lat = self.corridor_lat
 
         obstacle_hits = 0
         for idx, r in enumerate(ranges):

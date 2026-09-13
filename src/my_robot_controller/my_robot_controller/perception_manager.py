@@ -34,18 +34,43 @@ class EndOfRowDetector:
     Combines multi-modal perception (Camera CNN confidence + LiDAR sector clearance)
     to detect end of corn row dynamically without false triggers inside stalk gaps.
     """
-    def __init__(self, min_row_distance=0.0, low_confidence_threshold=0.35):
+    def __init__(self, min_row_distance=2.0, low_confidence_threshold=0.30, consecutive_frames=5):
         self.min_row_distance = min_row_distance
         self.low_confidence_threshold = low_confidence_threshold
+        self.consecutive_frames = consecutive_frames
+        self.low_confidence_counter = 0
+        self.lidar_clearance_counter = 0
 
-    def detect(self, confidence, left_side_dist=float('inf'), right_side_dist=float('inf'), 
+    def detect(self, confidence, distance_traveled=0.0,
+               left_side_dist=float('inf'), right_side_dist=float('inf'), 
                rear_left_dist=float('inf'), rear_right_dist=float('inf'), 
                front_min_dist=float('inf'), inside_row=True):
-        # 1. Vision check: Camera confidence drops (no crop structure ahead)
-        camera_eor = (confidence < self.low_confidence_threshold)
+        if not inside_row:
+            self.low_confidence_counter = 0
+            self.lidar_clearance_counter = 0
+            return False
+
+        # Chỉ cho phép kích hoạt khi xe đã đi được quãng đường tối thiểu (tránh kích hoạt nhầm đầu luống)
+        if distance_traveled < self.min_row_distance:
+            self.low_confidence_counter = 0
+            self.lidar_clearance_counter = 0
+            return False
+
+        # 1. Vision check: Camera mất dấu luống bắp liên tục 5 frame
+        if confidence < self.low_confidence_threshold:
+            self.low_confidence_counter += 1
+        else:
+            self.low_confidence_counter = 0
         
-        # 2. LiDAR check: Open headland space ahead (front_min_dist > 2.0m) AND sides clear (> 0.90m)
-        lidar_eor = (front_min_dist > 2.0 and left_side_dist > 0.90 and right_side_dist > 0.90)
+        camera_eor = (self.low_confidence_counter >= self.consecutive_frames)
+        
+        # 2. LiDAR check: Đã ra bãi đất trống phía trước (> 1.8m) VÀ hai bên sườn đều trống (> 0.85m) liên tục 5 frame
+        if front_min_dist > 1.80 and left_side_dist > 0.85 and right_side_dist > 0.85:
+            self.lidar_clearance_counter += 1
+        else:
+            self.lidar_clearance_counter = 0
+
+        lidar_eor = (self.lidar_clearance_counter >= self.consecutive_frames)
         
         if camera_eor or lidar_eor:
             return True
@@ -62,7 +87,7 @@ class PerceptionManager:
         self.eor_detector = eor_detector if eor_detector is not None else EndOfRowDetector()
         self.sensor_priority = SensorPriorityManager()
 
-    def process_sensors(self, cv_image, distance_traveled, rx=0.0, ry=0.0, ryaw=0.0, max_angle_deg=3.5, inside_row=True):
+    def process_sensors(self, cv_image, distance_traveled, rx=0.0, ry=0.0, ryaw=0.0, max_angle_deg=3.5, inside_row=True, external_cnn=None):
         """
         Runs inference and checks lidar, returning standardized PerceptionOutput.
         """
@@ -74,7 +99,13 @@ class PerceptionManager:
         lane_center = 0.0
         confidence = 0.0
         
-        if self.inference is not None and cv_image is not None:
+        if external_cnn is not None:
+            # Nhận trực tiếp kết quả tính toán AI từ Laptop (Offloading - giải phóng CPU Pi)
+            heading_error = external_cnn.get('heading_error', 0.0)
+            lane_offset = external_cnn.get('lane_offset', 0.0)
+            lane_center = external_cnn.get('lane_center', 0.0)
+            confidence = external_cnn.get('confidence', 0.0)
+        elif self.inference is not None and cv_image is not None:
             heading_error, lane_offset, lane_center, confidence = self.inference.process_image(cv_image, max_angle_deg)
 
         # 2. Lidar Processing
@@ -131,6 +162,7 @@ class PerceptionManager:
 
         end_of_row = self.eor_detector.detect(
             confidence=confidence,
+            distance_traveled=distance_traveled,
             left_side_dist=left_side_dist,
             right_side_dist=right_side_dist,
             rear_left_dist=rear_left_dist,

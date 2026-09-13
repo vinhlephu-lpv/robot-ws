@@ -38,12 +38,16 @@ cnn_driver_node:
     max_steering_angle_deg: 14.0 # góc bẻ lái tối đa nâng lên 14.0 độ giúp xe bẻ lái dứt khoát về giữa hàng
     ema_alpha: 0.35             # tăng nhẹ độ nhạy EMA phản xạ bẻ lái
 
+    # Khoảng cách giữa 2 hàng luống thực tế (m)
+    row_spacing: 0.90           # Hàng cách hàng 0.9m
+    min_row_length: 2.0         # m — cự ly tối thiểu bắt buộc chạy trong hàng trước khi cho phép nhận biết hết luống
+
     # Ngưỡng confidence — CAO hơn sim vì ảnh thật cho mask rõ ràng hơn
     low_confidence_threshold: 0.30
     high_confidence_threshold: 0.55
 
     # Tự động nhận biết hết hàng (End of Row) bằng cảm biến (Camera CNN + LiDAR C1):
-    low_conf_frames_threshold: 8  # số frame camera liên tiếp mất dấu hàng để xác nhận hết luống
+    low_conf_frames_threshold: 5  # số frame camera liên tiếp mất dấu hàng để xác nhận hết luống (5 frame)
     max_row_length: 50.0          # m — giới hạn an toàn tối đa (chỉ kích hoạt nếu cả Camera và LiDAR đồng thời bị hỏng)
 
     warmup_time: 3.0

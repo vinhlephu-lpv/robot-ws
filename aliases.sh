@@ -371,6 +371,19 @@ cnn-iphone() {
 }
 alias cnn-iphone="cnn-iphone"
 
+# Lệnh GÁNH TẢI AI CNN TRÊN LAPTOP (Offloading: Pi giữ nguyên phần cứng & quyết định, Laptop gánh ONNX)
+# - Pi (Xe thật): Giữ nguyên camera cắm cáp vào Pi, chạy: real-cnn enable_gps:=true
+# - Laptop: Mở terminal chạy: laptop-cnn (Laptop gánh ONNX 30-60 FPS, Pi ra quyết định lái)
+laptop_cnn_func() {
+    load_ws
+    echo "💻 [LAPTOP AI WORKER] Khởi chạy Server tính toán AI CNN trên Laptop..."
+    echo "   📡 Nhận ảnh từ Pi (/camera/compressed) ➔ Chạy mạng ONNX (30-60 FPS) ➔ Trả kết quả về Pi (/crop_row/detection)"
+    ros2 run my_robot_controller cnn_server "$@"
+}
+alias laptop-cnn="laptop_cnn_func"
+alias cnn-laptop="laptop_cnn_func"
+alias offload-cnn="laptop_cnn_func"
+
 # Lệnh KIỂM TRA CHẨN ĐOÁN TOÀN DIỆN CHUỖI AI CNN
 alias check-cnn="load_ws && python3 \"$WS_DIR/scripts/verify_cnn_pipeline.py\""
 
@@ -864,6 +877,7 @@ cat << 'EOF'
 💻 [TRÊN LAPTOP] (Màn hình quan sát, Lái xe & Xử lý Dataset)
   quay-rviz [tên]    : Mở RViz + Quay video Full HD 1080p 60FPS + Tách Dataset ảnh
                        (Tên khác: rviz-record, laptop-record)
+  laptop-cnn [view:=1]: BẬT MODEL AI CNN TRÊN LAPTOP (Cắm cáp sạc điện thoại vào Laptop, xử lý cực nhanh 30-60 FPS)
   laptop-view        : Mở RViz2 nhận luồng Camera nén từ Pi qua Wi-Fi (mượt, không lag)
   teleop (lai-xe)    : Bàn phím lái xe chuẩn gốc ROS 2 (i=tiến, ,=lùi, j/l=rẽ, k=dừng)
   get-video          : Tự động tìm Pi và kéo video MP4 mới quay về máy tính

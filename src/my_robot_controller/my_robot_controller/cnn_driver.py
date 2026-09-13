@@ -18,6 +18,7 @@ from rclpy.node import Node
 from sensor_msgs.msg import Image, LaserScan, NavSatFix, NavSatStatus, Imu
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
+from std_msgs.msg import Float32MultiArray
 import numpy as np
 
 try:
@@ -60,6 +61,7 @@ class CnnDriverNode(Node):
         self.declare_parameter('phi_smc', 0.5)
         self.declare_parameter('max_steering_angle_deg', 14.0)
         self.declare_parameter('turn_in_place_threshold_deg', 0.3)
+        self.declare_parameter('row_spacing', 0.90)
         self.declare_parameter('ema_alpha', 0.45)
         self.declare_parameter('warmup_time', 1.0)
         self.declare_parameter('navigation_mode', 'auto_three_lanes')
@@ -105,6 +107,7 @@ class CnnDriverNode(Node):
         self.phi_smc                  = p('phi_smc').value
         self.max_steering_angle_deg   = p('max_steering_angle_deg').value
         self.turn_in_place_threshold_deg = p('turn_in_place_threshold_deg').value
+        self.row_spacing              = p('row_spacing').value
         self.ema_alpha                = p('ema_alpha').value
         self.warmup_time              = p('warmup_time').value
         self.navigation_mode          = p('navigation_mode').value
@@ -197,7 +200,8 @@ class CnnDriverNode(Node):
         self.lidar_processor = LidarProcessor()
         self.eor_detector = EndOfRowDetector(
             min_row_distance=self.min_row_length,
-            low_confidence_threshold=self.low_confidence_threshold
+            low_confidence_threshold=self.low_confidence_threshold,
+            consecutive_frames=self.low_conf_frames_threshold
         )
         self.perception_manager = PerceptionManager(
             inference_handler=self.inference,
@@ -249,6 +253,10 @@ class CnnDriverNode(Node):
         self.high_confidence_counter = 0
         self.inside_row             = False
         self.is_adjusting_heading   = False
+        self.heading_adjust_target_yaw = 0.0
+        self.heading_adjust_dir     = 0.0
+        self.heading_adjust_start_time = 0.0
+        self.current_lane_y         = 0.0
 
         # ── Odometry tracking ─────────────────────────────────────────
         self.distance_traveled  = 0.0    # m — cộng dồn từ đầu hàng
@@ -293,10 +301,6 @@ class CnnDriverNode(Node):
 
         self.image_sub = self.create_subscription(
             Image, self.image_topic, self.image_callback, 10)
-        # Fallback subscription for simulation / raw image
-        if self.image_topic not in ('/camera/image_raw', 'camera/image_raw'):
-            self.image_fallback_sub = self.create_subscription(
-                Image, '/camera/image_raw', self.image_callback, 10)
 
         self.odom_sub = self.create_subscription(
             Odometry, self.odom_topic, self.odom_callback, 10)
@@ -317,6 +321,13 @@ class CnnDriverNode(Node):
         if self.imu_topic not in ('/imu', 'imu'):
             self.imu_fallback_sub = self.create_subscription(
                 Imu, '/imu', self.imu_callback, 10)
+
+        # ── Remote CNN Offloading (Laptop gánh phần suy luận ONNX) ───────
+        self._remote_cnn_data = None
+        self._remote_cnn_time = 0.0
+        self.crop_row_sub = self.create_subscription(
+            Float32MultiArray, '/crop_row/detection', self.remote_cnn_callback, 10
+        )
 
         self.get_logger().info(
             f"cnn_driver_node ready | navigation_mode={self.navigation_mode} | "
@@ -461,6 +472,27 @@ class CnnDriverNode(Node):
         self._prev_odom_x   = x
         self._prev_odom_y   = y
 
+        # ── IMU Closed-Loop 50Hz Heading In-Place Adjustment ──────────
+        if self.is_adjusting_heading and self.fsm.get_state() == FSMState.TRACKING:
+            now_sec = self.get_clock().now().nanoseconds / 1e9
+            yaw_err = math.atan2(
+                math.sin(self.heading_adjust_target_yaw - self.current_yaw),
+                math.cos(self.heading_adjust_target_yaw - self.current_yaw)
+            )
+            target_reached = (yaw_err * self.heading_adjust_dir <= 0) or (abs(yaw_err) < math.radians(0.20))
+            timed_out = (now_sec - self.heading_adjust_start_time) > 2.5
+            
+            if target_reached or timed_out:
+                self.is_adjusting_heading = False
+                twist = Twist()
+                twist.linear.x = self.linear_speed
+                twist.angular.z = 0.0
+                self.cmd_vel_pub.publish(twist)
+                status_str = "TARGET_REACHED" if target_reached else "TIMEOUT_SAFETY"
+                self.get_logger().info(
+                    f"🎯 [IMU 50Hz HEADING] Đã xoay xong ({status_str}, yaw_err={math.degrees(yaw_err):+.2f}°). Chạy thẳng {self.linear_speed:.2f} m/s!"
+                )
+
         # Accumulate turn angle if rotating
         is_uturn_active = (
             self.fsm.get_state() == FSMState.UTURN_EXECUTION or
@@ -508,6 +540,19 @@ class CnnDriverNode(Node):
             if self.telemetry_logger:
                 self.telemetry_logger.log_event("FSM_TRANSITION", f"{old_state} -> {new_state}")
 
+    # ── Remote CNN Callback ───────────────────────────────────────────
+    def remote_cnn_callback(self, msg: Float32MultiArray):
+        """Nhận kết quả AI tính sẵn từ Laptop (30-60 FPS, độ trễ thấp)."""
+        if len(msg.data) >= 4:
+            self._remote_cnn_data = {
+                'heading_error': float(msg.data[0]),
+                'lane_offset': float(msg.data[1]),
+                'lane_center': float(msg.data[2]),
+                'confidence': float(msg.data[3]),
+                'latency_ms': float(msg.data[4]) if len(msg.data) > 4 else 0.0
+            }
+            self._remote_cnn_time = self.get_clock().now().nanoseconds / 1e9
+
     # ── Main image callback / FSM ──────────────────────────────────────
     def image_callback(self, msg: Image):
         # Prevent processing duplicate frames within 10ms
@@ -530,6 +575,10 @@ class CnnDriverNode(Node):
             return
 
         # ── Perception Processing via PerceptionManager ───────────────
+        now_sec = now_ns / 1e9
+        is_remote_cnn = (self._remote_cnn_data is not None) and ((now_sec - self._remote_cnn_time) < 0.6)
+        external_cnn = self._remote_cnn_data if is_remote_cnn else None
+
         t_infer_start = time.time()
         perception = self.perception_manager.process_sensors(
             cv_image=bgr_image,
@@ -538,7 +587,8 @@ class CnnDriverNode(Node):
             ry=self.current_y,
             ryaw=self.current_yaw,
             max_angle_deg=self.max_steering_angle_deg,
-            inside_row=self.inside_row
+            inside_row=self.inside_row,
+            external_cnn=external_cnn
         )
         self._last_inference_ms = (time.time() - t_infer_start) * 1000.0
         
@@ -627,8 +677,9 @@ class CnnDriverNode(Node):
                 self.inside_row = True
                 if self.row_start_x is None:
                     self.row_start_x = self.current_x
+                    self.current_lane_y = self.current_y
                 self.row_completed = False
-                self.get_logger().info(f"--- Robot đã chính thức tiến vào trong luống tại x={self.row_start_x:.2f}m (dist={self.distance_traveled:.2f}m, conf={confidence:.2f}) ---")
+                self.get_logger().info(f"--- Robot đã chính thức tiến vào trong luống tại x={self.row_start_x:.2f}m, y={self.current_lane_y:.2f}m (dist={self.distance_traveled:.2f}m, conf={confidence:.2f}) ---")
 
         # ── IDLE ──────────────────────────────────────────────────────
         if current_state == FSMState.IDLE:
@@ -666,7 +717,7 @@ class CnnDriverNode(Node):
                     self.StopRobot()
                     return
                 else:
-                    lane_center = round(self.current_y - 0.5) + 0.5
+                    lane_center = self.current_lane_y
                     dir_x = 1.0 if math.cos(self.current_yaw) >= 0 else -1.0
                     target_yaw = 0.0 if dir_x > 0 else (math.pi if self.current_yaw >= 0 else -math.pi)
                     yaw_err = math.atan2(math.sin(target_yaw - self.current_yaw), math.cos(target_yaw - self.current_yaw))
@@ -703,33 +754,37 @@ class CnnDriverNode(Node):
             
             _lin_smc, _ang_smc = self.StartTracking(dt_actual)
 
-            # ── LOGIC ĐIỀU HƯỚNG CHUẨN XÁC THEO YÊU CẦU ──────────────
-            # 1. Nếu |góc lái| > 0.3°: DỪNG TIẾN (lin_speed = 0.0 m/s), xoay xe tại chỗ căn chỉnh hướng.
-            #    Cấp vận tốc góc ghim ổn định (turn_angular_speed) để 4 bánh vi sai thắng ma sát cỏ,
-            #    chống trượt và phù hợp với FPS thấp (~2 FPS) trên Pi.
-            # 2. Khi |góc lái| <= 0.3°: Hướng đã chuẩn, xe chạy thẳng tiến với 0.10 m/s (ang_vel = 0.0).
-            # 3. Khi đang chạy mà lệch tiếp (> 0.3°): Dừng lại xoay căn chỉnh tiếp.
+            # ── LOGIC ĐIỀU HƯỚNG TẬN DỤNG IMU 50Hz KHÉP VÒNG THEO YÊU CẦU ───
+            # 1. Nếu |góc lái| > 0.3°: DỪNG TIẾN (linear.x = 0.0 m/s), bắt đầu xoay tại chỗ.
+            #    Tính target_yaw dựa trên IMU current_yaw + góc lệch CNN (-smoothed_angle_deg).
+            #    IMU callback 50Hz sẽ giám sát ngắt mô-men ngay lập tức khi đạt đích,
+            #    triệt tiêu hoàn toàn hiện tượng vọt lố (overshoot) do camera Pi FPS thấp (~2 FPS).
+            # 2. Sau khi xoay xong (|góc| <= 0.3°): Xe chạy thẳng tiến với linear_speed (0.10 m/s), angular.z = 0.0.
+            # 3. Khi đang chạy mà tiếp tục bị lệch (> 0.3°): Tiếp tục dừng lại xoay căn chỉnh.
             turn_threshold = getattr(self, 'turn_in_place_threshold_deg', 0.30)
 
             if not self.is_adjusting_heading:
                 if abs(self.smoothed_angle_deg) > turn_threshold:
                     self.is_adjusting_heading = True
+                    self.heading_adjust_start_time = now_sec
+                    self.heading_adjust_dir = -1.0 if self.smoothed_angle_deg > 0 else 1.0
+                    delta_yaw = -math.radians(self.smoothed_angle_deg)
+                    target_yaw = self.current_yaw + delta_yaw
+                    self.heading_adjust_target_yaw = math.atan2(math.sin(target_yaw), math.cos(target_yaw))
                     self.get_logger().info(
-                        f"🌾 [ĐIỀU HƯỚNG] Góc lệch {self.smoothed_angle_deg:+.2f}° > {turn_threshold}°. Dừng tiến, bắt đầu xoay tại chỗ căn chỉnh..."
+                        f"🌾 [ĐIỀU HƯỚNG IMU] Góc lệch {self.smoothed_angle_deg:+.2f}° > {turn_threshold}°. "
+                        f"Dừng tiến, xoay tại chỗ tới target_yaw={math.degrees(self.heading_adjust_target_yaw):.1f}° (dir={self.heading_adjust_dir})..."
                     )
             else:
                 if abs(self.smoothed_angle_deg) <= turn_threshold:
                     self.is_adjusting_heading = False
                     self.get_logger().info(
-                        f"✅ [ĐIỀU HƯỚNG] Đã căn chỉnh chuẩn hướng (|góc|={abs(self.smoothed_angle_deg):.2f}° <= {turn_threshold}°). Chạy thẳng tiếp với {self.linear_speed:.2f} m/s!"
+                        f"✅ [ĐIỀU HƯỚNG IMU] Camera xác nhận hướng chuẩn (|góc|={abs(self.smoothed_angle_deg):.2f}° <= {turn_threshold}°). Chạy thẳng tiếp với {self.linear_speed:.2f} m/s!"
                     )
 
             if self.is_adjusting_heading:
                 lin_speed = 0.0
-                # smoothed_angle_deg > 0: tâm luống lệch phải -> xoay phải (ROS REP-103: ang_vel âm)
-                # smoothed_angle_deg < 0: tâm luống lệch trái -> xoay trái (ROS REP-103: ang_vel dương)
-                turn_dir = -1.0 if self.smoothed_angle_deg > 0 else 1.0
-                ang_vel = turn_dir * self.turn_angular_speed
+                ang_vel = self.heading_adjust_dir * self.turn_angular_speed
             else:
                 lin_speed = self.linear_speed
                 ang_vel = 0.0  # Chạy thẳng ổn định tuyệt đối
@@ -804,21 +859,22 @@ class CnnDriverNode(Node):
                 else:
                     self.last_visited_lane = 'lane_upper'
 
-            # Shift lane by -1.0m when exiting Upper Lane (+y), +1.0m when exiting Lower Lane (-y)
+            # Shift lane by row_spacing (default 0.90m)
             if self.last_visited_lane == 'lane_lower':
-                target_y = self.current_y + 1.00
+                target_y = self.current_y + self.row_spacing
                 current_lane = 'lane_upper'
                 self.turn_direction = 1.0  # Left / CCW turn
             else:
-                target_y = self.current_y - 1.00
+                target_y = self.current_y - self.row_spacing
                 current_lane = 'lane_lower'
                 self.turn_direction = -1.0 # Right / CW turn
 
+            self.current_lane_y = target_y
             dir_x = 1.0 if math.cos(self.current_yaw) >= 0 else -1.0
             goal_x = self.current_x - dir_x * 0.50
             goal_y = target_y
 
-            self.get_logger().info(f"Targeting lane transition: -> target_y={target_y:.2f} (shift={self.turn_direction * 1.00:.2f}m, dir={self.turn_direction})")
+            self.get_logger().info(f"Targeting lane transition: -> target_y={target_y:.2f} (shift={self.turn_direction * self.row_spacing:.2f}m, dir={self.turn_direction})")
             
             # Reset U-turn turn tracking variables
             self.uturn_start_yaw = self.current_yaw
@@ -868,7 +924,7 @@ class CnnDriverNode(Node):
                     twist.linear.x = lin_vel
                     twist.angular.z = ang_vel
             else:
-                lane_center = round(self.current_y - 0.5) + 0.5
+                lane_center = self.current_lane_y
                 returned_to_center = (abs(self.current_y - lane_center) < 0.04) and (path_idx >= 12)
                 
                 # Proactive chained avoidance: if already back in center corridor and sees next obstacle ahead:

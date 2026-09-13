@@ -30,6 +30,7 @@ setup(
     entry_points={
         'console_scripts': [
             'cnn_driver = my_robot_controller.cnn_driver:main',
+            'cnn_server = my_robot_controller.cnn_inference_server:main',
             'data_collector = my_robot_controller.data_collector:main',
             'lidar_processor = my_robot_controller.lidar_processor:main',
             'gps_driver = my_robot_controller.gps_driver:main',

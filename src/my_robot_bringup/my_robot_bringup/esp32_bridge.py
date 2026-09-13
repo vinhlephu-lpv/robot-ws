@@ -161,8 +161,10 @@ class ESP32Bridge(Node):
         """
         self._cmd_v = msg.linear.x
         self._cmd_w = msg.angular.z
-        self.vx = msg.linear.x
-        self.vth = msg.angular.z
+        # Chỉ cập nhật vx/vth trực tiếp từ cmd_vel khi chạy chế độ MOCK (không có phần cứng)
+        if self.mode != 'serial':
+            self.vx = msg.linear.x
+            self.vth = msg.angular.z
 
     def update_loop(self):
         now = self.get_clock().now()
