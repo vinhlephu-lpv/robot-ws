@@ -34,6 +34,11 @@ load_ws() {
     fi
 
 
+    export RCUTILS_CONSOLE_OUTPUT_FORMAT="{message}"
+    export RCUTILS_COLORIZED_OUTPUT=1
+    export PYTHONUNBUFFERED=1
+    export RCUTILS_LOGGING_BUFFERED_STREAM=0
+
     export ROS_DOMAIN_ID=0
     export ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
     if [ -f "/opt/ros/jazzy/lib/librmw_cyclonedds_cpp.so" ] || [ -f "/opt/ros/humble/lib/librmw_cyclonedds_cpp.so" ] || [ -f "/usr/lib/librmw_cyclonedds_cpp.so" ]; then
@@ -278,12 +283,12 @@ real_robot_func() {
     local has_cam=false
     for a in "$@"; do [[ "$a" == camera_device* ]] && has_cam=true; done
     if [ "$has_cam" = true ]; then
-        ros2 launch my_robot_bringup real_robot.launch.py "$@"
+        ros2 launch my_robot_bringup real_robot.launch.py "$@" 2>&1 | python3 "$WS_DIR/scripts/clean_log_filter.py"
     else
         if [[ "$cam_arg" == *"172.20.10.1"* ]]; then
             echo "📱 Phát hiện iPhone qua cáp USB (172.20.10.1), tự động kích hoạt: $cam_arg"
         fi
-        ros2 launch my_robot_bringup real_robot.launch.py "$cam_arg" "$@"
+        ros2 launch my_robot_bringup real_robot.launch.py "$cam_arg" "$@" 2>&1 | python3 "$WS_DIR/scripts/clean_log_filter.py"
     fi
 }
 alias real-robot="real_robot_func"
