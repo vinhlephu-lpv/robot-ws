@@ -32,7 +32,6 @@ class InferenceHandler:
 
     def load_model(self):
         import onnxruntime
-        print(f"[InferenceHandler] Loading ONNX model from {self.model_path}")
 
         available = onnxruntime.get_available_providers()
         providers = []
@@ -64,7 +63,6 @@ class InferenceHandler:
         self.session = onnxruntime.InferenceSession(self.model_path, sess_options=so, providers=providers)
         self.input_name = self.session.get_inputs()[0].name
         self.output_names = [self.session.get_outputs()[0].name]
-        print(f"[InferenceHandler] Model loaded successfully. Providers: {self.session.get_providers()} | Threads: {so.intra_op_num_threads} | Input: {self.input_size}")
 
     def preprocess_image(self, bgr_image: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """Converts BGR image to normalized RGB tensor using pre-allocated buffer."""

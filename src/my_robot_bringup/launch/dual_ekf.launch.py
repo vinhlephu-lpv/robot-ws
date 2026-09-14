@@ -27,7 +27,7 @@ def generate_launch_description():
 
     # Arguments
     enable_gps_arg = DeclareLaunchArgument(
-        'enable_gps', default_value='false',
+        'enable_gps', default_value='true',
         description='Bật EKF 2 (Global) và NavSat Transform dung hợp GPS'
     )
     gps_port_arg = DeclareLaunchArgument(

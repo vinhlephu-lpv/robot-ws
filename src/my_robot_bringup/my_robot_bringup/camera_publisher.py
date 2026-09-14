@@ -69,7 +69,7 @@ class CameraPublisher(Node):
         self.is_running = True
         self.cap = None
         self._frame_count = 0
-        self._last_log_time = 0.0
+        self._last_log_time = time.time()
 
         # ── Start capture & auto-reconnect thread ─────────────────────
         self._capture_thread = threading.Thread(

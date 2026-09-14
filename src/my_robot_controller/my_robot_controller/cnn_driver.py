@@ -42,7 +42,6 @@ from my_robot_controller.telemetry_logger import TelemetryLogger
 class CnnDriverNode(Node):
     def __init__(self):
         super().__init__('cnn_driver_node')
-        self.get_logger().info("Initializing standardized FSM cnn_driver_node...")
 
         # ── Parameters ────────────────────────────────────────────────
         self.declare_parameter('model_path', '')
@@ -145,7 +144,6 @@ class CnnDriverNode(Node):
 
         if not self.use_hsv_mask:
             if not self.model_path or not os.path.exists(self.model_path):
-                self.get_logger().info(f"Resolving model path for '{self.model_path}'...")
                 target_name = os.path.basename(self.model_path) if self.model_path else 'crop_row_cnn_best_final_int8.onnx'
                 candidate_names = [target_name, 'crop_row_cnn_best_final_int8.onnx', 'crop_row_cnn_best_final.onnx']
                 
@@ -157,7 +155,6 @@ class CnnDriverNode(Node):
                         candidate = os.path.join(share_dir, 'models', name)
                         if os.path.exists(candidate):
                             self.model_path = candidate
-                            self.get_logger().info(f"Using model from my_robot_controller share: {self.model_path}")
                             break
                 except Exception:
                     pass
@@ -171,7 +168,6 @@ class CnnDriverNode(Node):
                             candidate = os.path.join(share_dir, 'models', name)
                             if os.path.exists(candidate):
                                 self.model_path = candidate
-                                self.get_logger().info(f"Using model from luanvan_control share: {self.model_path}")
                                 break
                     except Exception:
                         pass
@@ -183,7 +179,6 @@ class CnnDriverNode(Node):
                         candidate = os.path.abspath(os.path.join(current_dir, '..', 'models', name))
                         if os.path.exists(candidate):
                             self.model_path = candidate
-                            self.get_logger().info(f"Using model from source: {self.model_path}")
                             break
 
             if not self.model_path or not os.path.exists(self.model_path):
@@ -330,14 +325,13 @@ class CnnDriverNode(Node):
         )
 
         self.get_logger().info(
-            f"cnn_driver_node ready | navigation_mode={self.navigation_mode} | "
-            f"Image topic={self.image_topic} | Odom topic={self.odom_topic} | "
-            f"min_row_length={self.min_row_length}m | drive_out_distance={self.drive_out_distance}m | "
-            f"GPS topic={self.gps_topic} | Datum Lat/Lon=({self.datum_latitude:.6f}, {self.datum_longitude:.6f})"
+            f"🚀 [AI CNN Driver] Sẵn sàng tự hành bám luống (Vận tốc: {self.linear_speed:.2f} m/s | Model INT8)"
         )
 
         # ── State for Periodic 1Hz Status Logging ─────────────────────
         self._last_image_time = 0.0
+        self._waiting_camera_notified = False
+        self._camera_lost_notified = False
         self._latest_confidence = 0.0
         self._latest_steer_deg = 0.0
         self._latest_twist = Twist()
@@ -489,9 +483,10 @@ class CnnDriverNode(Node):
                 twist.angular.z = 0.0
                 self.cmd_vel_pub.publish(twist)
                 status_str = "TARGET_REACHED" if target_reached else "TIMEOUT_SAFETY"
-                self.get_logger().info(
-                    f"🎯 [IMU 50Hz HEADING] Đã xoay xong ({status_str}, yaw_err={math.degrees(yaw_err):+.2f}°). Chạy thẳng {self.linear_speed:.2f} m/s!"
-                )
+                log_msg = f"🎯 [IMU 50Hz HEADING] Đã xoay xong ({status_str}, yaw_err={math.degrees(yaw_err):+.2f}°). Chạy thẳng {self.linear_speed:.2f} m/s!"
+                self.get_logger().info(log_msg)
+                if self.enable_file_logging and self.telemetry_logger:
+                    self.telemetry_logger.log_event("IMU_HEADING_DONE", log_msg)
 
         # Accumulate turn angle if rotating
         is_uturn_active = (
@@ -564,6 +559,9 @@ class CnnDriverNode(Node):
 
         try:
             bgr_image = self.convert_image(msg)
+            if getattr(self, '_waiting_camera_notified', False):
+                self.get_logger().info("✅ Đã nhận tín hiệu Camera! Bắt đầu chuỗi tự hành AI.")
+                self._waiting_camera_notified = False
             # Debug: Save the first image to verify camera is working (if enabled)
             if self.save_debug_imgs and not hasattr(self, '_debug_image_saved'):
                 os.makedirs(self.output_dir, exist_ok=True)
@@ -680,6 +678,8 @@ class CnnDriverNode(Node):
                     self.current_lane_y = self.current_y
                 self.row_completed = False
                 self.get_logger().info(f"--- Robot đã chính thức tiến vào trong luống tại x={self.row_start_x:.2f}m, y={self.current_lane_y:.2f}m (dist={self.distance_traveled:.2f}m, conf={confidence:.2f}) ---")
+                if self.enable_file_logging and self.telemetry_logger:
+                    self.telemetry_logger.log_event("ENTER_ROW", f"Robot vào luống tại x={self.row_start_x:.2f}m, y={self.current_lane_y:.2f}m (dist={self.distance_traveled:.2f}m, conf={confidence:.2f})")
 
         # ── IDLE ──────────────────────────────────────────────────────
         if current_state == FSMState.IDLE:
@@ -694,6 +694,8 @@ class CnnDriverNode(Node):
             post_path_cooldown = (now_sec - self.last_path_completion_time) < 0.6
             if self.inside_row and obstacle_detected and not post_path_cooldown:
                 self.get_logger().warn("Phát hiện vật cản trực diện trong luống! Dừng xe tạm thời (REACTIVE_AVOID) để đảm bảo an toàn...")
+                if self.enable_file_logging and self.telemetry_logger:
+                    self.telemetry_logger.log_event("OBSTACLE_ALERT", "Phát hiện vật cản trực diện trong luống! Dừng xe tạm thời (REACTIVE_AVOID)")
                 self.transition_to_state(FSMState.REACTIVE_AVOID, now)
                 self.StopRobot()
                 return
@@ -775,12 +777,22 @@ class CnnDriverNode(Node):
                         f"🌾 [ĐIỀU HƯỚNG IMU] Góc lệch {self.smoothed_angle_deg:+.2f}° > {turn_threshold}°. "
                         f"Dừng tiến, xoay tại chỗ tới target_yaw={math.degrees(self.heading_adjust_target_yaw):.1f}° (dir={self.heading_adjust_dir})..."
                     )
+                    if self.enable_file_logging and self.telemetry_logger:
+                        self.telemetry_logger.log_event(
+                            "IMU_HEADING_START",
+                            f"Lệch {self.smoothed_angle_deg:+.2f}° > {turn_threshold}°. Dừng tiến xoay tại chỗ -> target_yaw={math.degrees(self.heading_adjust_target_yaw):.1f}° (dir={self.heading_adjust_dir})"
+                        )
             else:
                 if abs(self.smoothed_angle_deg) <= turn_threshold:
                     self.is_adjusting_heading = False
                     self.get_logger().info(
                         f"✅ [ĐIỀU HƯỚNG IMU] Camera xác nhận hướng chuẩn (|góc|={abs(self.smoothed_angle_deg):.2f}° <= {turn_threshold}°). Chạy thẳng tiếp với {self.linear_speed:.2f} m/s!"
                     )
+                    if self.enable_file_logging and self.telemetry_logger:
+                        self.telemetry_logger.log_event(
+                            "CAMERA_HEADING_OK",
+                            f"Camera xác nhận (|góc|={abs(self.smoothed_angle_deg):.2f}° <= {turn_threshold}°). Chạy thẳng {self.linear_speed:.2f} m/s"
+                        )
 
             if self.is_adjusting_heading:
                 lin_speed = 0.0
@@ -816,6 +828,8 @@ class CnnDriverNode(Node):
                     self.get_logger().info(
                         f"--- Đã nhận biết HẾT HÀNG tự động bằng cảm biến ({reason}) tại x={self.current_x:.2f}m! Bắt đầu tự lập kế hoạch quay đầu... ---"
                     )
+                    if self.enable_file_logging and self.telemetry_logger:
+                        self.telemetry_logger.log_event("END_OF_ROW", f"Hết hàng ({reason}) tại x={self.current_x:.2f}m, dist={self.distance_traveled:.2f}m")
                     self.eor_detected = True
                     self.eor_trigger_x = self.current_x
                     return
@@ -827,6 +841,8 @@ class CnnDriverNode(Node):
             # Check if obstacle has cleared
             if not obstacle_detected:
                 self.get_logger().info("Obstacle cleared! Resuming TRACKING...")
+                if self.enable_file_logging and self.telemetry_logger:
+                    self.telemetry_logger.log_event("OBSTACLE_CLEAR", "Vật cản đã rời khỏi tầm quét. Quay lại TRACKING")
                 self.transition_to_state(FSMState.TRACKING, now)
                 return
                 
@@ -978,6 +994,9 @@ class CnnDriverNode(Node):
         pose_info = self.localization_manager.get_pose()
         gps_info = pose_info.get('gps', {})
         imu_info = pose_info.get('imu', {})
+        inf_ms = getattr(self, '_last_inference_ms', 0.0)
+        fps_val = (1000.0 / inf_ms) if inf_ms > 0 else 0.0
+
         if self.enable_file_logging and self.telemetry_logger:
             self.telemetry_logger.log_telemetry({
                 'fsm_state': current_state,
@@ -985,12 +1004,16 @@ class CnnDriverNode(Node):
                 'y': self.current_y,
                 'yaw': self.current_yaw,
                 'steering_angle_deg': self.smoothed_angle_deg,
+                'raw_steer_deg': raw_angle,
+                'lane_offset': lane_offset,
                 'linear_velocity': twist.linear.x,
                 'angular_velocity': twist.angular.z,
                 'imu_yaw': imu_info.get('yaw', 0.0),
                 'imu_angular_vel_z': imu_info.get('angular_vel_z', 0.0),
                 'imu_accel_x': imu_info.get('linear_accel_x', 0.0),
                 'confidence': confidence,
+                'inference_ms': inf_ms,
+                'fps': fps_val,
                 'distance_traveled': self.distance_traveled,
                 'gps_latitude': gps_info.get('latitude', 0.0),
                 'gps_longitude': gps_info.get('longitude', 0.0),
@@ -1011,33 +1034,41 @@ class CnnDriverNode(Node):
         self._latest_inf_ms = getattr(self, '_last_inference_ms', 0.0)
 
     def status_timer_callback(self):
-        """Định kỳ in trạng thái trực quan chuẩn 1 Hz ra terminal (không bao giờ im lặng kể cả khi chờ camera)."""
+        """Định kỳ in trạng thái trực quan chuẩn 1 Hz ra terminal khi đang tự hành."""
         now_sec = time.time()
         current_state = self.fsm.get_state()
-        if self._last_image_time == 0.0 or (now_sec - self._last_image_time) > 2.0:
-            status_msg = (
-                f"🌾 [AI Lái Xe] Góc lái:  +0.00° | "
-                f"Trạng thái: [{current_state:^13s}] | "
-                f"Tin cậy:   0.0% | "
-                f"⚠️ Đang chờ Camera ({self.image_topic})..."
-            )
-        else:
-            inf_ms = self._latest_inf_ms
-            fps_val = 1000.0 / inf_ms if inf_ms > 0 else 0.0
-            gps_status = self._latest_gps_info.get('status', 'NO_FIX')
-            gps_source = self._latest_gps_info.get('source', '')
-            if gps_status == 'FIX' and gps_source == 'DIRECT_SENSOR':
-                gps_str = f" | GPS (Thật): {self._latest_gps_info.get('latitude', 0.0):.6f}°, {self._latest_gps_info.get('longitude', 0.0):.6f}°"
-            else:
-                gps_str = ""
-            status_msg = (
-                f"🌾 [AI Lái Xe] Góc lái: {self._latest_steer_deg:+5.2f}° | "
-                f"Trạng thái: [{current_state:^13s}] | "
-                f"Tin cậy: {self._latest_confidence*100:4.1f}% | "
-                f"AI: {inf_ms:3.0f}ms ({fps_val:3.1f} FPS) | "
-                f"Vel: ({self._latest_twist.linear.x:.2f}m/s, {self._latest_twist.angular.z:+.2f}r/s)"
-                f"{gps_str}"
-            )
+
+        # 1. Chưa nhận được frame camera nào từ lúc bật: chỉ thông báo 1 lần, KHÔNG spam mỗi giây
+        if self._last_image_time == 0.0:
+            if not getattr(self, '_waiting_camera_notified', False):
+                self.get_logger().info("⏳ Đang chờ nhận hình ảnh từ Camera...")
+                self._waiting_camera_notified = True
+            return
+
+        # 2. Bị mất tín hiệu camera giữa chừng quá 3 giây: cảnh báo 1 lần
+        if (now_sec - self._last_image_time) > 3.0:
+            if not getattr(self, '_camera_lost_notified', False):
+                self.get_logger().warn("⚠️ Mất tín hiệu Camera quá 3 giây! Xe đang tạm dừng.")
+                self._camera_lost_notified = True
+            return
+
+        self._camera_lost_notified = False
+
+        # 3. Khi xe đang hoạt động bình thường: in 1 dòng chuẩn, súc tích, cực kỳ dễ đọc
+        inf_ms = self._latest_inf_ms
+        fps_val = (1000.0 / inf_ms) if inf_ms > 0 else 0.0
+        gps_status = self._latest_gps_info.get('status', 'NO_FIX')
+        gps_source = self._latest_gps_info.get('source', '')
+        gps_str = f" | GPS: {self._latest_gps_info.get('latitude', 0.0):.5f}°, {self._latest_gps_info.get('longitude', 0.0):.5f}°" if (gps_status == 'FIX' and gps_source == 'DIRECT_SENSOR') else ""
+
+        status_msg = (
+            f"🌾 [AI Lái Xe] Góc: {self._latest_steer_deg:+5.2f}° | "
+            f"Trạng thái: [{current_state:^10s}] | "
+            f"Tin cậy: {self._latest_confidence*100:4.1f}% | "
+            f"AI: {inf_ms:2.0f}ms ({fps_val:3.1f}FPS) | "
+            f"V: {self._latest_twist.linear.x:.2f}m/s"
+            f"{gps_str}"
+        )
         self.get_logger().info(status_msg)
         if self.enable_file_logging and self.telemetry_logger:
             self.telemetry_logger.log_event("SYSTEM_STATUS", status_msg)
@@ -1159,6 +1190,28 @@ class CnnDriverNode(Node):
             self.accumulated_turn_angle = 0.0
         else:
             self.inside_row = True
+
+    def destroy_node(self):
+        """Clean shutdown hook to stop robot and record final session metrics."""
+        try:
+            self.StopRobot()
+        except Exception:
+            pass
+        if getattr(self, 'enable_file_logging', False) and getattr(self, 'telemetry_logger', None):
+            try:
+                run_dur = 0.0
+                if self.node_start_time is not None:
+                    run_dur = (self.get_clock().now() - self.node_start_time).nanoseconds / 1e9
+                summary_msg = (
+                    f"cnn_driver node stopped cleanly. "
+                    f"Total duration: {run_dur:.1f}s | "
+                    f"Total distance: {self.distance_traveled:.2f}m | "
+                    f"Final FSM: {self.fsm.get_state()}"
+                )
+                self.telemetry_logger.log_event("SYSTEM_STOP", summary_msg)
+            except Exception:
+                pass
+        super().destroy_node()
 
 
 def main(args=None):

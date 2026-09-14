@@ -12,12 +12,35 @@ from datetime import datetime
 
 class TelemetryLogger:
     def __init__(self, log_dir=None, enable_csv=True, enable_text_log=True):
-        if log_dir is None:
-            # Default to LuanVan/logs directory
-            base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-            log_dir = os.path.join(base_dir, 'logs')
+        if log_dir is None or not os.path.isabs(log_dir):
+            # Resolve workspace root
+            ws_dir = os.environ.get('WS_DIR', '')
+            if not ws_dir or not os.path.isdir(ws_dir):
+                # Search upward from __file__
+                curr = os.path.abspath(__file__)
+                for _ in range(6):
+                    parent = os.path.dirname(curr)
+                    if os.path.isdir(os.path.join(parent, 'src')) or os.path.isdir(os.path.join(parent, 'install')):
+                        ws_dir = parent
+                        break
+                    curr = parent
+            if not ws_dir or not os.path.isdir(ws_dir):
+                for candidate in [
+                    '/home/vinh/Màn hình nền/robot_ws',
+                    os.path.expanduser('~/robot_ws'),
+                    os.path.expanduser('~/robot-ws')
+                ]:
+                    if os.path.isdir(candidate):
+                        ws_dir = candidate
+                        break
+            if not ws_dir or not os.path.isdir(ws_dir):
+                ws_dir = os.path.expanduser('~')
 
-        self.log_dir = log_dir
+            sub_dir = log_dir if (log_dir and log_dir != 'logs') else 'logs'
+            self.log_dir = os.path.join(ws_dir, sub_dir)
+        else:
+            self.log_dir = os.path.abspath(os.path.expanduser(log_dir))
+
         self.enable_csv = enable_csv
         self.enable_text_log = enable_text_log
         
@@ -26,6 +49,8 @@ class TelemetryLogger:
         timestamp_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         self.csv_filename = os.path.join(self.log_dir, f"telemetry_{timestamp_str}.csv")
         self.log_filename = os.path.join(self.log_dir, f"system_run_{timestamp_str}.log")
+        self.latest_csv_filename = os.path.join(self.log_dir, "latest_telemetry.csv")
+        self.latest_log_filename = os.path.join(self.log_dir, "latest_system_run.log")
         
         self.csv_headers = [
             'Time',
@@ -35,12 +60,16 @@ class TelemetryLogger:
             'Pos_Y_m',
             'Yaw_rad',
             'Steer_Angle_deg',
+            'Raw_Steer_deg',
+            'Lane_Offset_m',
             'Linear_Vel_mps',
             'Angular_Vel_radps',
             'IMU_Yaw_rad',
             'IMU_Angular_Vel_z',
             'IMU_Accel_x',
             'Confidence',
+            'Inference_ms',
+            'FPS',
             'Dist_Traveled_m',
             'GPS_Latitude',
             'GPS_Longitude',
@@ -51,9 +80,14 @@ class TelemetryLogger:
         ]
 
         if self.enable_csv and not os.path.exists(self.csv_filename):
-            with open(self.csv_filename, mode='w', newline='') as f:
-                writer = csv.writer(f)
-                writer.writerow(self.csv_headers)
+            try:
+                with open(self.csv_filename, mode='w', newline='') as f:
+                    writer = csv.writer(f)
+                    writer.writerow(self.csv_headers)
+                    f.flush()
+                self._update_symlink(self.csv_filename, self.latest_csv_filename)
+            except Exception as e:
+                print(f"[TelemetryLogger Error] Failed to initialize CSV: {e}")
 
         if self.enable_text_log:
             start_header = (
@@ -61,15 +95,32 @@ class TelemetryLogger:
                 f" ROBOT SYSTEM RUN LOG | STARTED: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
                 f" CSV Telemetry File : {self.csv_filename}\n"
                 f" Text System Log File: {self.log_filename}\n"
+                f" Latest CSV Link    : {self.latest_csv_filename}\n"
+                f" Latest Text Link   : {self.latest_log_filename}\n"
                 + "=" * 80 + "\n"
             )
             try:
                 with open(self.log_filename, mode='w') as f:
                     f.write(start_header)
+                    f.flush()
+                self._update_symlink(self.log_filename, self.latest_log_filename)
             except Exception as e:
                 print(f"[TelemetryLogger Error] Failed to write header: {e}")
 
             self.log_event("SYSTEM_START", "Telemetry and Logging system started cleanly.")
+
+    def _update_symlink(self, src: str, dst: str):
+        """Creates or updates a symlink or copy pointing to the latest log file."""
+        try:
+            if os.path.islink(dst) or os.path.exists(dst):
+                os.remove(dst)
+            os.symlink(os.path.basename(src), dst)
+        except Exception:
+            try:
+                import shutil
+                shutil.copyfile(src, dst)
+            except Exception:
+                pass
 
     def log_telemetry(self, data: dict):
         """
@@ -89,12 +140,16 @@ class TelemetryLogger:
             f"{data.get('y', 0.0):.3f}",
             f"{data.get('yaw', 0.0):.3f}",
             f"{data.get('steering_angle_deg', 0.0):.2f}",
+            f"{data.get('raw_steer_deg', 0.0):.2f}",
+            f"{data.get('lane_offset', 0.0):.3f}",
             f"{data.get('linear_velocity', 0.0):.3f}",
             f"{data.get('angular_velocity', 0.0):.3f}",
             f"{data.get('imu_yaw', 0.0):.3f}",
             f"{data.get('imu_angular_vel_z', 0.0):.3f}",
             f"{data.get('imu_accel_x', 0.0):.3f}",
             f"{data.get('confidence', 0.0):.3f}",
+            f"{data.get('inference_ms', 0.0):.1f}",
+            f"{data.get('fps', 0.0):.1f}",
             f"{data.get('distance_traveled', 0.0):.2f}",
             f"{data.get('gps_latitude', 0.0):.8f}",
             f"{data.get('gps_longitude', 0.0):.8f}",
@@ -108,6 +163,7 @@ class TelemetryLogger:
             with open(self.csv_filename, mode='a', newline='') as f:
                 writer = csv.writer(f)
                 writer.writerow(row)
+                f.flush()
         except Exception as e:
             print(f"[TelemetryLogger Error] Failed to write CSV: {e}")
 
@@ -119,18 +175,24 @@ class TelemetryLogger:
             return
 
         time_str = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-        log_line = f"[{time_str}] [{event_type:^15s}] {message}\n"
+        log_line = f"[{time_str}] [{event_type:^18s}] {message}\n"
         
         try:
             with open(self.log_filename, mode='a') as f:
                 f.write(log_line)
+                f.flush()
         except Exception as e:
             print(f"[TelemetryLogger Error] Failed to write text log: {e}")
 
 
 def main(args=None):
     logger = TelemetryLogger()
-    print(f"TelemetryLogger initialized. CSV log: {logger.csv_filename}, Text log: {logger.log_filename}")
+    print(f"TelemetryLogger initialized.")
+    print(f"📁 Log Directory: {logger.log_dir}")
+    print(f"📄 CSV Log      : {logger.csv_filename}")
+    print(f"📄 Text Log     : {logger.log_filename}")
+    print(f"🔗 Latest CSV   : {logger.latest_csv_filename}")
+    print(f"🔗 Latest Text  : {logger.latest_log_filename}")
     logger.log_event("SYSTEM", "TelemetryLogger test event recorded successfully.")
     print("✅ Logged test event successfully.")
 

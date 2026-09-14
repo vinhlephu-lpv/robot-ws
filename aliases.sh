@@ -158,10 +158,13 @@ alias rviz-cam="rviz_record_func"
 
 rviz_view_func() {
     load_ws
-    killall -q wifi_cam_receiver 2>/dev/null || true
-    ros2 run my_robot_bringup wifi_cam_receiver &>/dev/null &
+    mkdir -p "$WS_DIR/logs"
+    pkill -f "my_robot_bringup.*wifi_cam_receiver" 2>/dev/null || true
+    sleep 0.2
+    echo "📷 [LAPTOP-VIEW] Đang khởi động bộ thu & giải mã Camera Wi-Fi từ Pi..."
+    ros2 run my_robot_bringup wifi_cam_receiver > "$WS_DIR/logs/wifi_cam_receiver.log" 2>&1 &
     local receiver_pid=$!
-    sleep 0.5
+    sleep 0.8
 
     local rviz_file=""
     for cand in \
@@ -180,7 +183,8 @@ rviz_view_func() {
     else
         rviz2 "$@"
     fi
-    kill $receiver_pid 2>/dev/null || true
+    kill -9 $receiver_pid 2>/dev/null || true
+    pkill -f "my_robot_bringup.*wifi_cam_receiver" 2>/dev/null || true
 }
 alias rviz="rviz_view_func"
 alias laptop-view="rviz_view_func"
@@ -311,23 +315,60 @@ real_cnn_func() {
     fuser -k /dev/video* 2>/dev/null || true
     killall -q -9 camera_publisher wifi_cam_bridge cnn_driver 2>/dev/null || true
 
+    mkdir -p "$WS_DIR/logs"
+    local timestamp
+    timestamp=$(date +%Y%m%d_%H%M%S)
+    local term_log="$WS_DIR/logs/terminal_real_cnn_${timestamp}.log"
+    local latest_term="$WS_DIR/logs/terminal_real_cnn_latest.log"
+
+    echo "================================================================================"
+    echo "🌾 [REAL-CNN] KHỞI ĐỘNG TỰ HÀNH BÁM LUỐNG BẰNG AI"
+    echo "📁 Dữ liệu góc lái & log tự động lưu tại: $WS_DIR/logs/"
+    echo "================================================================================"
+
     local cam_arg
     cam_arg=$(detect_camera_device "$@")
     local has_cam=false
     for a in "$@"; do [[ "$a" == camera_device* ]] && has_cam=true; done
+
+    local gps_arg="enable_gps:=true"
+    for a in "$@"; do [[ "$a" == enable_gps* ]] && gps_arg=""; done
+
+    export PYTHONUNBUFFERED=1
+    export RCUTILS_LOGGING_BUFFERED_STREAM=0
+    export RCUTILS_COLORIZED_OUTPUT=1
+
     if [ "$has_cam" = true ]; then
-        ros2 launch my_robot_bringup real_robot.launch.py enable_cnn:=true "$@"
+        ros2 launch my_robot_bringup real_robot.launch.py enable_cnn:=true $gps_arg "$@" 2>&1 | python3 "$WS_DIR/scripts/clean_log_filter.py" | tee -a "$term_log"
     else
         if [[ "$cam_arg" == *"172.20.10.1"* ]]; then
-            echo "📱 [AI CNN] Tự động kết nối Camera iPhone qua cáp USB: $cam_arg"
+            echo "📱 [AI CNN] Tự động kết nối Camera iPhone qua cáp USB: $cam_arg" | tee -a "$term_log"
         fi
-        ros2 launch my_robot_bringup real_robot.launch.py enable_cnn:=true "$cam_arg" "$@"
+        ros2 launch my_robot_bringup real_robot.launch.py enable_cnn:=true $gps_arg "$cam_arg" "$@" 2>&1 | python3 "$WS_DIR/scripts/clean_log_filter.py" | tee -a "$term_log"
     fi
+
+    ln -sf "$term_log" "$latest_term" 2>/dev/null || cp -f "$term_log" "$latest_term" 2>/dev/null || true
+    echo ""
+    echo "================================================================================"
+    echo "✅ [REAL-CNN] Đã dừng xe. Toàn bộ dữ liệu lái xe đã lưu tại: $WS_DIR/logs/"
+    echo "👉 Xem đồ thị: gõ 'plot-lai' | Xem bảng số liệu: gõ 'xem-lai'"
+    echo "================================================================================"
 }
 alias real-cnn="real_cnn_func"
 alias auto-cnn="real-cnn"
 alias cnn-auto="real-cnn"
 alias fix-cam="sudo fuser -k /dev/video* 2>/dev/null || true; echo '✅ Đã giải phóng cổng Camera USB /dev/video*!'"
+
+# Phím tắt xem và phân tích dữ liệu log lái xe real-cnn
+alias xem-lai="python3 \"$WS_DIR/scripts/view_telemetry.py\""
+alias xem-log="python3 \"$WS_DIR/scripts/view_telemetry.py\""
+alias log-lai="python3 \"$WS_DIR/scripts/view_telemetry.py\""
+alias plot-lai="python3 \"$WS_DIR/scripts/view_telemetry.py\" --plot"
+alias xem-anh="xdg-open \"$WS_DIR/logs/latest_driving_plot.png\" 2>/dev/null || eog \"$WS_DIR/logs/latest_driving_plot.png\" 2>/dev/null &"
+alias xem-plot="xem-anh"
+alias xem-sk="python3 \"$WS_DIR/scripts/view_telemetry.py\" --events"
+alias tail-log="tail -n 50 -f \"$WS_DIR/logs/terminal_real_cnn_latest.log\""
+alias mo-log="ls -lht \"$WS_DIR/logs\""
 
 # Lệnh chạy xe với Camera iPhone (qua cáp USB hoặc Wi-Fi)
 test-iphone() {
@@ -731,6 +772,31 @@ get-video() {
     echo "✅ File video đã được lưu tại: $WS_DIR/dataset/"
 }
 alias get-videos="get-video"
+
+# Lệnh tải toàn bộ Log & CSV lái xe từ Pi về Laptop (Chạy trên Laptop)
+get-log() {
+    local pi_ip="${1:-}"
+    if [ -z "$pi_ip" ]; then
+        echo "🔍 Đang tìm Pi trên mạng..."
+        pi_ip=$(find_pi_func 2>/dev/null)
+    fi
+    if [ -z "$pi_ip" ]; then
+        echo "❌ Không tìm thấy Pi! Hãy truyền IP thủ công: get-log 192.168.x.y"
+        return 1
+    fi
+    mkdir -p "$WS_DIR/logs"
+    echo "📥 Đang kéo toàn bộ Log & CSV từ Pi ($pi_ip) về $WS_DIR/logs/ ..."
+    rsync -avP "${PI_USER}@$pi_ip:~/robot-ws/logs/" "$WS_DIR/logs/" 2>/dev/null || \
+    rsync -avP "${PI_USER}@$pi_ip:~/robot_ws/logs/" "$WS_DIR/logs/" 2>/dev/null || \
+    scp "${PI_USER}@$pi_ip:~/robot-ws/logs/*.*" "$WS_DIR/logs/" 2>/dev/null || \
+    scp "${PI_USER}@$pi_ip:~/robot_ws/logs/*.*" "$WS_DIR/logs/"
+    echo "✅ Đã đồng bộ toàn bộ log về Laptop tại: $WS_DIR/logs/"
+    echo "👉 Bạn có thể gõ ngay 'xem-lai' hoặc 'plot-lai' để phân tích số liệu trên Laptop!"
+}
+alias get-logs="get-log"
+alias pull-log="get-log"
+alias sync-log="get-log"
+
 alias extract-dataset="python3 \"$WS_DIR/scripts/extract_dataset.py\""
 alias rename-dataset="python3 \"$WS_DIR/scripts/rename_dataset.py\""
 
@@ -892,7 +958,10 @@ cat << 'EOF'
 🍓 [TRÊN RASPBERRY PI] (Khởi động phần cứng xe & Quay video)
   real-robot         : BẬT XE THẬT (Tự động chạy Madgwick + EKF chuẩn xác)
   real-record [tên]  : BẬT XE THẬT + QUAY VIDEO THÔ (100% Raw, lưu MP4 vào Pi)
-  real-cnn           : BẬT XE THẬT TỰ HÀNH BÁM LUỐNG BẰNG AI CNN (1-Click)
+  real-cnn           : BẬT XE THẬT TỰ HÀNH BÁM LUỐNG BẰNG AI CNN (Tự động lưu toàn bộ log & góc lái)
+  xem-lai (xem-log)  : Xem báo cáo phân tích góc lái, tốc độ, độ tin cậy AI của lần chạy gần nhất
+  tail-log           : Xem luồng log terminal thời gian thực của real-cnn
+  mo-log             : Liệt kê toàn bộ các file log CSV & Text trong robot_ws/logs/
   real-slam          : Bật Xe Thật + SLAM Toolbox vẽ bản đồ
   real-nav            : Bật Xe Thật + Nav2 ngoài trời (Odom-Only, LiDAR obstacle avoidance)
   savemap <tên_map>  : Lưu bản đồ SLAM vừa quét xong vào thư mục maps/

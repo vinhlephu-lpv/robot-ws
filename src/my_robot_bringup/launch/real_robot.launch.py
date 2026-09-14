@@ -92,21 +92,29 @@ def generate_launch_description():
         description='Enable EKF sensor fusion (Wheel Odometry + IMU)')
 
     enable_gps_arg = DeclareLaunchArgument(
-        'enable_gps', default_value='false',
+        'enable_gps', default_value='true',
         description='Enable GPS NEO-M10, NavSat Transform and EKF 2 Global')
+
+    gps_port_arg = DeclareLaunchArgument(
+        'gps_port', default_value='/dev/ttyAMA0',
+        description='Serial port for GPS NEO-M10 (default: /dev/ttyAMA0)')
+
+    gps_baud_arg = DeclareLaunchArgument(
+        'gps_baud', default_value='38400',
+        description='Baudrate for GPS NEO-M10 (default: 38400)')
 
     # ── Robot State Publisher (URDF + TF) ────────────────────────────
     robot_state_pub = Node(
         package='robot_state_publisher',
         executable='robot_state_publisher',
-        output='screen',
+        output='log',
         parameters=[{'robot_description': robot_description, 'use_sim_time': False}]
     )
 
     joint_state_pub = Node(
         package='joint_state_publisher',
         executable='joint_state_publisher',
-        output='screen',
+        output='log',
         parameters=[{
             'robot_description': robot_description,
             'use_sim_time': False,
@@ -265,7 +273,7 @@ def generate_launch_description():
         package='imu_filter_madgwick',
         executable='imu_filter_madgwick_node',
         name='imu_filter_madgwick_node',
-        output='screen',
+        output='log',
         parameters=[{
             'use_mag': False,
             'publish_tf': False,
@@ -289,6 +297,8 @@ def generate_launch_description():
         ),
         launch_arguments={
             'enable_gps': LaunchConfiguration('enable_gps'),
+            'gps_port': LaunchConfiguration('gps_port'),
+            'gps_baud': LaunchConfiguration('gps_baud'),
         }.items(),
         condition=IfCondition(LaunchConfiguration('enable_ekf'))
     )
@@ -318,6 +328,8 @@ def generate_launch_description():
         enable_madgwick_arg,
         enable_ekf_arg,
         enable_gps_arg,
+        gps_port_arg,
+        gps_baud_arg,
         robot_state_pub,
         joint_state_pub,
         static_odom_tf,

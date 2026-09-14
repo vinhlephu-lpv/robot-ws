@@ -67,8 +67,8 @@ cnn_driver_node:
 
 gps_driver_node:
   ros__parameters:
-    serial_port: '/dev/ttyUSB0'
-    baudrate: 9600
+    serial_port: '/dev/ttyAMA0'
+    baudrate: 38400
     frame_id: 'gps_link'
     publish_topic: '/gps/fix'
 

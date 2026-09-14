@@ -95,7 +95,9 @@ class WifiCamReceiver(Node):
             self.pub_raw.publish(img_msg)
 
             self._recv_count += 1
-            if self._recv_count % 100 == 0:
+            if self._recv_count == 1:
+                self.get_logger().info(f'✅ [WIFI CAM] Đã nhận và giải nén frame camera đầu tiên từ Pi qua Wi-Fi ({img_rgb.shape[1]}x{img_rgb.shape[0]})!')
+            elif self._recv_count % 100 == 0:
                 self.get_logger().info(
                     f'Đã giải nén {self._recv_count} frames',
                     throttle_duration_sec=30.0)
