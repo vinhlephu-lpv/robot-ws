@@ -448,18 +448,6 @@ class ImuDriverNode(Node):
 
         self.imu_pub.publish(msg)
 
-        # Định kỳ in trạng thái trực quan ra màn hình terminal (1 Hz) để người dùng theo dõi không bị rối
-        if (now - self.last_log_time) >= 1.0:
-            self.last_log_time = now
-            roll_deg = self.roll / DEG_TO_RAD
-            pitch_deg = self.pitch / DEG_TO_RAD
-            yaw_deg = self.yaw / DEG_TO_RAD
-            stat_str = "TĨNH (ZUPT)" if self.is_stationary else "CHẠY"
-            self.get_logger().info(
-                f"📐 [IMU Live] Roll: {roll_deg:+5.1f}° | Pitch: {pitch_deg:+5.1f}° | Yaw: {yaw_deg:+5.1f}° | "
-                f"Acc: ({out_ax:+5.2f}, {out_ay:+5.2f}, {out_az:+5.2f}) | Wz: {out_gz:+5.3f} rad/s | [{stat_str}]"
-            )
-
     def destroy_node(self):
         if self.i2c:
             self.i2c.close()
