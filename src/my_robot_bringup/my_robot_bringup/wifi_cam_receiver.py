@@ -36,11 +36,11 @@ class WifiCamReceiver(Node):
     def __init__(self):
         super().__init__('wifi_cam_receiver')
 
-        # Subscribe compressed image (từ Pi qua Wi-Fi, Best Effort)
+        # Subscribe compressed image (từ Pi qua Wi-Fi, RELIABLE để đảm bảo không rớt gói qua router)
         wifi_qos = QoSProfile(
-            reliability=ReliabilityPolicy.BEST_EFFORT,
+            reliability=ReliabilityPolicy.RELIABLE,
             history=HistoryPolicy.KEEP_LAST,
-            depth=1,
+            depth=5,
             durability=DurabilityPolicy.VOLATILE,
         )
         self.sub = self.create_subscription(

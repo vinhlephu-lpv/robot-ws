@@ -59,11 +59,11 @@ class WifiCamBridge(Node):
         self.sub = self.create_subscription(
             Image, '/camera/color/image_raw', self._on_image, raw_qos)
 
-        # Publish compressed image (qua Wi-Fi, Best Effort)
+        # Publish compressed image (qua Wi-Fi, RELIABLE để đảm bảo không rớt gói qua router)
         wifi_qos = QoSProfile(
-            reliability=ReliabilityPolicy.BEST_EFFORT,
+            reliability=ReliabilityPolicy.RELIABLE,
             history=HistoryPolicy.KEEP_LAST,
-            depth=1,
+            depth=5,
             durability=DurabilityPolicy.VOLATILE,
         )
         self.pub = self.create_publisher(
