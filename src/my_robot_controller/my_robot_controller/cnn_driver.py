@@ -62,6 +62,7 @@ class CnnDriverNode(Node):
         self.declare_parameter('turn_in_place_threshold_deg', 0.3)
         self.declare_parameter('row_spacing', 0.90)
         self.declare_parameter('ema_alpha', 0.45)
+        self.declare_parameter('enable_uturn', False)
         self.declare_parameter('warmup_time', 1.0)
         self.declare_parameter('navigation_mode', 'auto_three_lanes')
         self.declare_parameter('min_row_length', 5.0)
@@ -108,6 +109,7 @@ class CnnDriverNode(Node):
         self.turn_in_place_threshold_deg = p('turn_in_place_threshold_deg').value
         self.row_spacing              = p('row_spacing').value
         self.ema_alpha                = p('ema_alpha').value
+        self.enable_uturn             = p('enable_uturn').value
         self.warmup_time              = p('warmup_time').value
         self.navigation_mode          = p('navigation_mode').value
         self.min_row_length           = p('min_row_length').value
@@ -246,6 +248,7 @@ class CnnDriverNode(Node):
         self.smoothed_angle_deg     = 0.0
         self.low_confidence_counter = 0
         self.high_confidence_counter = 0
+        self.eor_low_conf_frames    = 0
         self.inside_row             = False
         self.is_adjusting_heading   = False
         self.heading_adjust_target_yaw = 0.0
@@ -700,8 +703,13 @@ class CnnDriverNode(Node):
                 self.StopRobot()
                 return
 
-            # 2. End-of-Row exit distance handling
+            # 2. End-of-Row exit distance handling (Chỉ chạy khi enable_uturn=True)
             if getattr(self, 'eor_detected', False):
+                if not self.enable_uturn:
+                    self.eor_detected = False
+                    self.StopRobot()
+                    self.transition_to_state(FSMState.IDLE, now)
+                    return
                 dx = self.current_x - self.eor_trigger_x
                 if abs(dx) >= self.drive_out_distance:
                     self.get_logger().info(
@@ -806,39 +814,50 @@ class CnnDriverNode(Node):
             twist.linear.x = lin_speed
             twist.angular.z = ang_vel
 
-            # ── Pure Perception U-turn triggers ───────────────────────
-            if warmup_done:
-                # 1. CNN Confidence trigger
-                if confidence < self.low_confidence_threshold:
-                    self.low_confidence_counter += 1
+            # ── Pure Perception End-Of-Row Check ─────────────────────
+            if warmup_done and self.inside_row:
+                # 1. Điều kiện: 5 frame liên tiếp thấy hết cây và confidence < 30%
+                if confidence < 0.30:
+                    self.eor_low_conf_frames += 1
                 else:
-                    self.low_confidence_counter = 0
+                    self.eor_low_conf_frames = 0
                 
-                trigger_confidence = (self.low_confidence_counter >= self.low_conf_frames_threshold)
+                trigger_confidence = (self.eor_low_conf_frames >= 5)
                 
-                # 2. Safety distance backup (safety net if vision/LiDAR is degraded)
+                # 2. Safety distance watchdog (phòng ngừa khẩn cấp)
                 trigger_safety_distance = (self.distance_traveled >= self.max_row_length)
 
-                # ── Pure Perception U-turn triggers ───────────────────────
-                # Tự động nhận biết hết hàng hoàn toàn bằng đa cảm biến (Perception-driven):
-                # 1. BẮT BUỘC: Xe phải di chuyển qua quãng đường tối thiểu của hàng (distance_traveled >= min_row_length)
-                #    Nếu còn đang trong hàng (chưa đủ cự ly min_row_length), TUYỆT ĐỐI KHÔNG quay đầu.
-                # 2. Camera CNN mất dấu hàng thùng khi ra khỏi luống (trigger_confidence)
-                # 3. Hoặc đã chạy hết max_row_length
-                # Tuyệt đối KHÔNG quay đầu khi Camera vẫn nhận diện luống rõ ràng (confidence >= low_confidence_threshold)!
-                min_dist_satisfied = (self.distance_traveled >= self.min_row_length)
+                # Xe đã chạy qua cự ly tối thiểu của luống (ít nhất 2.0m hoặc min_row_length)
+                min_dist_satisfied = (self.distance_traveled >= min(2.0, self.min_row_length))
 
-                if self.inside_row and min_dist_satisfied and (trigger_confidence or end_of_row or trigger_safety_distance):
-                    self.row_completed = True
-                    reason = "LiDAR Headland Clearance" if end_of_row else ("Vision Confidence Drop" if trigger_confidence else "Safety Distance Watchdog")
-                    self.get_logger().info(
-                        f"--- Đã nhận biết HẾT HÀNG tự động bằng cảm biến ({reason}) tại x={self.current_x:.2f}m (dist={self.distance_traveled:.2f}m >= {self.min_row_length:.1f}m)! Bắt đầu tự lập kế hoạch quay đầu... ---"
-                    )
-                    if self.enable_file_logging and self.telemetry_logger:
-                        self.telemetry_logger.log_event("END_OF_ROW", f"Hết hàng ({reason}) tại x={self.current_x:.2f}m, dist={self.distance_traveled:.2f}m")
-                    self.eor_detected = True
-                    self.eor_trigger_x = self.current_x
-                    return
+                if min_dist_satisfied and (trigger_confidence or end_of_row or trigger_safety_distance):
+                    if not self.enable_uturn:
+                        # ── TẠM THỜI VÔ HIỆU HÓA QUAY ĐẦU: DỪNG XE AN TOÀN TẠI CUỐI HÀNG ──
+                        self.StopRobot()
+                        self.transition_to_state(FSMState.IDLE, now)
+                        self.get_logger().info(
+                            f"🛑 [HẾT HÀNG] Đã chạy tới cuối luống bắp! "
+                            f"Phát hiện 5 frame liên tiếp hết cây (confidence={confidence*100:.1f}% < 30%). "
+                            f"Dừng xe an toàn tại x={self.current_x:.2f}m (quãng đường={self.distance_traveled:.2f}m)!"
+                        )
+                        if self.enable_file_logging and self.telemetry_logger:
+                            self.telemetry_logger.log_event(
+                                "END_OF_ROW_STOP",
+                                f"Hết hàng (5 frames confidence < 30%) -> Dừng xe tại x={self.current_x:.2f}m, dist={self.distance_traveled:.2f}m"
+                            )
+                        return
+                    else:
+                        # ── [MÃ QUAY ĐẦU - GIỮ NGUYÊN KHÔNG XÓA KHI CẦN BẬT LẠI] ─────
+                        self.row_completed = True
+                        reason = "LiDAR Headland Clearance" if end_of_row else ("Vision Confidence Drop" if trigger_confidence else "Safety Distance Watchdog")
+                        self.get_logger().info(
+                            f"--- Đã nhận biết HẾT HÀNG tự động bằng cảm biến ({reason}) tại x={self.current_x:.2f}m (dist={self.distance_traveled:.2f}m >= {self.min_row_length:.1f}m)! Bắt đầu tự lập kế hoạch quay đầu... ---"
+                        )
+                        if self.enable_file_logging and self.telemetry_logger:
+                            self.telemetry_logger.log_event("END_OF_ROW", f"Hết hàng ({reason}) tại x={self.current_x:.2f}m, dist={self.distance_traveled:.2f}m")
+                        self.eor_detected = True
+                        self.eor_trigger_x = self.current_x
+                        return
 
         # ── REACTIVE_AVOID ────────────────────────────────────────────
         elif current_state == FSMState.REACTIVE_AVOID:

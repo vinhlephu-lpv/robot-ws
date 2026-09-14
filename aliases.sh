@@ -339,17 +339,20 @@ real_cnn_func() {
     local gps_arg="enable_gps:=true"
     for a in "$@"; do [[ "$a" == enable_gps* ]] && gps_arg=""; done
 
+    local lidar_arg="enable_lidar:=false"
+    for a in "$@"; do [[ "$a" == enable_lidar* ]] && lidar_arg=""; done
+
     export PYTHONUNBUFFERED=1
     export RCUTILS_LOGGING_BUFFERED_STREAM=0
     export RCUTILS_COLORIZED_OUTPUT=1
 
     if [ "$has_cam" = true ]; then
-        ros2 launch my_robot_bringup real_robot.launch.py enable_cnn:=true $gps_arg "$@" 2>&1 | python3 "$WS_DIR/scripts/clean_log_filter.py" | tee -a "$term_log"
+        ros2 launch my_robot_bringup real_robot.launch.py enable_cnn:=true $gps_arg $lidar_arg "$@" 2>&1 | python3 "$WS_DIR/scripts/clean_log_filter.py" | tee -a "$term_log"
     else
         if [[ "$cam_arg" == *"172.20.10.1"* ]]; then
             echo "📱 [AI CNN] Tự động kết nối Camera iPhone qua cáp USB: $cam_arg" | tee -a "$term_log"
         fi
-        ros2 launch my_robot_bringup real_robot.launch.py enable_cnn:=true $gps_arg "$cam_arg" "$@" 2>&1 | python3 "$WS_DIR/scripts/clean_log_filter.py" | tee -a "$term_log"
+        ros2 launch my_robot_bringup real_robot.launch.py enable_cnn:=true $gps_arg $lidar_arg "$cam_arg" "$@" 2>&1 | python3 "$WS_DIR/scripts/clean_log_filter.py" | tee -a "$term_log"
     fi
 
     ln -sf "$term_log" "$latest_term" 2>/dev/null || cp -f "$term_log" "$latest_term" 2>/dev/null || true

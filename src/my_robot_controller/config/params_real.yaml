@@ -46,9 +46,11 @@ cnn_driver_node:
     low_confidence_threshold: 0.30
     high_confidence_threshold: 0.55
 
-    # Tự động nhận biết hết hàng (End of Row) bằng cảm biến (Camera CNN + LiDAR C1):
-    low_conf_frames_threshold: 5  # số frame camera liên tiếp mất dấu hàng để xác nhận hết luống (5 frame)
-    max_row_length: 50.0          # m — giới hạn an toàn tối đa (chỉ kích hoạt nếu cả Camera và LiDAR đồng thời bị hỏng)
+    # Tự động nhận biết hết hàng (End of Row) bằng cảm biến:
+    # Tạm thời vô hiệu hóa tính năng quay đầu U-Turn (false), xe chỉ tracking và tự dừng hẳn ở cuối hàng
+    enable_uturn: false
+    low_conf_frames_threshold: 5  # 5 frame liên tiếp thấy hết cây / confidence giảm dưới 30% để dừng xe
+    max_row_length: 50.0          # m — giới hạn an toàn tối đa
 
     warmup_time: 3.0
     drive_out_time: 2.0
