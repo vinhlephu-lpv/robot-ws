@@ -55,13 +55,11 @@ class WifiCamReceiver(Node):
         )
         self.pub = self.create_publisher(
             Image, '/camera/wifi_image', local_qos)
-        self.pub_raw = self.create_publisher(
-            Image, '/camera/color/image_raw', local_qos)
 
         self._recv_count = 0
         self.get_logger().info(
             'WiFi Camera Receiver khởi động: '
-            '/camera/compressed → /camera/wifi_image & /camera/color/image_raw'
+            '/camera/compressed → /camera/wifi_image'
         )
 
     def _on_compressed(self, msg: CompressedImage):
@@ -92,7 +90,6 @@ class WifiCamReceiver(Node):
             img_msg.step = img_rgb.shape[1] * 3
             img_msg.data = img_rgb.tobytes()
             self.pub.publish(img_msg)
-            self.pub_raw.publish(img_msg)
 
             self._recv_count += 1
             if self._recv_count == 1:
