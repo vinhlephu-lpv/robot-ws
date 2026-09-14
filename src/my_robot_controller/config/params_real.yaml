@@ -25,8 +25,8 @@ cnn_driver_node:
     # Tốc độ di chuyển (m/s) — Chạy thẳng chậm ổn định, lực quay bẻ lái êm ái chống trượt trên cỏ
     linear_speed: 0.10
     turn_linear_speed: 0.10
-    turn_angular_speed: 0.60    # 0.48 rad/s: đủ mô-men xoay 4 bánh vi sai trên cỏ, xử lý êm ái ở FPS thấp (~2 FPS), chống trượt xới đất
-    turn_in_place_threshold_deg: 0.3 # Ngưỡng dừng xoay căn chỉnh hướng: lệch > 0.3° dừng tiến xoay tại chỗ, <= 0.3° chạy thẳng 0.1 m/s
+    turn_angular_speed: 0.85    # 0.85 rad/s: mô-men xoay 4 bánh vi sai khỏe khoắn trên cỏ/đất, không bị kẹt bánh
+    turn_in_place_threshold_deg: 3.0 # Ngưỡng dừng xoay căn chỉnh hướng: lệch > 3.0° dừng tiến xoay tại chỗ, <= 3.0° chạy thẳng 0.1 m/s
 
     # Bộ điều khiển trượt SMC bám luống với lực bẻ lái mạnh mẽ, dứt khoát
     lambda_smc: 2.5             # hệ số bề mặt trượt S = de + lambda * e
@@ -40,7 +40,7 @@ cnn_driver_node:
 
     # Khoảng cách giữa 2 hàng luống thực tế (m)
     row_spacing: 0.90           # Hàng cách hàng 0.9m
-    min_row_length: 2.0         # m — cự ly tối thiểu bắt buộc chạy trong hàng trước khi cho phép nhận biết hết luống
+    min_row_length: 5.0         # m — cự ly tối thiểu bắt buộc chạy trong hàng trước khi cho phép nhận biết hết luống (tránh quay đầu nhầm khi còn trong hàng)
 
     # Ngưỡng confidence — CAO hơn sim vì ảnh thật cho mask rõ ràng hơn
     low_confidence_threshold: 0.30

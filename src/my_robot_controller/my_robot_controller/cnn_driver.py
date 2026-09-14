@@ -763,7 +763,7 @@ class CnnDriverNode(Node):
             #    triệt tiêu hoàn toàn hiện tượng vọt lố (overshoot) do camera Pi FPS thấp (~2 FPS).
             # 2. Sau khi xoay xong (|góc| <= 0.3°): Xe chạy thẳng tiến với linear_speed (0.10 m/s), angular.z = 0.0.
             # 3. Khi đang chạy mà tiếp tục bị lệch (> 0.3°): Tiếp tục dừng lại xoay căn chỉnh.
-            turn_threshold = getattr(self, 'turn_in_place_threshold_deg', 0.30)
+            turn_threshold = getattr(self, 'turn_in_place_threshold_deg', 3.0)
 
             if not self.is_adjusting_heading:
                 if abs(self.smoothed_angle_deg) > turn_threshold:
@@ -796,7 +796,9 @@ class CnnDriverNode(Node):
 
             if self.is_adjusting_heading:
                 lin_speed = 0.0
-                ang_vel = self.heading_adjust_dir * self.turn_angular_speed
+                # Đảm bảo vận tốc góc xoay tại chỗ đủ lớn (tối thiểu 0.85 rad/s) để 4 bánh vi sai xoay tốt trên cỏ/đất
+                turn_speed = max(float(self.turn_angular_speed), 0.85)
+                ang_vel = self.heading_adjust_dir * turn_speed
             else:
                 lin_speed = self.linear_speed
                 ang_vel = 0.0  # Chạy thẳng ổn định tuyệt đối
@@ -819,14 +821,18 @@ class CnnDriverNode(Node):
 
                 # ── Pure Perception U-turn triggers ───────────────────────
                 # Tự động nhận biết hết hàng hoàn toàn bằng đa cảm biến (Perception-driven):
-                # 1. LiDAR C1 phát hiện khoảng trống đầu bờ (phía trước > 2.0m, 2 bên sườn > 0.90m)
-                # 2. Camera CNN mất dấu hàng thùng khi ra khỏi luống (confidence tụt giảm)
-                # 3. Watchdog khoảng cách an toàn khẩn cấp (phòng ngừa cả 2 cảm biến bị lỗi phần cứng)
-                if self.inside_row and (end_of_row or trigger_confidence or trigger_safety_distance):
+                # 1. BẮT BUỘC: Xe phải di chuyển qua quãng đường tối thiểu của hàng (distance_traveled >= min_row_length)
+                #    Nếu còn đang trong hàng (chưa đủ cự ly min_row_length), TUYỆT ĐỐI KHÔNG quay đầu.
+                # 2. Camera CNN mất dấu hàng thùng khi ra khỏi luống (trigger_confidence)
+                # 3. Hoặc đã chạy hết max_row_length
+                # Tuyệt đối KHÔNG quay đầu khi Camera vẫn nhận diện luống rõ ràng (confidence >= low_confidence_threshold)!
+                min_dist_satisfied = (self.distance_traveled >= self.min_row_length)
+
+                if self.inside_row and min_dist_satisfied and (trigger_confidence or end_of_row or trigger_safety_distance):
                     self.row_completed = True
                     reason = "LiDAR Headland Clearance" if end_of_row else ("Vision Confidence Drop" if trigger_confidence else "Safety Distance Watchdog")
                     self.get_logger().info(
-                        f"--- Đã nhận biết HẾT HÀNG tự động bằng cảm biến ({reason}) tại x={self.current_x:.2f}m! Bắt đầu tự lập kế hoạch quay đầu... ---"
+                        f"--- Đã nhận biết HẾT HÀNG tự động bằng cảm biến ({reason}) tại x={self.current_x:.2f}m (dist={self.distance_traveled:.2f}m >= {self.min_row_length:.1f}m)! Bắt đầu tự lập kế hoạch quay đầu... ---"
                     )
                     if self.enable_file_logging and self.telemetry_logger:
                         self.telemetry_logger.log_event("END_OF_ROW", f"Hết hàng ({reason}) tại x={self.current_x:.2f}m, dist={self.distance_traveled:.2f}m")
