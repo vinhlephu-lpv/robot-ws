@@ -316,8 +316,8 @@ def generate_launch_description():
         parameters=[
             params_real,
             {
-                'inscribed_radius': 0.25,
-                'inflation_radius': 0.40,
+                'inscribed_radius': 0.35,
+                'inflation_radius': 0.45,
                 'cost_scaling_factor': 10.0,
                 'obstacle_threshold': 40,
                 'resolution': 0.05,

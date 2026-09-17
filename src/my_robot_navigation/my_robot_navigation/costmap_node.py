@@ -27,8 +27,8 @@ class CostmapNode(Node):
         super().__init__('costmap_node')
 
         # ── Declare Parameters ─────────────────────────────────────────
-        self.declare_parameter('inscribed_radius', 0.25)       # m - robot physical boundary (radius 25cm)
-        self.declare_parameter('inflation_radius', 0.40)       # m - safety buffer (40cm total)
+        self.declare_parameter('inscribed_radius', 0.35)       # m - robot physical boundary (radius 35cm)
+        self.declare_parameter('inflation_radius', 0.45)       # m - safety buffer (45cm total)
         self.declare_parameter('cost_scaling_factor', 10.0)    # smooth exponential decay across buffer
         self.declare_parameter('obstacle_threshold', 50)       # hit threshold (0-100) to treat as obstacle
         self.declare_parameter('resolution', 0.05)             # m/cell (5cm resolution)
