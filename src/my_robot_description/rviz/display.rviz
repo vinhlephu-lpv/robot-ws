@@ -219,7 +219,7 @@ Visualization Manager:
       Class: rviz_default_plugins/Map
       Color Scheme: costmap
       Draw Behind: false
-      Enabled: false
+      Enabled: true
       Name: Costmap (Inflation)
       Topic:
         Depth: 5

@@ -103,6 +103,10 @@ def generate_launch_description():
         'gps_baud', default_value='38400',
         description='Baudrate for GPS NEO-M10 (default: 38400)')
 
+    enable_costmap_arg = DeclareLaunchArgument(
+        'enable_costmap', default_value='true',
+        description='Enable real-time costmap generation for RViz visualization')
+
     # ── Robot State Publisher (URDF + TF) ────────────────────────────
     robot_state_pub = Node(
         package='robot_state_publisher',
@@ -303,6 +307,30 @@ def generate_launch_description():
         condition=IfCondition(LaunchConfiguration('enable_ekf'))
     )
 
+    # ── Real-time Costmap Node (Vẽ bản đồ chi phí thời gian thực cho RViz) ─
+    costmap_node = Node(
+        package='my_robot_navigation',
+        executable='costmap_node',
+        name='costmap_node',
+        output='screen',
+        parameters=[{
+            'inscribed_radius': 0.25,
+            'inflation_radius': 0.40,
+            'cost_scaling_factor': 10.0,
+            'obstacle_threshold': 50,
+            'resolution': 0.05,
+            'map_length_m': 60.0,
+            'map_width_m': 20.0,
+            'publish_rate': 4.0,
+            'global_frame': 'odom',
+            'rolling_window': False,
+            'use_sim_time': False,
+        }],
+        condition=IfCondition(
+            PythonExpression(["'", LaunchConfiguration('enable_costmap'), "' == 'true' and '", LaunchConfiguration('enable_lidar'), "' == 'true'"])
+        )
+    )
+
     # ── RViz2 ────────────────────────────────────────────────────────
     rviz2_node = Node(
         package='rviz2',
@@ -320,6 +348,7 @@ def generate_launch_description():
         enable_esp32_arg,
         enable_camera_arg,
         enable_lidar_arg,
+        enable_costmap_arg,
         enable_cnn_arg,
         enable_rviz_arg,
         record_arg,
@@ -342,5 +371,6 @@ def generate_launch_description():
         dual_ekf_launch,
         video_recorder,
         cnn_driver,
+        costmap_node,
         rviz2_node,
     ])
