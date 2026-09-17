@@ -60,7 +60,7 @@ class CnnDriverNode(Node):
         self.declare_parameter('eta_smc', 0.6)
         self.declare_parameter('phi_smc', 0.5)
         self.declare_parameter('max_steering_angle_deg', 14.0)
-        self.declare_parameter('turn_in_place_threshold_deg', 0.3)
+        self.declare_parameter('turn_in_place_threshold_deg', 0.5)
         self.declare_parameter('row_spacing', 0.90)
         self.declare_parameter('ema_alpha', 0.45)
         self.declare_parameter('enable_uturn', False)
@@ -251,6 +251,7 @@ class CnnDriverNode(Node):
         self.high_confidence_counter = 0
         self.eor_low_conf_frames    = 0
         self.inside_row             = False
+        self.has_seen_row           = False
         self.is_adjusting_heading   = False
         self.heading_adjust_target_yaw = 0.0
         self.heading_adjust_dir     = 0.0
@@ -477,8 +478,9 @@ class CnnDriverNode(Node):
                 math.sin(self.heading_adjust_target_yaw - self.current_yaw),
                 math.cos(self.heading_adjust_target_yaw - self.current_yaw)
             )
-            target_reached = (yaw_err * self.heading_adjust_dir <= 0) or (abs(yaw_err) < math.radians(0.20))
-            timed_out = (now_sec - self.heading_adjust_start_time) > 2.5
+            turn_threshold_rad = math.radians(getattr(self, 'turn_in_place_threshold_deg', 0.5))
+            target_reached = (yaw_err * self.heading_adjust_dir <= 0) or (abs(yaw_err) < turn_threshold_rad)
+            timed_out = (now_sec - self.heading_adjust_start_time) > 4.0
             
             if target_reached or timed_out:
                 self.is_adjusting_heading = False
@@ -664,44 +666,39 @@ class CnnDriverNode(Node):
                 except Exception as save_err:
                     self.get_logger().error(f"Failed to save diagnostic frame: {save_err}")
 
-        # Phân định rõ: Xe đang tiếp cận đầu luống (bên ngoài) vs Đã thực sự tiến vào trong luống.
-        # Khi xe đặt trước đầu hàng (như trong ảnh thực tế), xe chưa được coi là inside_row.
-        # Xe chỉ chính thức vào luống khi:
-        # 1. Đã di chuyển tiến vào tối thiểu 0.40m (distance_traveled >= 0.40m)
-        # HOẶC
-        # 2. LiDAR phát hiện cả 2 bên sườn xe đều có thành hàng (< 0.65m)
-        # VÀ độ tin cậy camera đủ cao (confidence >= low_confidence_threshold)
-        if current_state == FSMState.TRACKING and not self.inside_row:
-            has_entered_dist = (self.distance_traveled >= 0.40)
-            has_entered_walls = (left_side_dist < 0.65 and right_side_dist < 0.65)
-            
-            if (has_entered_dist or has_entered_walls) and confidence >= self.low_confidence_threshold:
+        # Khi Camera/CNN nhìn thấy hàng (confidence >= low_confidence_threshold):
+        # Bám luống ngay lập tức dù đặt xe ở gần hay xa, thẳng hàng hay lệch xéo.
+        # Không ràng buộc cứng mét chạy hay điều kiện thành tường.
+        if confidence >= self.low_confidence_threshold:
+            self.has_seen_row = True
+            if not self.inside_row:
                 self.inside_row = True
                 if self.row_start_x is None:
                     self.row_start_x = self.current_x
                     self.current_lane_y = self.current_y
                 self.row_completed = False
-                self.get_logger().info(f"--- Robot đã chính thức tiến vào trong luống tại x={self.row_start_x:.2f}m, y={self.current_lane_y:.2f}m (dist={self.distance_traveled:.2f}m, conf={confidence:.2f}) ---")
+                self.get_logger().info(f"🌾 [BÁM HÀNG] Nhận diện luống thành công tại x={self.row_start_x:.2f}m, y={self.current_lane_y:.2f}m (conf={confidence:.2f}). Bắt đầu dẫn hướng vào tim hàng!")
                 if self.enable_file_logging and self.telemetry_logger:
-                    self.telemetry_logger.log_event("ENTER_ROW", f"Robot vào luống tại x={self.row_start_x:.2f}m, y={self.current_lane_y:.2f}m (dist={self.distance_traveled:.2f}m, conf={confidence:.2f})")
+                    self.telemetry_logger.log_event("ENTER_ROW", f"Bám luống tại x={self.row_start_x:.2f}m, y={self.current_lane_y:.2f}m (conf={confidence:.2f})")
 
         # ── IDLE ──────────────────────────────────────────────────────
         if current_state == FSMState.IDLE:
             self.StopRobot()
-            if confidence >= self.high_confidence_threshold:
+            if confidence >= self.low_confidence_threshold:
                 self.transition_to_state(FSMState.TRACKING, now)
             return
 
         # ── TRACKING ──────────────────────────────────────────────────
         elif current_state == FSMState.TRACKING:
-            # 1. Obstacle avoidance check (ONLY active when inside the crop row)
-            post_path_cooldown = (now_sec - self.last_path_completion_time) < 0.6
-            if self.inside_row and obstacle_detected and not post_path_cooldown:
-                self.get_logger().warn("Phát hiện vật cản trực diện trong luống! Dừng xe tạm thời (REACTIVE_AVOID) để đảm bảo an toàn...")
-                if self.enable_file_logging and self.telemetry_logger:
-                    self.telemetry_logger.log_event("OBSTACLE_ALERT", "Phát hiện vật cản trực diện trong luống! Dừng xe tạm thời (REACTIVE_AVOID)")
-                self.transition_to_state(FSMState.REACTIVE_AVOID, now)
+            # 1. An toàn mũi xe (Bumper collision guard):
+            # Nếu có vật cản cứng nằm ngay sát cản trước (< 0.16m), tạm dừng tiến để bảo vệ khung xe.
+            # Không tự ý chuyển state hay rẽ lung tung vào cây, chờ đường thoáng xe tự bám tiếp.
+            front_min_dist = perception.get("front_min_dist", float('inf'))
+            if front_min_dist < 0.16:
                 self.StopRobot()
+                self.get_logger().warn_throttle(
+                    1.0, f"⚠️ Mũi xe sát vật cản ({front_min_dist:.2f}m < 0.16m)! Tạm dừng chờ thoáng..."
+                )
                 return
 
             # 2. End-of-Row exit distance handling (Chỉ chạy khi enable_uturn=True)
@@ -816,7 +813,9 @@ class CnnDriverNode(Node):
             twist.angular.z = ang_vel
 
             # ── Pure Perception End-Of-Row Check ─────────────────────
-            if warmup_done and self.inside_row:
+            # Chỉ kiểm tra hết hàng khi xe đã từng nhìn thấy và bám vào hàng (has_seen_row=True).
+            # Hoàn toàn tự động bằng cảm biến nhận thức, KHÔNG set cứng bất kỳ mét chạy nào.
+            if warmup_done and getattr(self, 'has_seen_row', False):
                 # 1. Điều kiện: 5 frame liên tiếp thấy hết cây và confidence < 30%
                 if confidence < 0.30:
                     self.eor_low_conf_frames += 1
@@ -824,35 +823,31 @@ class CnnDriverNode(Node):
                     self.eor_low_conf_frames = 0
                 
                 trigger_confidence = (self.eor_low_conf_frames >= 5)
-                
-                # 2. Safety distance watchdog (phòng ngừa khẩn cấp)
-                trigger_safety_distance = (self.distance_traveled >= self.max_row_length)
 
-                # Xe đã chạy qua cự ly tối thiểu của luống (ít nhất 2.0m hoặc min_row_length)
-                min_dist_satisfied = (self.distance_traveled >= min(2.0, self.min_row_length))
-
-                if min_dist_satisfied and (trigger_confidence or end_of_row or trigger_safety_distance):
+                if trigger_confidence or end_of_row:
                     if not self.enable_uturn:
                         # ── TẠM THỜI VÔ HIỆU HÓA QUAY ĐẦU: DỪNG XE AN TOÀN TẠI CUỐI HÀNG ──
                         self.StopRobot()
+                        self.has_seen_row = False
+                        self.inside_row = False
                         self.transition_to_state(FSMState.IDLE, now)
                         self.get_logger().info(
                             f"🛑 [HẾT HÀNG] Đã chạy tới cuối luống bắp! "
-                            f"Phát hiện 5 frame liên tiếp hết cây (confidence={confidence*100:.1f}% < 30%). "
+                            f"Phát hiện hết cây (confidence={confidence*100:.1f}% < 30% hoặc LiDAR trống). "
                             f"Dừng xe an toàn tại x={self.current_x:.2f}m (quãng đường={self.distance_traveled:.2f}m)!"
                         )
                         if self.enable_file_logging and self.telemetry_logger:
                             self.telemetry_logger.log_event(
                                 "END_OF_ROW_STOP",
-                                f"Hết hàng (5 frames confidence < 30%) -> Dừng xe tại x={self.current_x:.2f}m, dist={self.distance_traveled:.2f}m"
+                                f"Hết hàng -> Dừng xe tại x={self.current_x:.2f}m, dist={self.distance_traveled:.2f}m"
                             )
                         return
                     else:
                         # ── [MÃ QUAY ĐẦU - GIỮ NGUYÊN KHÔNG XÓA KHI CẦN BẬT LẠI] ─────
                         self.row_completed = True
-                        reason = "LiDAR Headland Clearance" if end_of_row else ("Vision Confidence Drop" if trigger_confidence else "Safety Distance Watchdog")
+                        reason = "LiDAR Headland Clearance" if end_of_row else "Vision Confidence Drop"
                         self.get_logger().info(
-                            f"--- Đã nhận biết HẾT HÀNG tự động bằng cảm biến ({reason}) tại x={self.current_x:.2f}m (dist={self.distance_traveled:.2f}m >= {self.min_row_length:.1f}m)! Bắt đầu tự lập kế hoạch quay đầu... ---"
+                            f"--- Đã nhận biết HẾT HÀNG tự động bằng cảm biến ({reason}) tại x={self.current_x:.2f}m (dist={self.distance_traveled:.2f}m)! Bắt đầu tự lập kế hoạch quay đầu... ---"
                         )
                         if self.enable_file_logging and self.telemetry_logger:
                             self.telemetry_logger.log_event("END_OF_ROW", f"Hết hàng ({reason}) tại x={self.current_x:.2f}m, dist={self.distance_traveled:.2f}m")

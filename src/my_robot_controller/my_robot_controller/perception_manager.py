@@ -50,13 +50,7 @@ class EndOfRowDetector:
             self.lidar_clearance_counter = 0
             return False
 
-        # Chỉ cho phép kích hoạt khi xe đã đi được quãng đường tối thiểu (tránh kích hoạt nhầm đầu luống)
-        if distance_traveled < self.min_row_distance:
-            self.low_confidence_counter = 0
-            self.lidar_clearance_counter = 0
-            return False
-
-        # 1. Vision check: Camera mất dấu luống bắp liên tục 5 frame
+        # 1. Vision check: Camera mất dấu luống bắp liên tục 5 frame (thuần nhận thức, không set cứng cự ly)
         if confidence < self.low_confidence_threshold:
             self.low_confidence_counter += 1
         else:
@@ -66,7 +60,6 @@ class EndOfRowDetector:
         
         # 2. LiDAR check: Chỉ kích hoạt khi phía trước trống (> 2.0m), hai bên sườn trống (> 0.85m)
         # VÀ Camera cũng mất dấu luống (confidence < low_confidence_threshold).
-        # Tuyệt đối KHÔNG kích hoạt hết luống bằng LiDAR nếu Camera vẫn nhìn thấy luống rõ ràng!
         if front_min_dist > 2.00 and left_side_dist > 0.85 and right_side_dist > 0.85 and (confidence < self.low_confidence_threshold):
             self.lidar_clearance_counter += 1
         else:
@@ -120,46 +113,44 @@ class PerceptionManager:
         obstacles = []
         
         if self.lidar is not None:
-            obstacle_detected = self.lidar.check_obstacle_in_front(rx, ry, ryaw, inside_row=inside_row)
             front_min_dist = self.lidar.get_min_range_in_sector(-25.0, 25.0)
-            # Mở rộng góc quét sang góc chéo trước sườn (20° - 85°) để bắt sớm góc cản trước khi xe đi xiên vào hàng
             left_side_dist = self.lidar.get_min_range_in_sector(20.0, 85.0)
             right_side_dist = self.lidar.get_min_range_in_sector(-85.0, -20.0)
             rear_left_dist = self.lidar.get_min_range_in_sector(70.0, 135.0)
             rear_right_dist = self.lidar.get_min_range_in_sector(-135.0, -70.0)
             obstacles = self.lidar.get_obstacles_global(rx, ry, ryaw)
+            
+            # Khi Camera/CNN nhìn thấy hàng (confidence >= 0.30):
+            # Xe đang bám tim hàng do CNN dẫn đường. Cây/thùng ở đầu hàng hoặc dọc 2 bên luống
+            # KHÔNG được coi là vật cản làm đứng xe! Chỉ coi là vật cản nếu sát mũi xe (< 0.16m).
+            if confidence >= 0.30:
+                obstacle_detected = (front_min_dist < 0.16)
+            else:
+                obstacle_detected = self.lidar.check_obstacle_in_front(rx, ry, ryaw, inside_row=inside_row)
 
-        # 3. Dynamic Sensor Priority & Active LiDAR Corridor Centering Guard
-        active_sensor = self.sensor_priority.select_active_tracking_sensor(confidence, lidar_available=(self.lidar is not None))
+        # 3. Điều hướng: Tin tưởng 100% Camera/CNN khi nhìn thấy hàng (confidence >= 0.30)
+        # Cho phép xe bám vào hàng từ xa hoặc khi tiếp cận xéo góc mà không bị LiDAR đánh lái ngược.
+        if confidence >= 0.30:
+            # Camera đã thấy hàng rõ ràng -> Giữ nguyên 100% góc lái CNN để dẫn xe thẳng vào tim hàng
+            pass
+        elif self.lidar is not None:
+            # Khi Camera tạm thời mất dấu (confidence < 0.30), dùng LiDAR 2 bên thành hàng làm trợ lái dự phòng
+            if (0.15 < left_side_dist < 0.85) and (0.15 < right_side_dist < 0.85):
+                corridor_width = left_side_dist + right_side_dist
+                if 0.70 <= corridor_width <= 1.50:
+                    delta_side = right_side_dist - left_side_dist
+                    lidar_centering_bias = float(np.clip((delta_side / 0.20) * (max_angle_deg * 0.7), -max_angle_deg * 0.7, max_angle_deg * 0.7))
+                    heading_error = lidar_centering_bias
 
-        # 3a. Trợ lái căn giữa luống bằng LiDAR (LiDAR Corridor Centering Assistance)
-        # Khi cả 2 bên thành hàng đều nằm trong tầm quét (hành lang thực tế ~0.9m):
-        if self.lidar is not None and (0.15 < left_side_dist < 0.65) and (0.15 < right_side_dist < 0.65):
-            corridor_width = left_side_dist + right_side_dist
-            if 0.65 <= corridor_width <= 1.15:
-                delta_side = right_side_dist - left_side_dist
-                # delta_side > 0: lệch sang trái luống -> cần đánh lái sang phải (> 0)
-                # delta_side < 0: lệch sang phải luống -> cần đánh lái sang trái (< 0)
-                lidar_centering_bias = float(np.clip((delta_side / 0.20) * (max_angle_deg * 0.7), -max_angle_deg * 0.7, max_angle_deg * 0.7))
-                
-                # Pha trộn linh hoạt: nếu camera confidence thấp, tăng trọng số LiDAR; nếu camera tốt vẫn giữ 25% LiDAR trợ lái
-                lidar_weight = float(np.clip(1.0 - confidence, 0.25, 0.85))
-                heading_error = (1.0 - lidar_weight) * heading_error + lidar_weight * lidar_centering_bias
-
-        # 3b. Active LiDAR Emergency Side Collision Guard:
-        # Với hàng cách hàng 0.9m, thân xe rộng 0.58m (bán bề rộng 0.29m).
-        # Khi khoảng cách mép hàng < 0.28m (nguy cơ va chạm mép bánh xe ~0.29m), cưỡng bức đánh lái thoát hiểm
-        danger_threshold = 0.28
-        if self.lidar is not None:
+            # Thoát hiểm khẩn cấp khi xe sắp va quẹt sát sườn (< 15cm) và camera không thấy hàng
+            danger_threshold = 0.15
             if left_side_dist < danger_threshold:
                 penetration = danger_threshold - left_side_dist
-                repulsion_deg = float(np.clip((penetration / 0.10) * max_angle_deg, 2.0, max_angle_deg))
-                # Phải rẽ phải (dương) để thoát khỏi thành trái:
+                repulsion_deg = float(np.clip((penetration / 0.05) * max_angle_deg, 2.0, max_angle_deg))
                 heading_error = max(heading_error, repulsion_deg)
             elif right_side_dist < danger_threshold:
                 penetration = danger_threshold - right_side_dist
-                repulsion_deg = float(np.clip((penetration / 0.10) * max_angle_deg, 2.0, max_angle_deg))
-                # Phải rẽ trái (âm) để thoát khỏi thành phải:
+                repulsion_deg = float(np.clip((penetration / 0.05) * max_angle_deg, 2.0, max_angle_deg))
                 heading_error = min(heading_error, -repulsion_deg)
 
         end_of_row = self.eor_detector.detect(
