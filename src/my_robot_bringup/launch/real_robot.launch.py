@@ -313,19 +313,22 @@ def generate_launch_description():
         executable='costmap_node',
         name='costmap_node',
         output='screen',
-        parameters=[{
-            'inscribed_radius': 0.25,
-            'inflation_radius': 0.40,
-            'cost_scaling_factor': 10.0,
-            'obstacle_threshold': 50,
-            'resolution': 0.05,
-            'map_length_m': 60.0,
-            'map_width_m': 20.0,
-            'publish_rate': 4.0,
-            'global_frame': 'odom',
-            'rolling_window': False,
-            'use_sim_time': False,
-        }],
+        parameters=[
+            params_real,
+            {
+                'inscribed_radius': 0.25,
+                'inflation_radius': 0.40,
+                'cost_scaling_factor': 10.0,
+                'obstacle_threshold': 40,
+                'resolution': 0.05,
+                'map_length_m': 60.0,
+                'map_width_m': 20.0,
+                'publish_rate': 4.0,
+                'global_frame': 'odom',
+                'rolling_window': False,
+                'use_sim_time': False,
+            }
+        ],
         condition=IfCondition(
             PythonExpression(["'", LaunchConfiguration('enable_costmap'), "' == 'true' and '", LaunchConfiguration('enable_lidar'), "' == 'true'"])
         )

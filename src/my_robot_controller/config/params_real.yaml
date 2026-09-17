@@ -88,3 +88,15 @@ bts7960_driver_node:
     right_rpwm_pin: 23
     right_lpwm_pin: 24
     right_en_pin:   25
+
+# Cấu hình Bản đồ Chi phí Thời gian thực (Real-time Costmap cho RViz)
+costmap_node:
+  ros__parameters:
+    inscribed_radius: 0.25      # m — Bán kính thân xe (25cm)
+    inflation_radius: 0.40      # m — Tổng đệm tính từ gốc cây (40cm). Với hàng cách 1.2m, chừa lối thông 40cm ở giữa
+    cost_scaling_factor: 10.0   # Hệ số suy giảm dải màu chi phí (98 -> 1)
+    obstacle_threshold: 40      # Ngưỡng tích lũy quét LiDAR nhận diện thân cây
+    resolution: 0.05            # m — Độ phân giải ô lưới (5cm/ô)
+    map_length_m: 60.0          # m — Chiều dài bao phủ dọc luống
+    map_width_m: 20.0           # m — Chiều rộng bao phủ
+    publish_rate: 4.0           # Hz — Tần số xuất bản mượt mà lên RViz
