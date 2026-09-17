@@ -265,6 +265,56 @@ detect_camera_device() {
     return 0
 }
 
+# Hàm tự động phát hiện cổng RPLIDAR C1 (/dev/rplidar hoặc fallback /dev/ttyUSB*)
+detect_lidar_port() {
+    for arg in "$@"; do
+        if [[ "$arg" == serial_port* ]]; then
+            echo "$arg"
+            return 0
+        fi
+    done
+    if [ -e "/dev/rplidar" ]; then
+        echo "serial_port:=/dev/rplidar"
+        return 0
+    fi
+    for p in /dev/ttyUSB0 /dev/ttyUSB1 /dev/ttyUSB2 /dev/ttyUSB3; do
+        if [ -e "$p" ]; then
+            if [ -e "/dev/esp32" ] && [ "$(readlink -f "$p" 2>/dev/null)" = "$(readlink -f /dev/esp32 2>/dev/null)" ]; then
+                continue
+            fi
+            echo "serial_port:=$p"
+            return 0
+        fi
+    done
+    echo "serial_port:=/dev/rplidar"
+    return 0
+}
+
+# Hàm tự động phát hiện cổng ESP32 (/dev/esp32 hoặc fallback /dev/ttyUSB*)
+detect_esp32_port() {
+    for arg in "$@"; do
+        if [[ "$arg" == esp32_port* ]]; then
+            echo "$arg"
+            return 0
+        fi
+    done
+    if [ -e "/dev/esp32" ]; then
+        echo "esp32_port:=/dev/esp32"
+        return 0
+    fi
+    for p in /dev/ttyUSB1 /dev/ttyUSB0 /dev/ttyUSB2 /dev/ttyUSB3; do
+        if [ -e "$p" ]; then
+            if [ -e "/dev/rplidar" ] && [ "$(readlink -f "$p" 2>/dev/null)" = "$(readlink -f /dev/rplidar 2>/dev/null)" ]; then
+                continue
+            fi
+            echo "esp32_port:=$p"
+            return 0
+        fi
+    done
+    echo "esp32_port:=/dev/esp32"
+    return 0
+}
+
 # 4. Các lệnh chạy trên Robot Thật (Raspberry Pi)
 real_robot_func() {
     load_ws
@@ -275,20 +325,33 @@ real_robot_func() {
         [ -f "$WS_DIR/install/setup.bash" ] && source "$WS_DIR/install/setup.bash"
     fi
     # Giải phóng tiến trình camera hoặc serial kẹt từ lần chạy trước
-    fuser -k /dev/video* 2>/dev/null || true
-    killall -q -9 camera_publisher wifi_cam_bridge 2>/dev/null || true
+    fuser -k /dev/video* /dev/ttyUSB* /dev/rplidar /dev/esp32 2>/dev/null || true
+    killall -q -9 camera_publisher wifi_cam_bridge sllidar_node rplidar_node esp32_bridge imu_driver costmap_node 2>/dev/null || true
 
     local cam_arg
     cam_arg=$(detect_camera_device "$@")
     local has_cam=false
     for a in "$@"; do [[ "$a" == camera_device* ]] && has_cam=true; done
+
+    local lidar_port_arg
+    lidar_port_arg=$(detect_lidar_port "$@")
+    local has_lidar_port=false
+    for a in "$@"; do [[ "$a" == serial_port* ]] && has_lidar_port=true; done
+    [ "$has_lidar_port" = true ] && lidar_port_arg=""
+
+    local esp32_port_arg
+    esp32_port_arg=$(detect_esp32_port "$@")
+    local has_esp32_port=false
+    for a in "$@"; do [[ "$a" == esp32_port* ]] && has_esp32_port=true; done
+    [ "$has_esp32_port" = true ] && esp32_port_arg=""
+
     if [ "$has_cam" = true ]; then
-        ros2 launch my_robot_bringup real_robot.launch.py "$@" 2>&1 | python3 "$WS_DIR/scripts/clean_log_filter.py"
+        ros2 launch my_robot_bringup real_robot.launch.py $lidar_port_arg $esp32_port_arg "$@" 2>&1 | python3 "$WS_DIR/scripts/clean_log_filter.py"
     else
         if [[ "$cam_arg" == *"172.20.10.1"* ]]; then
             echo "📱 Phát hiện iPhone qua cáp USB (172.20.10.1), tự động kích hoạt: $cam_arg"
         fi
-        ros2 launch my_robot_bringup real_robot.launch.py "$cam_arg" "$@" 2>&1 | python3 "$WS_DIR/scripts/clean_log_filter.py"
+        ros2 launch my_robot_bringup real_robot.launch.py $lidar_port_arg $esp32_port_arg "$cam_arg" "$@" 2>&1 | python3 "$WS_DIR/scripts/clean_log_filter.py"
     fi
 }
 alias real-robot="real_robot_func"
@@ -316,9 +379,9 @@ real_cnn_func() {
         (cd "$WS_DIR" && colcon build --symlink-install --packages-select my_robot_controller)
         [ -f "$WS_DIR/install/setup.bash" ] && source "$WS_DIR/install/setup.bash"
     fi
-    # Giải phóng tiến trình camera hoặc node AI kẹt từ lần chạy trước
-    fuser -k /dev/video* 2>/dev/null || true
-    killall -q -9 camera_publisher wifi_cam_bridge cnn_driver 2>/dev/null || true
+    # Giải phóng tiến trình camera, serial, lidar hoặc node AI kẹt từ lần chạy trước
+    fuser -k /dev/video* /dev/ttyUSB* /dev/rplidar /dev/esp32 2>/dev/null || true
+    killall -q -9 camera_publisher wifi_cam_bridge cnn_driver sllidar_node rplidar_node costmap_node esp32_bridge imu_driver 2>/dev/null || true
 
     mkdir -p "$WS_DIR/logs"
     local timestamp
@@ -345,17 +408,31 @@ real_cnn_func() {
     local costmap_arg="enable_costmap:=true"
     for a in "$@"; do [[ "$a" == enable_costmap* ]] && costmap_arg=""; done
 
+    local lidar_port_arg
+    lidar_port_arg=$(detect_lidar_port "$@")
+    local has_lidar_port=false
+    for a in "$@"; do [[ "$a" == serial_port* ]] && has_lidar_port=true; done
+    [ "$has_lidar_port" = true ] && lidar_port_arg=""
+
+    local esp32_port_arg
+    esp32_port_arg=$(detect_esp32_port "$@")
+    local has_esp32_port=false
+    for a in "$@"; do [[ "$a" == esp32_port* ]] && has_esp32_port=true; done
+    [ "$has_esp32_port" = true ] && esp32_port_arg=""
+
+    echo "📡 [CẢM BIẾN] Đã bật LiDAR C1 ($lidar_port_arg), Costmap ($costmap_arg), ESP32 ($esp32_port_arg)" | tee -a "$term_log"
+
     export PYTHONUNBUFFERED=1
     export RCUTILS_LOGGING_BUFFERED_STREAM=0
     export RCUTILS_COLORIZED_OUTPUT=1
 
     if [ "$has_cam" = true ]; then
-        ros2 launch my_robot_bringup real_robot.launch.py enable_cnn:=true $gps_arg $lidar_arg $costmap_arg "$@" 2>&1 | python3 "$WS_DIR/scripts/clean_log_filter.py" | tee -a "$term_log"
+        ros2 launch my_robot_bringup real_robot.launch.py enable_cnn:=true $gps_arg $lidar_arg $costmap_arg $lidar_port_arg $esp32_port_arg "$@" 2>&1 | python3 "$WS_DIR/scripts/clean_log_filter.py" | tee -a "$term_log"
     else
         if [[ "$cam_arg" == *"172.20.10.1"* ]]; then
             echo "📱 [AI CNN] Tự động kết nối Camera iPhone qua cáp USB: $cam_arg" | tee -a "$term_log"
         fi
-        ros2 launch my_robot_bringup real_robot.launch.py enable_cnn:=true $gps_arg $lidar_arg $costmap_arg "$cam_arg" "$@" 2>&1 | python3 "$WS_DIR/scripts/clean_log_filter.py" | tee -a "$term_log"
+        ros2 launch my_robot_bringup real_robot.launch.py enable_cnn:=true $gps_arg $lidar_arg $costmap_arg $lidar_port_arg $esp32_port_arg "$cam_arg" "$@" 2>&1 | python3 "$WS_DIR/scripts/clean_log_filter.py" | tee -a "$term_log"
     fi
 
     ln -sf "$term_log" "$latest_term" 2>/dev/null || cp -f "$term_log" "$latest_term" 2>/dev/null || true

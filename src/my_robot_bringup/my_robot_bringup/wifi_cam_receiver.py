@@ -36,11 +36,12 @@ class WifiCamReceiver(Node):
     def __init__(self):
         super().__init__('wifi_cam_receiver')
 
-        # Subscribe compressed image (từ Pi qua Wi-Fi, RELIABLE để đảm bảo không rớt gói qua router)
+        # Subscribe compressed image từ Pi qua Wi-Fi.
+        # Sử dụng BEST_EFFORT để tương thích tuyệt đối với cả publisher RELIABLE lẫn BEST_EFFORT trên Pi
         wifi_qos = QoSProfile(
-            reliability=ReliabilityPolicy.RELIABLE,
+            reliability=ReliabilityPolicy.BEST_EFFORT,
             history=HistoryPolicy.KEEP_LAST,
-            depth=5,
+            depth=10,
             durability=DurabilityPolicy.VOLATILE,
         )
         self.sub = self.create_subscription(
@@ -50,16 +51,20 @@ class WifiCamReceiver(Node):
         local_qos = QoSProfile(
             reliability=ReliabilityPolicy.RELIABLE,
             history=HistoryPolicy.KEEP_LAST,
-            depth=1,
+            depth=2,
             durability=DurabilityPolicy.VOLATILE,
         )
-        self.pub = self.create_publisher(
+        # Publish đồng thời vào /camera/wifi_image và /camera/color/image_raw
+        # để hiển thị mượt mà trên MỌI cấu hình RViz mà không cần chỉnh topic thủ công
+        self.pub_wifi = self.create_publisher(
             Image, '/camera/wifi_image', local_qos)
+        self.pub_raw = self.create_publisher(
+            Image, '/camera/color/image_raw', local_qos)
 
         self._recv_count = 0
         self.get_logger().info(
             'WiFi Camera Receiver khởi động: '
-            '/camera/compressed → /camera/wifi_image'
+            '/camera/compressed → /camera/wifi_image & /camera/color/image_raw'
         )
 
     def _on_compressed(self, msg: CompressedImage):
@@ -89,7 +94,9 @@ class WifiCamReceiver(Node):
             img_msg.is_bigendian = False
             img_msg.step = img_rgb.shape[1] * 3
             img_msg.data = img_rgb.tobytes()
-            self.pub.publish(img_msg)
+
+            self.pub_wifi.publish(img_msg)
+            self.pub_raw.publish(img_msg)
 
             self._recv_count += 1
             if self._recv_count == 1:
@@ -109,7 +116,7 @@ def main(args=None):
     node = WifiCamReceiver()
     try:
         rclpy.spin(node)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, rclpy.executors.ExternalShutdownException):
         pass
     finally:
         node.destroy_node()

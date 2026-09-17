@@ -18,6 +18,11 @@ Sử dụng:
 import os
 import time
 import threading
+import socket
+from urllib.parse import urlparse
+
+# Set OpenCV FFMPEG network timeout (1.5s) to avoid hanging on dead/unreachable network streams
+os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "timeout;1500000|stimeout;1500000"
 
 import numpy as np
 
@@ -33,8 +38,22 @@ from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy, DurabilityPo
 from sensor_msgs.msg import Image
 
 
+def _is_url_accessible(url: str, timeout: float = 0.8) -> bool:
+    """Kiểm tra nhanh xem IP/port của stream có phản hồi không (tránh cv2.VideoCapture bị block 30s)."""
+    try:
+        parsed = urlparse(url)
+        host = parsed.hostname
+        port = parsed.port or (80 if parsed.scheme == 'http' else 443)
+        if not host:
+            return False
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except Exception:
+        return False
+
+
 class CameraPublisher(Node):
-    """Publish ảnh USB Webcam 1080p@60fps qua OpenCV MJPG backend."""
+    """Publish ảnh USB Webcam hoặc iPhone DroidCam qua OpenCV MJPG backend."""
 
     def __init__(self):
         super().__init__('camera_publisher')
@@ -76,50 +95,49 @@ class CameraPublisher(Node):
             target=self._capture_loop, daemon=True)
         self._capture_thread.start()
 
-    def _open_camera(self):
-        """Mở camera USB bằng OpenCV V4L2 backend + MJPG fourcc hoặc luồng Stream từ iPhone/IP Camera."""
-        # 0. Hỗ trợ trực tiếp Camera iPhone / IP Camera Stream qua cáp USB hoặc Wi-Fi
-        if isinstance(self.device, str) and self.device.startswith(('http://', 'https://', 'rtsp://')):
-            urls_to_try = [self.device]
-            if self.device.endswith('/video'):
-                urls_to_try.append(self.device.replace('/video', '/mjpegfeed'))
-            elif self.device.endswith('/mjpegfeed'):
-                urls_to_try.append(self.device.replace('/mjpegfeed', '/video'))
-
-            for url in urls_to_try:
-                for api in [cv2.CAP_FFMPEG, cv2.CAP_ANY]:
-                    try:
-                        cap = cv2.VideoCapture(url, api)
-                        if cap.isOpened():
-                            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-                            ret, test_frame = cap.read()
-                            if ret and test_frame is not None:
-                                actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-                                actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                                self.get_logger().info(
-                                    f"📱 Camera iPhone / IP Stream đã kết nối thành công: {url} "
-                                    f"({actual_w}x{actual_h})")
-                                return cap
+    def _try_open_urls(self, urls):
+        """Thử mở luồng mạng (iPhone/IP camera). Trả về VideoCapture nếu thành công."""
+        for url in urls:
+            if not _is_url_accessible(url, timeout=0.8):
+                continue
+            for api in [cv2.CAP_FFMPEG, cv2.CAP_ANY]:
+                cap = None
+                try:
+                    cap = cv2.VideoCapture(url, api)
+                    if cap.isOpened():
+                        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                        ret, test_frame = cap.read()
+                        if ret and test_frame is not None:
+                            actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                            actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                            self.get_logger().info(
+                                f"📱 Camera iPhone / IP Stream đã kết nối thành công: {url} "
+                                f"({actual_w}x{actual_h})")
+                            return cap
+                        cap.release()
+                except Exception:
+                    if cap is not None:
+                        try:
                             cap.release()
-                    except Exception as e:
-                        pass
-            return None
+                        except Exception:
+                            pass
+        return None
 
+    def _try_open_usb_devices(self):
+        """Thử mở USB Webcam (/dev/video*). Trả về VideoCapture nếu thành công."""
         candidates = []
-        if os.path.exists(self.device):
+        if isinstance(self.device, str) and self.device.startswith('/dev/video') and os.path.exists(self.device):
             candidates.append(self.device)
-        for i in range(6):
+        for i in range(8):
             dev = f'/dev/video{i}'
             if dev not in candidates and os.path.exists(dev):
                 candidates.append(dev)
 
-        # Tránh lặp lại cấu hình giống nhau
         resolutions_to_try = [(self.width, self.height, self.fps)]
         if (self.width, self.height, self.fps) != (640, 480, 30.0):
             resolutions_to_try.append((640, 480, 30.0))
 
         for dev in candidates:
-            # Bỏ qua /dev/video1 nếu đã có /dev/video0 (video1 thường là metadata V4L2 không phải luồng hình)
             if dev.endswith('1') and '/dev/video0' in candidates and dev != self.device:
                 continue
 
@@ -136,14 +154,12 @@ class CameraPublisher(Node):
                         cap = cv2.VideoCapture(dev_id)
 
                     if cap.isOpened():
-                        # Đặt buffer = 1 để chống đọng frame cũ và giảm trễ
                         cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
                         cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
                         cap.set(cv2.CAP_PROP_FRAME_WIDTH, w)
                         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
                         cap.set(cv2.CAP_PROP_FPS, fps)
 
-                        # Đọc thử 1 frame để kiểm tra hardware có gửi dữ liệu không
                         ret, test_frame = cap.read()
                         if ret and test_frame is not None:
                             actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -153,30 +169,55 @@ class CameraPublisher(Node):
                                 f"📷 Camera USB đã kết nối thành công: {dev} "
                                 f"({actual_w}x{actual_h} @ {actual_fps:.0f} FPS, MJPG)")
                             return cap
+                        cap.release()
                 except Exception:
                     if cap is not None:
                         try:
                             cap.release()
                         except Exception:
                             pass
+        return None
 
-        # Fallback tự động: Nếu không tìm thấy USB Webcam (/dev/video*), tự động dò luồng iPhone qua cáp USB
-        iphone_url = 'http://172.20.10.1:4747/video'
-        try:
-            cap = cv2.VideoCapture(iphone_url)
-            if cap.isOpened():
-                cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-                ret, test_frame = cap.read()
-                if ret and test_frame is not None:
-                    actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-                    actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                    self.get_logger().info(
-                        f"📱 Tự động phát hiện & kết nối luồng Camera iPhone: {iphone_url} "
-                        f"({actual_w}x{actual_h})")
-                    return cap
-                cap.release()
-        except Exception:
-            pass
+    def _open_camera(self):
+        """Mở camera: tự động tìm luồng iPhone hoặc USB Webcam với hỗ trợ fallback hai chiều."""
+        urls_to_try = []
+        is_http_target = isinstance(self.device, str) and self.device.startswith(('http://', 'https://', 'rtsp://'))
+
+        if is_http_target:
+            urls_to_try.append(self.device)
+            if self.device.endswith('/video'):
+                urls_to_try.append(self.device.replace('/video', '/mjpegfeed'))
+            elif self.device.endswith('/mjpegfeed'):
+                urls_to_try.append(self.device.replace('/mjpegfeed', '/video'))
+
+        default_iphone = 'http://172.20.10.1:4747/video'
+        if default_iphone not in urls_to_try:
+            urls_to_try.append(default_iphone)
+            urls_to_try.append('http://172.20.10.1:4747/mjpegfeed')
+
+        # 1. Nếu chỉ định HTTP, ưu tiên thử HTTP trước
+        if is_http_target:
+            cap = self._try_open_urls(urls_to_try)
+            if cap is not None:
+                return cap
+            # Nếu HTTP không phản hồi, tự động fallback sang USB Webcam
+            self.get_logger().info(
+                "⚠️ Không kết nối được luồng iPhone, đang tự động quét tìm USB Webcam (/dev/video*)...",
+                throttle_duration_sec=10.0)
+
+        # 2. Thử mở USB Webcam
+        cap = self._try_open_usb_devices()
+        if cap is not None:
+            return cap
+
+        # 3. Nếu ban đầu chỉ định USB Webcam nhưng không có, thử fallback sang iPhone DroidCam
+        if not is_http_target:
+            self.get_logger().info(
+                "⚠️ Không tìm thấy USB Webcam, đang dò tìm luồng iPhone (DroidCam)...",
+                throttle_duration_sec=10.0)
+            cap = self._try_open_urls(urls_to_try)
+            if cap is not None:
+                return cap
 
         return None
 
@@ -195,8 +236,8 @@ class CameraPublisher(Node):
                     self.cap = self._open_camera()
                     if self.cap is None or not self.cap.isOpened():
                         self.get_logger().warn(
-                            f"⏳ Đang dò tìm & kết nối Camera USB ({self.device})... "
-                            f"(Nếu camera bị kẹt, chạy 'sudo fuser -k /dev/video*' hoặc rút cắm lại cổng USB)",
+                            f"⏳ Đang dò tìm & kết nối Camera ({self.device})... "
+                            f"(Kiểm tra DroidCam trên iPhone hoặc cắm lại cổng USB Webcam)",
                             throttle_duration_sec=4.0)
                         time.sleep(1.5)
                         continue
@@ -222,8 +263,9 @@ class CameraPublisher(Node):
 
                 if not ret or frame is None:
                     consecutive_failures += 1
-                    if consecutive_failures >= 30:
-                        self.get_logger().warn("Mất tín hiệu camera, đang tự động kết nối lại...", throttle_duration_sec=5.0)
+                    # Cho phép chịu lỗi liên tiếp trong ~3 giây (150 lần x 0.02s) trước khi hủy kết nối
+                    if consecutive_failures >= 150:
+                        self.get_logger().warn("Mất tín hiệu camera quá 3 giây, đang tự động kết nối lại...", throttle_duration_sec=5.0)
                         try:
                             self.cap.release()
                         except Exception:

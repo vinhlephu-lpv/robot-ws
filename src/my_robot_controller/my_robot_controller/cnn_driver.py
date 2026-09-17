@@ -15,6 +15,7 @@ import math
 import cv2
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import Image, LaserScan, NavSatFix, NavSatStatus, Imu
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
@@ -308,7 +309,7 @@ class CnnDriverNode(Node):
                 Odometry, '/odom', self.odom_callback, 10)
 
         self.scan_sub = self.create_subscription(
-            LaserScan, '/scan', self.scan_callback, 10)
+            LaserScan, '/scan', self.scan_callback, qos_profile_sensor_data)
 
         self.gps_sub = self.create_subscription(
             NavSatFix, self.gps_topic, self.gps_callback, 10)
