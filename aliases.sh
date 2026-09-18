@@ -249,7 +249,7 @@ alias flash-esp32="nap_esp32_func"
 alias test-all="load_ws && ros2 launch my_sensor_test test_all_sensors.launch.py"
 alias test-slam="load_ws && bash \"$WS_DIR/src/my_sensor_test/scripts/run_test_slam.sh\""
 
-# Hàm tự động phát hiện nguồn camera tối ưu (iPhone qua cáp USB hoặc USB Webcam)
+# Hàm tự động phát hiện nguồn camera tối ưu (Ưu tiên Camera iPhone DroidCam)
 detect_camera_device() {
     for arg in "$@"; do
         if [[ "$arg" == camera_device* ]]; then
@@ -257,11 +257,18 @@ detect_camera_device() {
             return 0
         fi
     done
-    if ip route 2>/dev/null | grep -q "172.20.10" || [ ! -e "/dev/video0" ]; then
+    # Ưu tiên 1: Tự động kết nối Camera iPhone (DroidCam qua Wi-Fi Hotspot / Cáp USB 172.20.10.1)
+    if ip route 2>/dev/null | grep -q "172.20.10" || ping -c 1 -W 1 172.20.10.1 &>/dev/null; then
         echo "camera_device:=http://172.20.10.1:4747/video"
         return 0
     fi
-    echo "camera_device:=/dev/video0"
+    # Ưu tiên 2: Cổng USB Webcam vật lý /dev/video0 nếu có
+    if [ -e "/dev/video0" ]; then
+        echo "camera_device:=/dev/video0"
+        return 0
+    fi
+    # Mặc định: Luồng iPhone DroidCam
+    echo "camera_device:=http://172.20.10.1:4747/video"
     return 0
 }
 
