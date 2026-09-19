@@ -18,7 +18,7 @@ from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import Image, LaserScan, NavSatFix, NavSatStatus, Imu
 from geometry_msgs.msg import Twist
-from nav_msgs.msg import Odometry
+from nav_msgs.msg import Odometry, Path as RosPath
 from std_msgs.msg import Float32MultiArray
 import numpy as np
 
@@ -33,6 +33,7 @@ from my_robot_controller.planners import RRTStarPlanner
 from my_robot_controller.controllers import TrackingControllerSMC, PurePursuitController, ControllerManager, SafetyController
 from my_robot_controller.fsm import FSMCoordinator, FSMState, FSMEvent
 from my_robot_controller.path_utils import Path
+from my_robot_controller.omega_planner import OmegaTurnPlanner
 from my_robot_controller.lidar_processor import LidarProcessor
 from my_robot_controller.perception_manager import PerceptionManager, EndOfRowDetector
 from my_robot_controller.localization_manager import LocalizationManager
@@ -91,6 +92,24 @@ class CnnDriverNode(Node):
         self.declare_parameter('terminal_log_interval', 1.0)
         self.declare_parameter('save_debug_imgs', False)
 
+        # ── Tham số Điều Phối Nhiệm Vụ 2 Luống & Quỹ Đạo Omega Turn ───
+        self.declare_parameter('enable_mission_goals', True)
+        self.declare_parameter('enable_global_plan_assist', True)
+        self.declare_parameter('field_length', 3.0)
+        self.declare_parameter('headland_area_length', 4.0)
+        self.declare_parameter('goal_tolerance', 0.40)
+        self.declare_parameter('goal_1_x', 3.0)
+        self.declare_parameter('goal_1_y', 0.0)
+        self.declare_parameter('goal_2_x', 3.0)
+        self.declare_parameter('goal_2_y', -1.20)
+        self.declare_parameter('goal_3_x', 0.0)
+        self.declare_parameter('goal_3_y', -1.20)
+        self.declare_parameter('turn_side', 'RIGHT')
+        self.declare_parameter('omega_open_angle_deg', 35.0)
+        self.declare_parameter('omega_r1', 0.85)
+        self.declare_parameter('omega_clearance', 0.25)
+        self.declare_parameter('omega_lead_in', 0.40)
+
         p = self.get_parameter
         self.model_path               = p('model_path').value
         self.input_height             = p('input_height').value
@@ -134,6 +153,25 @@ class CnnDriverNode(Node):
         self.terminal_log_interval   = p('terminal_log_interval').value
         self.save_debug_imgs         = p('save_debug_imgs').value
         self._last_terminal_log_time = 0.0
+
+        # Mission goals & Omega Turn parameters
+        self.enable_mission_goals     = p('enable_mission_goals').value
+        self.enable_global_plan_assist= p('enable_global_plan_assist').value
+        self.field_length             = p('field_length').value
+        self.headland_area_length     = p('headland_area_length').value
+        self.goal_tolerance           = p('goal_tolerance').value
+        self.goal_1_x                 = p('goal_1_x').value
+        self.goal_1_y                 = p('goal_1_y').value
+        self.goal_2_x                 = p('goal_2_x').value
+        self.goal_2_y                 = p('goal_2_y').value
+        self.goal_3_x                 = p('goal_3_x').value
+        self.goal_3_y                 = p('goal_3_y').value
+        self.turn_side                = p('turn_side').value
+        self.omega_open_angle_deg     = p('omega_open_angle_deg').value
+        self.omega_r1                 = p('omega_r1').value
+        self.omega_clearance          = p('omega_clearance').value
+        self.omega_lead_in            = p('omega_lead_in').value
+        self.current_lane_idx         = 1
 
         if self.enable_file_logging:
             self.telemetry_logger = TelemetryLogger(log_dir=self.log_output_dir)
@@ -298,6 +336,8 @@ class CnnDriverNode(Node):
         # ── Publishers & Subscribers ──────────────────────────────────
         self.cmd_vel_pub = self.create_publisher(Twist, 'cmd_vel', 10)
         self.gps_pub     = self.create_publisher(NavSatFix, '/localization/gps', 10)
+        self.plan_pub    = self.create_publisher(RosPath, '/plan', 10)
+        self.plan_timer  = self.create_timer(1.0, self.publish_mission_path)
 
         self.image_sub = self.create_subscription(
             Image, self.image_topic, self.image_callback, 10)
@@ -399,6 +439,24 @@ class CnnDriverNode(Node):
         res = self.controller_manager.compute_command(self.current_x, self.current_y, self.current_yaw)
         finished = (res["status"] == "COMPLETED")
         return res["linear_velocity"], res["angular_velocity"], finished, self.pure_pursuit_controller.path_index
+
+    def publish_mission_path(self):
+        """Xuất bản toàn bộ lộ trình nhiệm vụ 2 luống + Omega Turn lên /plan cho RViz hiển thị trực quan."""
+        try:
+            full_mission = OmegaTurnPlanner.generate_full_mission_path(
+                field_length=self.field_length,
+                row_spacing=self.row_spacing,
+                turn_side=self.turn_side,
+                open_angle_deg=self.omega_open_angle_deg,
+                r1=self.omega_r1,
+                clearance_dist=self.omega_clearance,
+                lead_in_dist=self.omega_lead_in,
+            )
+            now_msg = self.get_clock().now().to_msg()
+            ros_path = OmegaTurnPlanner.to_ros_path(full_mission.waypoints, frame_id='odom', stamp=now_msg)
+            self.plan_pub.publish(ros_path)
+        except Exception as e:
+            self.get_logger().warn(f"Failed to publish mission path: {e}", throttle_duration_sec=5.0)
 
     def StopRobot(self):
         """Issue zero velocities to the actuators."""
@@ -747,6 +805,27 @@ class CnnDriverNode(Node):
                     effective_alpha * raw_angle
                     + (1.0 - effective_alpha) * self.smoothed_angle_deg
                 )
+            elif self.enable_global_plan_assist and self.inside_row:
+                # ── HỖ TRỢ SONG SONG TỪ GLOBAL PLAN (FALLBACK KHI CÂY THƯA / LÁ CHE / THÙNG HỞ) ──
+                # Khi camera bị che khuất hoặc thiếu thùng carton (confidence < 0.30),
+                # sử dụng tọa độ EKF/Odometry chiếu lên tim luống hiện tại để giữ xe chạy thẳng:
+                target_y = 0.0 if self.current_lane_idx == 1 else self.current_lane_y
+                target_yaw = 0.0 if self.current_lane_idx == 1 else (math.pi if self.current_yaw >= 0 else -math.pi)
+
+                # Sai số vị trí ngang (cross-track error) và sai số góc hướng
+                lat_err = self.current_y - target_y
+                dir_factor = 1.0 if self.current_lane_idx == 1 else -1.0
+                yaw_err = math.atan2(math.sin(target_yaw - self.current_yaw), math.cos(target_yaw - self.current_yaw))
+
+                # Tính góc bẻ lái hỗ trợ đưa xe về tim luống
+                assist_steer_deg = float(np.clip(-12.0 * lat_err * dir_factor + math.degrees(yaw_err) * 0.4, -10.0, 10.0))
+                self.smoothed_angle_deg = (
+                    0.25 * assist_steer_deg + 0.75 * self.smoothed_angle_deg
+                )
+                self.get_logger().info_throttle(
+                    2.0,
+                    f"🌾 [GLOBAL PLAN ASSIST] Conf thấp ({confidence*100:.1f}%) -> Hỗ trợ giữ tim Luống {self.current_lane_idx} (y={target_y:.2f}m, dy={lat_err:.2f}m, steer={self.smoothed_angle_deg:+.1f}°)"
+                )
             else:
                 # Chỉ triệt tiêu góc lái về 0 khi thực sự ở bãi đất trống ngoài luống
                 self.smoothed_angle_deg *= 0.90
@@ -763,12 +842,6 @@ class CnnDriverNode(Node):
             _lin_smc, _ang_smc = self.StartTracking(dt_actual)
 
             # ── LOGIC ĐIỀU HƯỚNG TẬN DỤNG IMU 50Hz KHÉP VÒNG THEO YÊU CẦU ───
-            # 1. Nếu |góc lái| > 0.3°: DỪNG TIẾN (linear.x = 0.0 m/s), bắt đầu xoay tại chỗ.
-            #    Tính target_yaw dựa trên IMU current_yaw + góc lệch CNN (-smoothed_angle_deg).
-            #    IMU callback 50Hz sẽ giám sát ngắt mô-men ngay lập tức khi đạt đích,
-            #    triệt tiêu hoàn toàn hiện tượng vọt lố (overshoot) do camera Pi FPS thấp (~2 FPS).
-            # 2. Sau khi xoay xong (|góc| <= 0.3°): Xe chạy thẳng tiến với linear_speed (0.10 m/s), angular.z = 0.0.
-            # 3. Khi đang chạy mà tiếp tục bị lệch (> 0.3°): Tiếp tục dừng lại xoay căn chỉnh.
             turn_threshold = getattr(self, 'turn_in_place_threshold_deg', 3.0)
 
             if not self.is_adjusting_heading:
@@ -812,45 +885,71 @@ class CnnDriverNode(Node):
             twist.linear.x = lin_speed
             twist.angular.z = ang_vel
 
-            # ── Pure Perception End-Of-Row Check ─────────────────────
-            # Chỉ kiểm tra hết hàng khi xe đã từng nhìn thấy và bám vào hàng (has_seen_row=True).
-            # Hoàn toàn tự động bằng cảm biến nhận thức, KHÔNG set cứng bất kỳ mét chạy nào.
-            if warmup_done and getattr(self, 'has_seen_row', False):
-                # 1. Điều kiện: 5 frame liên tiếp thấy hết cây và confidence < 30%
-                if confidence < 0.30:
-                    self.eor_low_conf_frames += 1
-                else:
-                    self.eor_low_conf_frames = 0
-                
-                trigger_confidence = (self.eor_low_conf_frames >= 5)
+            # ── Pure Perception & Mission Goals End-Of-Row Check ─────────────────────
+            # 1. Điều kiện nhận biết hết hàng qua camera: 5 frame liên tiếp confidence < 30%
+            if confidence < 0.30:
+                self.eor_low_conf_frames += 1
+            else:
+                self.eor_low_conf_frames = 0
+            trigger_confidence = (self.eor_low_conf_frames >= 5)
 
+            # 2. Điều phối theo 4 Điểm Mốc Nhiệm Vụ (Mission Goals):
+            if self.enable_mission_goals and warmup_done:
+                if self.current_lane_idx == 1:
+                    # Đang chạy Luống 1: kiểm tra đã đến cuối Luống 1 chưa (Goal 1: x = field_length)
+                    dist_to_g1 = math.hypot(self.current_x - self.goal_1_x, self.current_y - self.goal_1_y)
+                    reached_g1 = (dist_to_g1 <= self.goal_tolerance) or (self.current_x >= self.goal_1_x)
+
+                    if reached_g1 or (trigger_confidence and self.current_x >= self.min_row_length) or (end_of_row and self.current_x >= self.min_row_length):
+                        self.get_logger().info(
+                            f"🎯 [MỐC GOAL 1] Đã đến cuối Luống 1 tại x={self.current_x:.2f}m (dist={self.distance_traveled:.2f}m)! "
+                            f"Kích hoạt quay đầu Omega Turn chuyển sang Luống 2..."
+                        )
+                        if self.enable_file_logging and self.telemetry_logger:
+                            self.telemetry_logger.log_event("GOAL_1_REACHED", f"Cuối Luống 1 tại x={self.current_x:.2f}m, dist={self.distance_traveled:.2f}m")
+                        self.eor_detected = False
+                        self.current_lane_idx = 2
+                        self.low_confidence_counter = 0
+                        self.smoothed_angle_deg  = 0.0
+                        self.distance_traveled   = 0.0
+                        self.inside_row          = False
+                        self.row_start_x         = None
+                        self.row_completed       = False
+                        self.accumulated_turn_angle = 0.0
+                        self.StopRobot()
+                        self.transition_to_state(FSMState.UTURN_PLANNING, now)
+                        return
+
+                elif self.current_lane_idx == 2:
+                    # Đang chạy Luống 2: chạy ngược chiều từ x = field_length về Goal 3 (x = 0)
+                    dist_to_g3 = math.hypot(self.current_x - self.goal_3_x, self.current_y - self.goal_3_y)
+                    reached_g3 = (dist_to_g3 <= self.goal_tolerance) or (self.current_x <= (self.goal_3_x + 0.15))
+
+                    if (reached_g3 and self.distance_traveled >= self.min_row_length) or (trigger_confidence and self.distance_traveled >= self.min_row_length):
+                        self.StopRobot()
+                        self.get_logger().info(
+                            f"🏆 [HOÀN THÀNH NHIỆM VỤ] Đã chạy xong Luống 2 về đích Goal 3 tại x={self.current_x:.2f}m, y={self.current_y:.2f}m! "
+                            f"Dừng xe an toàn tuyệt đối."
+                        )
+                        if self.enable_file_logging and self.telemetry_logger:
+                            self.telemetry_logger.log_event("MISSION_COMPLETE", f"Về đích Goal 3 x={self.current_x:.2f}m, y={self.current_y:.2f}m")
+                        self.transition_to_state(FSMState.IDLE, now)
+                        return
+
+            elif warmup_done and getattr(self, 'has_seen_row', False):
+                # Dự phòng nếu không bật mission goals (thuần nhận thức cảm biến)
                 if trigger_confidence or end_of_row:
                     if not self.enable_uturn:
-                        # ── TẠM THỜI VÔ HIỆU HÓA QUAY ĐẦU: DỪNG XE AN TOÀN TẠI CUỐI HÀNG ──
                         self.StopRobot()
                         self.has_seen_row = False
                         self.inside_row = False
                         self.transition_to_state(FSMState.IDLE, now)
                         self.get_logger().info(
-                            f"🛑 [HẾT HÀNG] Đã chạy tới cuối luống bắp! "
-                            f"Phát hiện hết cây (confidence={confidence*100:.1f}% < 30% hoặc LiDAR trống). "
-                            f"Dừng xe an toàn tại x={self.current_x:.2f}m (quãng đường={self.distance_traveled:.2f}m)!"
+                            f"🛑 [HẾT HÀNG] Đã chạy tới cuối luống! Dừng xe an toàn tại x={self.current_x:.2f}m."
                         )
-                        if self.enable_file_logging and self.telemetry_logger:
-                            self.telemetry_logger.log_event(
-                                "END_OF_ROW_STOP",
-                                f"Hết hàng -> Dừng xe tại x={self.current_x:.2f}m, dist={self.distance_traveled:.2f}m"
-                            )
                         return
                     else:
-                        # ── [MÃ QUAY ĐẦU - GIỮ NGUYÊN KHÔNG XÓA KHI CẦN BẬT LẠI] ─────
                         self.row_completed = True
-                        reason = "LiDAR Headland Clearance" if end_of_row else "Vision Confidence Drop"
-                        self.get_logger().info(
-                            f"--- Đã nhận biết HẾT HÀNG tự động bằng cảm biến ({reason}) tại x={self.current_x:.2f}m (dist={self.distance_traveled:.2f}m)! Bắt đầu tự lập kế hoạch quay đầu... ---"
-                        )
-                        if self.enable_file_logging and self.telemetry_logger:
-                            self.telemetry_logger.log_event("END_OF_ROW", f"Hết hàng ({reason}) tại x={self.current_x:.2f}m, dist={self.distance_traveled:.2f}m")
                         self.eor_detected = True
                         self.eor_trigger_x = self.current_x
                         return
@@ -890,46 +989,46 @@ class CnnDriverNode(Node):
 
         # ── UTURN_PLANNING ────────────────────────────────────────────
         elif current_state == FSMState.UTURN_PLANNING:
-            if self.last_visited_lane is None:
-                if self.current_y < 0.0:
-                    self.last_visited_lane = 'lane_lower'
-                else:
-                    self.last_visited_lane = 'lane_upper'
-
-            # Shift lane by row_spacing (default 0.90m)
-            if self.last_visited_lane == 'lane_lower':
-                target_y = self.current_y + self.row_spacing
-                current_lane = 'lane_upper'
-                self.turn_direction = 1.0  # Left / CCW turn
-            else:
-                target_y = self.current_y - self.row_spacing
-                current_lane = 'lane_lower'
-                self.turn_direction = -1.0 # Right / CW turn
-
+            # Xác định chiều chuyển luống và tọa độ luống đích
+            target_y = -abs(self.row_spacing) if self.turn_side.upper() == 'RIGHT' else abs(self.row_spacing)
             self.current_lane_y = target_y
-            dir_x = 1.0 if math.cos(self.current_yaw) >= 0 else -1.0
-            goal_x = self.current_x - dir_x * 0.50
-            goal_y = target_y
 
-            self.get_logger().info(f"Targeting lane transition: -> target_y={target_y:.2f} (shift={self.turn_direction * self.row_spacing:.2f}m, dir={self.turn_direction})")
+            self.get_logger().info(
+                f"🔄 [OMEGA TURN] Chuẩn bị quay đầu: Luống đích target_y={target_y:.2f}m "
+                f"(turn_side={self.turn_side}, spacing={self.row_spacing:.2f}m, R1={self.omega_r1:.2f}m, alpha={self.omega_open_angle_deg}°)..."
+            )
             
             # Reset U-turn turn tracking variables
             self.uturn_start_yaw = self.current_yaw
             self.accumulated_turn_angle = 0.0
             self._prev_yaw_for_turn = self.current_yaw
 
-            # 1. Generate smooth, mathematical semicircular U-turn trajectory (180 deg arc)
-            waypoints = self.generate_backup_uturn_path(goal_x, goal_y)
+            # 1. Sinh quỹ đạo Omega Turn giải tích chống trượt bánh vi sai
+            waypoints_obj = OmegaTurnPlanner.generate_path(
+                start_x=self.current_x,
+                start_y=self.current_y,
+                start_yaw=self.current_yaw,
+                row_spacing=self.row_spacing,
+                turn_side=self.turn_side,
+                open_angle_deg=self.omega_open_angle_deg,
+                r1=self.omega_r1,
+                clearance_dist=self.omega_clearance,
+                lead_in_dist=self.omega_lead_in,
+            )
+            waypoints = waypoints_obj.waypoints if waypoints_obj else None
+
             if not waypoints:
-                self.get_logger().warn("Semicircular U-turn failed! Attempting RRT* path planner...")
-                plan_res = self.PlanPath(goal_x, goal_y)
-                path = plan_res["path"] if plan_res else None
-                waypoints = path.waypoints if hasattr(path, 'waypoints') else path
+                self.get_logger().warn("Omega Turn path failed! Fallback semicircular...")
+                dir_x = 1.0 if math.cos(self.current_yaw) >= 0 else -1.0
+                goal_x = self.current_x - dir_x * 0.50
+                waypoints_obj = self.generate_backup_uturn_path(goal_x, target_y)
+                waypoints = waypoints_obj.waypoints if hasattr(waypoints_obj, 'waypoints') else waypoints_obj
 
             if waypoints:
                 self.pure_pursuit_controller.set_path(waypoints)
-                self.last_visited_lane = current_lane
+                self.last_visited_lane = 'lane_lower' if target_y < 0 else 'lane_upper'
                 self.transition_to_state(FSMState.PATH_FOLLOWING, now)
+                self.get_logger().info(f"🚀 Bắt đầu bám quỹ đạo Omega Turn ({len(waypoints)} điểm, R1={self.omega_r1:.2f}m, mở góc={self.omega_open_angle_deg}°)...")
             else:
                 self.get_logger().error("UTurn path generation failed! Transitioning to RECOVERY...")
                 self.transition_to_state(FSMState.RECOVERY, now)
@@ -944,19 +1043,15 @@ class CnnDriverNode(Node):
             if is_uturn:
                 turn_angle_deg = np.rad2deg(self.accumulated_turn_angle)
                 is_turned_around = (turn_angle_deg >= 135.0)
-                caught_row = (confidence >= self.high_confidence_threshold and is_turned_around) or (finished and is_turned_around)
+                # Với Omega Turn có đoạn dẫn thẳng (lead-in), khi đi hết path hoặc xe đã đảo hướng và camera bắt được hàng:
+                caught_row = (confidence >= self.high_confidence_threshold and is_turned_around) or (finished and is_turned_around) or finished
                 
                 if caught_row:
                     self.get_logger().info(
-                        f"U-turn alignment completed and new row verified (conf={confidence:.2f}, turn={turn_angle_deg:.1f}°) -> TRACKING..."
+                        f"✅ [VÀO LUỐNG 2] Hoàn tất vòng quay Omega Turn (turn={turn_angle_deg:.1f}°, conf={confidence*100:.1f}%) -> Bắt đầu bám Luống 2!"
                     )
                     self.StopRobot()
                     self.transition_after_path(now)
-                elif finished:
-                    self.get_logger().warn(
-                        "U-turn path finished but new row not caught yet. Transitioning to UTURN_EXECUTION to sweep..."
-                    )
-                    self.transition_to_state(FSMState.UTURN_EXECUTION, now)
                 else:
                     twist.linear.x = lin_vel
                     twist.angular.z = ang_vel
@@ -1083,7 +1178,8 @@ class CnnDriverNode(Node):
         gps_str = f" | GPS: {self._latest_gps_info.get('latitude', 0.0):.5f}°, {self._latest_gps_info.get('longitude', 0.0):.5f}°" if (gps_status == 'FIX' and gps_source == 'DIRECT_SENSOR') else ""
 
         status_msg = (
-            f"🌾 [AI Lái Xe] Góc: {self._latest_steer_deg:+5.2f}° | "
+            f"🌾 [AI Lái Xe] Luống {self.current_lane_idx} (x={self.current_x:4.2f}m) | "
+            f"Góc: {self._latest_steer_deg:+5.2f}° | "
             f"Trạng thái: [{current_state:^10s}] | "
             f"Tin cậy: {self._latest_confidence*100:4.1f}% | "
             f"AI: {inf_ms:2.0f}ms ({fps_val:3.1f}FPS) | "

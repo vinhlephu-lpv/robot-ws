@@ -39,18 +39,39 @@ cnn_driver_node:
     ema_alpha: 0.35             # tăng nhẹ độ nhạy EMA phản xạ bẻ lái
 
     # Khoảng cách giữa 2 hàng luống thực tế (m)
-    row_spacing: 1.20           # Hàng cách hàng 0.9m
-    min_row_length: 5.0         # m — cự ly tối thiểu bắt buộc chạy trong hàng trước khi cho phép nhận biết hết luống (tránh quay đầu nhầm khi còn trong hàng)
+    row_spacing: 1.20           # Hàng cách hàng 1.20m (chuẩn 3 hàng cây bắp / 2 luống)
+    min_row_length: 1.5         # m — cự ly tối thiểu bắt buộc chạy trong hàng trước khi cho phép nhận biết hết luống
 
     # Ngưỡng confidence — CAO hơn sim vì ảnh thật cho mask rõ ràng hơn
     low_confidence_threshold: 0.30
     high_confidence_threshold: 0.55
 
-    # Tự động nhận biết hết hàng (End of Row) bằng cảm biến:
-    # Tạm thời vô hiệu hóa tính năng quay đầu U-Turn (false), xe chỉ tracking và tự dừng hẳn ở cuối hàng
-    enable_uturn: false
-    low_conf_frames_threshold: 5  # 5 frame liên tiếp thấy hết cây / confidence giảm dưới 30% để dừng xe
+    # Tự động nhận biết hết hàng (End of Row) & Quay đầu Omega Turn:
+    enable_uturn: true
+    low_conf_frames_threshold: 5  # 5 frame liên tiếp thấy hết cây / confidence giảm dưới 30%
     max_row_length: 10.0          # m — giới hạn an toàn tối đa
+
+    # ── Điều Phối Nhiệm Vụ 2 Luống Thực Nghiệm (3 hàng thùng, 2 luống) ──
+    enable_mission_goals: true      # Giám sát 4 điểm mốc (Start -> Goal 1 -> Goal 2 -> Goal 3)
+    enable_global_plan_assist: true # Hỗ trợ song song cùng CNN giữ đúng tim luống
+    field_length: 3.0              # m — Chiều dài mỗi luống (3.0m)
+    headland_area_length: 4.0      # m — Khoảng không gian quay đầu 4.0m
+    goal_tolerance: 0.40           # m — Bán kính dung sai chạm mốc
+
+    # Tọa độ các điểm mốc (hệ tọa độ odom xuất phát từ đầu Luống 1)
+    goal_1_x: 3.0                  # m — Cuối Luống 1 (kích hoạt quay đầu)
+    goal_1_y: 0.0                  # m
+    goal_2_x: 3.0                  # m — Đầu Luống 2 (sau khi quay đầu 180°)
+    goal_2_y: -1.20                # m
+    goal_3_x: 0.0                  # m — Cuối Luống 2 (về đích dừng xe an toàn)
+    goal_3_y: -1.20                # m
+
+    # ── Tham số Quỹ Đạo Omega Turn (Chống trượt bánh vi sai) ────────
+    turn_side: 'RIGHT'             # Chuyển sang luống bên phải (y = -1.20m)
+    omega_open_angle_deg: 35.0     # độ — Góc mở cua trái
+    omega_r1: 0.85                 # m — Bán kính cung mở trái
+    omega_clearance: 0.25          # m — Đoạn thẳng thoát đầu luống
+    omega_lead_in: 0.40            # m — Đoạn dẫn thẳng vào tim Luống 2
 
     warmup_time: 3.0
     drive_out_time: 2.0
