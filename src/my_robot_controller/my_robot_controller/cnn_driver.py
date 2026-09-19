@@ -715,10 +715,10 @@ class CnnDriverNode(Node):
         ramp = min(1.0, 0.80 + 0.20 * (elapsed / 0.15))
         base_w = float(getattr(self, 'turn_angular_speed', 0.60))
         
-        # Đảm bảo sàn tốc độ >= 0.45 rad/s để 4 bánh xoay khỏe khoắn trên cỏ, không bị khựng/stall
+        # Khi góc đã sát vạch chuẩn (< 0.8°): Hãm êm xuống 0.35 rad/s triệt tiêu quán tính quay
         angle_err = abs(self.smoothed_angle_deg)
         if angle_err < 0.8:
-            target_w = 0.45
+            target_w = 0.35
         elif angle_err < 1.5:
             target_w = 0.52
         else:
