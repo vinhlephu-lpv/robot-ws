@@ -1007,7 +1007,7 @@ class CnnDriverNode(Node):
             resume_threshold = float(getattr(self, 'turn_in_place_resume_deg', 2.0))
 
             if self.is_adjusting_heading:
-                # Kiểm tra đã thẳng hàng chưa (<= resume_threshold = 0.3°)
+                # Kiểm tra đã thẳng hàng chưa (<= resume_threshold)
                 if abs(self.smoothed_angle_deg) <= resume_threshold:
                     self.is_adjusting_heading = False
                     self._aligned_frame_count = 0
