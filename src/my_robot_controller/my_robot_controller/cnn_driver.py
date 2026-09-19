@@ -329,6 +329,17 @@ class CnnDriverNode(Node):
         self.uturn_goal_y       = None
         self.uturn_target_lane  = None
 
+        # ── IMU U-Turn & Slip Monitoring Variables ────────────────────
+        self.uturn_start_imu_yaw      = 0.0
+        self.uturn_target_yaw         = 0.0
+        self.uturn_accum_imu_yaw      = 0.0
+        self.uturn_accum_wheel_yaw    = 0.0
+        self._prev_imu_yaw_for_turn   = None
+        self._prev_wheel_yaw_for_turn = None
+        self._slip_warning_logged     = False
+        self.is_trimming_uturn_heading= False
+        self.uturn_trim_start_time    = 0.0
+
         # ── Image logging ─────────────────────────────────────────────
         self.last_img_save_time = 0.0
         self.output_dir = os.path.join(os.path.expanduser('~'), 'ros2_debug_imgs')
@@ -348,6 +359,11 @@ class CnnDriverNode(Node):
         if self.odom_topic not in ('/odom', 'odom'):
             self.odom_fallback_sub = self.create_subscription(
                 Odometry, '/odom', self.odom_callback, 10)
+
+        # Wheel odom subscriber (dùng so sánh góc quay encoder và IMU để phát hiện trượt bánh)
+        self.wheel_odom_sub = self.create_subscription(
+            Odometry, '/wheel/odom', self.wheel_odom_callback, 10
+        )
 
         self.scan_sub = self.create_subscription(
             LaserScan, '/scan', self.scan_callback, qos_profile_sensor_data)
@@ -484,9 +500,103 @@ class CnnDriverNode(Node):
             finished = True
         return twist, finished
 
-    # ── GPS & IMU callbacks ───────────────────────────────────────────
+    # ── GPS, IMU & Wheel Odom callbacks ───────────────────────────────
+    def wheel_odom_callback(self, msg: Odometry):
+        """Theo dõi góc quay encoder bánh xe để so sánh với IMU phát hiện trượt bánh."""
+        q = msg.pose.pose.orientation
+        siny = 2.0 * (q.w * q.z + q.x * q.y)
+        cosy = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
+        wheel_yaw = math.atan2(siny, cosy)
+
+        is_uturn_active = (
+            self.fsm.get_state() == FSMState.UTURN_PLANNING or
+            (self.fsm.get_state() == FSMState.PATH_FOLLOWING and self.fsm.state_before_planning == FSMState.UTURN_PLANNING) or
+            self.is_trimming_uturn_heading
+        )
+        if is_uturn_active:
+            if self._prev_wheel_yaw_for_turn is not None:
+                dyaw_w = math.atan2(
+                    math.sin(wheel_yaw - self._prev_wheel_yaw_for_turn),
+                    math.cos(wheel_yaw - self._prev_wheel_yaw_for_turn)
+                )
+                self.uturn_accum_wheel_yaw += abs(dyaw_w)
+            self._prev_wheel_yaw_for_turn = wheel_yaw
+        else:
+            self._prev_wheel_yaw_for_turn = None
+
     def imu_callback(self, msg: Imu):
         self.localization_manager.update_imu(msg)
+        current_imu_yaw = self.localization_manager.imu_yaw
+
+        # 1. Tích lũy góc quay thực tế từ IMU khi xe đang quay đầu
+        is_uturn_active = (
+            self.fsm.get_state() == FSMState.UTURN_PLANNING or
+            (self.fsm.get_state() == FSMState.PATH_FOLLOWING and self.fsm.state_before_planning == FSMState.UTURN_PLANNING) or
+            self.is_trimming_uturn_heading
+        )
+        if is_uturn_active:
+            if self._prev_imu_yaw_for_turn is not None:
+                dyaw_imu = math.atan2(
+                    math.sin(current_imu_yaw - self._prev_imu_yaw_for_turn),
+                    math.cos(current_imu_yaw - self._prev_imu_yaw_for_turn)
+                )
+                self.uturn_accum_imu_yaw += abs(dyaw_imu)
+            self._prev_imu_yaw_for_turn = current_imu_yaw
+
+            # 2. Báo cáo phát hiện trượt bánh (Slip Detection)
+            if self.uturn_accum_wheel_yaw > 0.10:
+                slip_deg = math.degrees(self.uturn_accum_wheel_yaw - self.uturn_accum_imu_yaw)
+                if slip_deg > 8.0 and not self._slip_warning_logged:
+                    self.get_logger().warn(
+                        f"⚠️ [CẢNH BÁO TRƯỢT BÁNH] Bánh xe quay {math.degrees(self.uturn_accum_wheel_yaw):.1f}° "
+                        f"nhưng IMU thực tế chỉ quay {math.degrees(self.uturn_accum_imu_yaw):.1f}° (Trượt {slip_deg:.1f}° trên cỏ/đất)! "
+                        f"Hệ thống đang điều khiển bù góc theo IMU để đảm bảo quay đúng 180°!"
+                    )
+                    if self.enable_file_logging and self.telemetry_logger:
+                        self.telemetry_logger.log_event(
+                            "WHEEL_SLIP_DETECTED",
+                            f"Bánh quay {math.degrees(self.uturn_accum_wheel_yaw):.1f}°, IMU quay {math.degrees(self.uturn_accum_imu_yaw):.1f}°, Trượt {slip_deg:.1f}°"
+                        )
+                    self._slip_warning_logged = True
+
+            # 3. Nắn chỉnh hướng đầu xe khép vòng IMU 50Hz (Heading Auto-Trim)
+            if self.is_trimming_uturn_heading:
+                now_sec = self.get_clock().now().nanoseconds / 1e9
+                yaw_err = math.atan2(
+                    math.sin(self.uturn_target_yaw - current_imu_yaw),
+                    math.cos(self.uturn_target_yaw - current_imu_yaw)
+                )
+                trim_threshold = math.radians(1.5)  # Chuẩn sai số < 1.5 độ
+                timed_out = (now_sec - self.uturn_trim_start_time) > 4.5
+
+                if abs(yaw_err) <= trim_threshold or timed_out:
+                    self.is_trimming_uturn_heading = False
+                    self.StopRobot()
+                    start_deg = math.degrees(self.uturn_start_imu_yaw)
+                    now_deg = math.degrees(current_imu_yaw)
+                    accum_deg = math.degrees(self.uturn_accum_imu_yaw)
+                    status_note = "THÀNH CÔNG HOÀN HẢO" if abs(yaw_err) <= trim_threshold else "TIMEOUT AN TOÀN"
+                    self.get_logger().info(
+                        f"✅ [IMU XÁC NHẬN QUAY ĐẦU - {status_note}] Đã quay đúng 180° và căn thẳng vào Luống 2! "
+                        f"(Start: {start_deg:+.1f}°, Hiện tại: {now_deg:+.1f}°, IMU tổng xoay: {accum_deg:.1f}°, Sai lệch trục: {math.degrees(yaw_err):+.2f}°). "
+                        f"Bàn giao quyền điều khiển cho AI CNN!"
+                    )
+                    if self.enable_file_logging and self.telemetry_logger:
+                        self.telemetry_logger.log_event(
+                            "UTURN_SUCCESS_IMU",
+                            f"Quay đầu 180° thành công: Start={start_deg:.1f}°, Current={now_deg:.1f}°, Total={accum_deg:.1f}°, Err={math.degrees(yaw_err):.2f}°"
+                        )
+                    self.transition_after_path(self.get_clock().now())
+                else:
+                    # Xoay nhẹ đầu xe về hướng target Luống 2
+                    twist = Twist()
+                    twist.linear.x = 0.0
+                    turn_dir = 1.0 if yaw_err > 0 else -1.0
+                    turn_speed = max(0.40, min(float(self.turn_angular_speed), 0.75))
+                    twist.angular.z = turn_dir * turn_speed
+                    self.cmd_vel_pub.publish(twist)
+        else:
+            self._prev_imu_yaw_for_turn = None
 
     def gps_callback(self, msg: NavSatFix):
         self.localization_manager.update_gps(msg)
@@ -993,8 +1103,23 @@ class CnnDriverNode(Node):
             target_y = -abs(self.row_spacing) if self.turn_side.upper() == 'RIGHT' else abs(self.row_spacing)
             self.current_lane_y = target_y
 
+            # Ghi nhận mốc xuất phát quay đầu từ cảm biến IMU
+            self.uturn_start_imu_yaw = self.localization_manager.imu_yaw
+            # Luống 2 ngược chiều Luống 1 (+180°):
+            self.uturn_target_yaw = math.atan2(
+                math.sin(self.uturn_start_imu_yaw + math.pi),
+                math.cos(self.uturn_start_imu_yaw + math.pi)
+            )
+            self.uturn_accum_imu_yaw = 0.0
+            self.uturn_accum_wheel_yaw = 0.0
+            self._prev_imu_yaw_for_turn = self.uturn_start_imu_yaw
+            self._prev_wheel_yaw_for_turn = None
+            self._slip_warning_logged = False
+            self.is_trimming_uturn_heading = False
+
             self.get_logger().info(
-                f"🔄 [OMEGA TURN] Chuẩn bị quay đầu: Luống đích target_y={target_y:.2f}m "
+                f"🔄 [OMEGA TURN - IMU QUAY ĐẦU] Bắt đầu quay đầu 180° từ IMU Yaw={math.degrees(self.uturn_start_imu_yaw):+.1f}° "
+                f"-> Hướng mục tiêu Luống 2: {math.degrees(self.uturn_target_yaw):+.1f}° "
                 f"(turn_side={self.turn_side}, spacing={self.row_spacing:.2f}m, R1={self.omega_r1:.2f}m, alpha={self.omega_open_angle_deg}°)..."
             )
             
@@ -1041,17 +1166,45 @@ class CnnDriverNode(Node):
             is_uturn = (self.fsm.state_before_planning == FSMState.UTURN_PLANNING)
             
             if is_uturn:
-                turn_angle_deg = np.rad2deg(self.accumulated_turn_angle)
-                is_turned_around = (turn_angle_deg >= 135.0)
-                # Với Omega Turn có đoạn dẫn thẳng (lead-in), khi đi hết path hoặc xe đã đảo hướng và camera bắt được hàng:
-                caught_row = (confidence >= self.high_confidence_threshold and is_turned_around) or (finished and is_turned_around) or finished
-                
-                if caught_row:
-                    self.get_logger().info(
-                        f"✅ [VÀO LUỐNG 2] Hoàn tất vòng quay Omega Turn (turn={turn_angle_deg:.1f}°, conf={confidence*100:.1f}%) -> Bắt đầu bám Luống 2!"
-                    )
-                    self.StopRobot()
-                    self.transition_after_path(now)
+                current_imu_yaw = self.localization_manager.imu_yaw
+                turn_angle_deg = np.rad2deg(self.uturn_accum_imu_yaw)
+                is_turned_around = (turn_angle_deg >= 140.0)
+
+                # Kiểm tra sai số góc hướng so với trục chuẩn Luống 2 (target_yaw)
+                yaw_err_to_row2 = math.atan2(
+                    math.sin(self.uturn_target_yaw - current_imu_yaw),
+                    math.cos(self.uturn_target_yaw - current_imu_yaw)
+                )
+                yaw_err_deg = math.degrees(yaw_err_to_row2)
+
+                if finished or (confidence >= self.high_confidence_threshold and is_turned_around):
+                    # Nếu xe đã xong cung Omega nhưng đầu xe còn lệch trục luống (> 2.0 độ):
+                    if abs(yaw_err_deg) > 2.0:
+                        if not self.is_trimming_uturn_heading:
+                            self.is_trimming_uturn_heading = True
+                            self.uturn_trim_start_time = now.nanoseconds / 1e9
+                            self.StopRobot()
+                            self.get_logger().info(
+                                f"🔄 [NẮN CHỈNH HƯỚNG LUỐNG 2] Cung Omega hoàn tất nhưng đầu xe còn lệch {yaw_err_deg:+.1f}° so với trục luống -> IMU 50Hz tự động nắn chỉnh chuẩn 180°..."
+                            )
+                        return
+                    else:
+                        # Đầu xe đã thẳng đẹp vào Luống 2 (lệch <= 2.0 độ):
+                        self.StopRobot()
+                        start_deg = math.degrees(self.uturn_start_imu_yaw)
+                        now_deg = math.degrees(current_imu_yaw)
+                        accum_deg = math.degrees(self.uturn_accum_imu_yaw)
+                        self.get_logger().info(
+                            f"✅ [IMU XÁC NHẬN QUAY ĐẦU THÀNH CÔNG] Đã quay đúng 180° và căn thẳng vào Luống 2! "
+                            f"(Start: {start_deg:+.1f}°, Hiện tại: {now_deg:+.1f}°, IMU xoay: {accum_deg:.1f}°, Lệch trục: {yaw_err_deg:+.2f}°). "
+                            f"Chuyển sang TRACKING Luống 2!"
+                        )
+                        if self.enable_file_logging and self.telemetry_logger:
+                            self.telemetry_logger.log_event(
+                                "UTURN_SUCCESS_IMU",
+                                f"Quay đầu 180° thành công: Start={start_deg:.1f}°, Current={now_deg:.1f}°, Total={accum_deg:.1f}°, Err={yaw_err_deg:.2f}°"
+                            )
+                        self.transition_after_path(now)
                 else:
                     twist.linear.x = lin_vel
                     twist.angular.z = ang_vel
