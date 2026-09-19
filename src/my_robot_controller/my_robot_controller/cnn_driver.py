@@ -53,7 +53,7 @@ class CnnDriverNode(Node):
         self.declare_parameter('mask_threshold', 0.04)
         self.declare_parameter('linear_speed', 0.20)
         self.declare_parameter('turn_linear_speed', 0.20)
-        self.declare_parameter('turn_angular_speed', 0.60)
+        self.declare_parameter('turn_angular_speed', 0.25)
         self.declare_parameter('low_confidence_threshold', 0.35)
         self.declare_parameter('high_confidence_threshold', 0.50)
         self.declare_parameter('lambda_smc', 2.0)
@@ -594,7 +594,7 @@ class CnnDriverNode(Node):
                     twist = Twist()
                     twist.linear.x = 0.0
                     turn_dir = 1.0 if yaw_err > 0 else -1.0
-                    turn_speed = max(0.40, min(float(self.turn_angular_speed), 0.75))
+                    turn_speed = max(0.18, min(float(self.turn_angular_speed), 0.35))
                     twist.angular.z = turn_dir * turn_speed
                     self.cmd_vel_pub.publish(twist)
         else:
@@ -988,7 +988,11 @@ class CnnDriverNode(Node):
                 lin_speed = 0.0
                 # Cập nhật hướng xoay liên tục theo góc lệch thực tế từ camera
                 self.heading_adjust_dir = -1.0 if self.smoothed_angle_deg > 0 else 1.0
-                turn_speed = max(0.40, min(float(self.turn_angular_speed), 0.70))
+                base_turn = float(self.turn_angular_speed) if hasattr(self, 'turn_angular_speed') else 0.25
+                turn_speed = max(0.16, min(base_turn, 0.35))
+                # Khi góc lệch đã về gần chuẩn (< 1.0 độ), giảm nhẹ tốc xoay để hãm đà chống văng/overshoot
+                if abs(self.smoothed_angle_deg) < 1.0:
+                    turn_speed = max(0.15, turn_speed * 0.75)
                 ang_vel = self.heading_adjust_dir * turn_speed
             else:
                 lin_speed = self.linear_speed
