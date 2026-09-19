@@ -18,6 +18,7 @@ from geometry_msgs.msg import Twist, TransformStamped
 from nav_msgs.msg import Odometry
 from std_msgs.msg import String as StringMsg
 import tf2_ros
+import numpy as np
 
 try:
     import serial
@@ -212,8 +213,8 @@ class ESP32Bridge(Node):
         diff_l = self.target_rpm_left - self.current_rpm_left
         diff_r = self.target_rpm_right - self.current_rpm_right
 
-        self.current_rpm_left += float(np.clip(diff_l, -max_delta, max_delta))
-        self.current_rpm_right += float(np.clip(diff_r, -max_delta, max_delta))
+        self.current_rpm_left += float(max(-max_delta, min(max_delta, diff_l)))
+        self.current_rpm_right += float(max(-max_delta, min(max_delta, diff_r)))
 
         # Nếu cả target và current đều rất nhỏ (< 0.2 RPM), đưa về 0 để ngắt dứt điểm
         if abs(self.target_rpm_left) < 0.01 and abs(self.current_rpm_left) < 0.2:
