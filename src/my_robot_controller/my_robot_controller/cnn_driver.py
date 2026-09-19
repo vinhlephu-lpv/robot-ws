@@ -707,9 +707,12 @@ class CnnDriverNode(Node):
         ramp = min(1.0, elapsed / 0.25)
         base_w = float(getattr(self, 'turn_angular_speed', 0.28))
         
-        # Khi góc lệch đã về gần chuẩn (< 0.8°), giảm nhẹ tốc xoay xuống 0.18 rad/s để tiếp cận êm mà không văng lố
-        if abs(self.smoothed_angle_deg) < 0.8:
-            target_w = 0.18
+        # Khi góc lệch đã về gần chuẩn, hãm tốc từng nấc để tiếp cận êm mà không văng lố
+        angle_err = abs(self.smoothed_angle_deg)
+        if angle_err < 0.5:
+            target_w = 0.15
+        elif angle_err < 0.8:
+            target_w = 0.20
         else:
             target_w = base_w
 
@@ -1008,16 +1011,18 @@ class CnnDriverNode(Node):
                     self.is_adjusting_heading = False
                     self._aligned_frame_count = 0
                     self.heading_adjust_cooldown_until = now_sec + 1.2
+                    self.forward_resume_start_time = now_sec
 
+                    # Hãm phanh êm dịu triệt tiêu quán tính quay trước khi tiến:
                     twist = Twist()
-                    twist.linear.x = self.linear_speed
+                    twist.linear.x = 0.0
                     twist.angular.z = 0.0
                     self.cmd_vel_pub.publish(twist)
 
                     self.get_logger().info(
                         f"✅ [ĐIỀU HƯỚNG CNN] ĐÃ THẲNG HÀNG "
                         f"(|góc|={abs(self.smoothed_angle_deg):.2f}° <= {resume_threshold:.2f}°)! "
-                        f"Tiếp tục chạy thẳng liên tục với {self.linear_speed:.2f} m/s."
+                        f"Hãm xoay êm dịu và tăng tốc tiến mượt mà {self.linear_speed:.2f} m/s."
                     )
                     if self.enable_file_logging and self.telemetry_logger:
                         self.telemetry_logger.log_event(
@@ -1053,7 +1058,10 @@ class CnnDriverNode(Node):
                 lin_speed = 0.0
                 ang_vel = 0.0  # Vận tốc góc xoay từ từ do timer 20Hz kiểm soát độc lập
             else:
-                lin_speed = self.linear_speed
+                # Tăng tốc tiến mềm (0.35s ramp-up) sau khi căn chỉnh xong để chống giật/trượt bánh:
+                time_since_resume = now_sec - getattr(self, 'forward_resume_start_time', 0.0)
+                fwd_ramp = min(1.0, time_since_resume / 0.35) if time_since_resume < 0.35 else 1.0
+                lin_speed = self.linear_speed * fwd_ramp
                 # Khi đang chạy thẳng, bù lái nhẹ nhàng liên tục để giữ luống ổn định không khựng xe:
                 ang_vel = float(np.clip(-0.035 * self.smoothed_angle_deg, -0.10, 0.10))
 

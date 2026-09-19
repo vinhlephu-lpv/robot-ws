@@ -108,6 +108,9 @@ class ESP32Bridge(Node):
 
         self.target_rpm_left = 0.0
         self.target_rpm_right = 0.0
+        self.current_rpm_left = 0.0
+        self.current_rpm_right = 0.0
+        self.max_rpm_accel = 35.0  # RPM/s — Tăng/giảm tốc mềm chống trượt bánh và chống văng xe
         self._serial_rx_buffer = ''
 
         # ── Loop Timer (20 Hz for Odom processing & continuous ESP32 streaming) ──
@@ -204,9 +207,23 @@ class ESP32Bridge(Node):
             self.target_rpm_left = rpm_l
             self.target_rpm_right = rpm_r
 
+        # Slew-Rate Limiter (Bộ làm mềm gia tốc/hãm phanh chống trượt bánh và văng xe trên cỏ/đất)
+        max_delta = self.max_rpm_accel * dt
+        diff_l = self.target_rpm_left - self.current_rpm_left
+        diff_r = self.target_rpm_right - self.current_rpm_right
+
+        self.current_rpm_left += float(np.clip(diff_l, -max_delta, max_delta))
+        self.current_rpm_right += float(np.clip(diff_r, -max_delta, max_delta))
+
+        # Nếu cả target và current đều rất nhỏ (< 0.2 RPM), đưa về 0 để ngắt dứt điểm
+        if abs(self.target_rpm_left) < 0.01 and abs(self.current_rpm_left) < 0.2:
+            self.current_rpm_left = 0.0
+        if abs(self.target_rpm_right) < 0.01 and abs(self.current_rpm_right) < 0.2:
+            self.current_rpm_right = 0.0
+
         # Phát liên tục 20 Hz duy trì lệnh nuôi Watchdog ESP32 mượt mà
         if self.mode == 'serial' and self.ser and self.ser.is_open:
-            cmd_str = f'V {self.target_rpm_left:.1f} {self.target_rpm_right:.1f}\n'
+            cmd_str = f'V {self.current_rpm_left:.1f} {self.current_rpm_right:.1f}\n'
             try:
                 self.ser.write(cmd_str.encode('utf-8'))
             except Exception as e:
