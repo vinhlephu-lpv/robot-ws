@@ -53,7 +53,7 @@ class CnnDriverNode(Node):
         self.declare_parameter('mask_threshold', 0.04)
         self.declare_parameter('linear_speed', 0.20)
         self.declare_parameter('turn_linear_speed', 0.20)
-        self.declare_parameter('turn_angular_speed', 0.28)
+        self.declare_parameter('turn_angular_speed', 0.40)
         self.declare_parameter('low_confidence_threshold', 0.35)
         self.declare_parameter('high_confidence_threshold', 0.50)
         self.declare_parameter('lambda_smc', 2.0)
@@ -703,16 +703,16 @@ class CnnDriverNode(Node):
             self.get_logger().warn("⚠️ [ĐIỀU HƯỚNG CNN] Quá 6s căn chỉnh -> Tự động khôi phục chạy thẳng!")
             return
 
-        # Tăng tốc mềm trong 0.25s đầu để triệt tiêu giật xe
-        ramp = min(1.0, elapsed / 0.25)
-        base_w = float(getattr(self, 'turn_angular_speed', 0.28))
+        # Tăng tốc mềm với mô-men khởi động tức thì (tối thiểu 60% để thắng ma sát tĩnh trên cỏ)
+        ramp = min(1.0, 0.60 + 0.40 * (elapsed / 0.20))
+        base_w = float(getattr(self, 'turn_angular_speed', 0.40))
         
-        # Khi góc lệch đã về gần chuẩn, hãm tốc từng nấc để tiếp cận êm mà không văng lố
+        # Đảm bảo sàn tốc độ >= 0.26 rad/s để 4 bánh không bị khựng/stall trên cỏ
         angle_err = abs(self.smoothed_angle_deg)
-        if angle_err < 0.5:
-            target_w = 0.15
-        elif angle_err < 0.8:
-            target_w = 0.20
+        if angle_err < 0.6:
+            target_w = 0.26
+        elif angle_err < 1.0:
+            target_w = 0.32
         else:
             target_w = base_w
 
