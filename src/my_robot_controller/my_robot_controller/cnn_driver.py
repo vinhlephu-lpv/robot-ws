@@ -713,14 +713,15 @@ class CnnDriverNode(Node):
 
         # Tăng tốc mềm với mô-men khởi động tức thì (tối thiểu 80% để thắng ma sát tĩnh trên cỏ)
         ramp = min(1.0, 0.80 + 0.20 * (elapsed / 0.15))
-        base_w = float(getattr(self, 'turn_angular_speed', 0.60))
-        
-        # Khi góc đã sát vạch chuẩn (< 0.8°): Hãm êm xuống 0.35 rad/s triệt tiêu quán tính quay
+        # Điều chỉnh tốc độ xoay mềm dần theo sai số góc:
+        # - Lệch nhiều (>= 1.5°): quay dứt khoát 0.60 rad/s để thắng ma sát cỏ.
+        # - Lệch vừa (1.0° <= err < 1.5°): giảm tốc vừa 0.48 rad/s.
+        # - Sát vạch chuẩn (err < 1.0° chuẩn bị về ngưỡng 0.8°): hãm êm xuống 0.35 rad/s triệt tiêu quán tính quay!
         angle_err = abs(self.smoothed_angle_deg)
-        if angle_err < 0.8:
+        if angle_err < 1.0:
             target_w = 0.35
         elif angle_err < 1.5:
-            target_w = 0.52
+            target_w = 0.48
         else:
             target_w = base_w
 
