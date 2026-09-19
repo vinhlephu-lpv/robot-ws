@@ -1332,10 +1332,11 @@ class CnnDriverNode(Node):
         gps_source = self._latest_gps_info.get('source', '')
         gps_str = f" | GPS: {self._latest_gps_info.get('latitude', 0.0):.5f}°, {self._latest_gps_info.get('longitude', 0.0):.5f}°" if (gps_status == 'FIX' and gps_source == 'DIRECT_SENSOR') else ""
 
+        display_state_str = "CHỈNH GÓC" if self.is_adjusting_heading else str(current_state)
         status_msg = (
             f"🌾 [AI Lái Xe] Luống {self.current_lane_idx} (x={self.current_x:4.2f}m) | "
             f"Góc: {self._latest_steer_deg:+5.2f}° | "
-            f"Trạng thái: [{current_state:^10s}] | "
+            f"Trạng thái: [{display_state_str:^10s}] | "
             f"Tin cậy: {self._latest_confidence*100:4.1f}% | "
             f"AI: {inf_ms:2.0f}ms ({fps_val:3.1f}FPS) | "
             f"V: {self._latest_twist.linear.x:.2f}m/s"
