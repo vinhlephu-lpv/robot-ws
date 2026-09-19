@@ -22,13 +22,12 @@ cnn_driver_node:
 
     mask_threshold: 0.35        # cao hơn sim vì model nhận diện ảnh thật tốt hơn
 
-    # Tốc độ di chuyển (m/s) — Chạy thẳng chậm ổn định, lực quay bẻ lái êm ái chống trượt trên cỏ
+    # Tốc độ di chuyển (m/s) — Chạy thẳng ổn định, xoay tại chỗ đủ lực (0.35 rad/s) khi lệch > 3.5°
     linear_speed: 0.10
     turn_linear_speed: 0.10
-    turn_angular_speed: 0.22          # rad/s — Vận tốc góc xoay tối đa khi căn chỉnh, êm ái nhẹ nhàng
-    turn_in_place_threshold_deg: 0.3  # Ngưỡng kích hoạt căn chỉnh: khi góc CNN lệch > 0.3°
-    heading_adjust_cycle_duration: 0.40 # giây (< 0.5s) — Chu kỳ tăng giảm tốc mềm (Half-Sine) cho mỗi lần chỉnh hướng
-    heading_adjust_cooldown: 0.50     # giây — Giãn cách an toàn sau chu kỳ chỉnh để camera quan sát ổn định luống
+    turn_angular_speed: 0.35          # rad/s — Vận tốc góc xoay căn chỉnh (đủ lực thắng ma sát bánh xe trên cỏ)
+    turn_in_place_threshold_deg: 3.5  # Ngưỡng kích hoạt căn chỉnh: chỉ dừng xoay khi lệch > 3.5°
+    turn_in_place_resume_deg: 1.5     # Ngưỡng hoàn thành căn chỉnh: góc thẳng <= 1.5° (xác nhận liên tiếp 2 frame) mới đi tiếp
 
     # Bộ điều khiển trượt SMC bám luống với lực bẻ lái mạnh mẽ, dứt khoát
     lambda_smc: 2.5             # hệ số bề mặt trượt S = de + lambda * e
