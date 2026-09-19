@@ -153,6 +153,11 @@ class PerceptionManager:
                 repulsion_deg = float(np.clip((penetration / 0.05) * max_angle_deg, 2.0, max_angle_deg))
                 heading_error = min(heading_error, -repulsion_deg)
 
+        # 4. Xác định cảm biến đang chiếm quyền điều khiển
+        active_sensor = self.sensor_priority.select_active_tracking_sensor(
+            confidence, lidar_available=(self.lidar is not None)
+        )
+
         end_of_row = self.eor_detector.detect(
             confidence=confidence,
             distance_traveled=distance_traveled,
