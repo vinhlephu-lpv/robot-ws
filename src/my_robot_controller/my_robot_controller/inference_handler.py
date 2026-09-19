@@ -10,13 +10,15 @@ class InferenceHandler:
         mask_threshold: float = 0.35,
         input_size: tuple[int, int] = (512, 512),
         use_hsv_mask: bool = False,
-        num_threads: int = 0
+        num_threads: int = 0,
+        roi_ratio: float = 0.80
     ):
         self.model_path = model_path
         self.mask_threshold = mask_threshold  # kept for compatibility, used in binary segmentation
         self.input_size = input_size
         self.use_hsv_mask = use_hsv_mask
         self.num_threads = num_threads
+        self.roi_ratio = float(roi_ratio)
         self.session = None
         self.input_name = None
         self.output_names = None
@@ -100,8 +102,8 @@ class InferenceHandler:
         h, w = mask.shape
         image_center = (w - 1) * 0.5
 
-        # Bottom ROI (70% height to capture full carton boxes / crop rows)
-        roi_ratio = 0.70
+        # Bottom ROI (80% height to capture full carton boxes / crop rows)
+        roi_ratio = getattr(self, 'roi_ratio', 0.80)
         y0 = int(h * (1.0 - roi_ratio))
         roi = mask[y0:, :]
 
@@ -247,12 +249,14 @@ class InferenceHandler:
         clearance_bias = self.compute_vehicle_clearance_bias(mask, max_angle_deg)
         return float(np.clip(base_angle + clearance_bias, -max_angle_deg, max_angle_deg))
 
-    def compute_row_confidence(self, mask_prob: np.ndarray, roi_ratio: float = 0.70) -> float:
+    def compute_row_confidence(self, mask_prob: np.ndarray, roi_ratio: float = None) -> float:
         """Computes a confidence score based on crop row lane detection density."""
         if mask_prob.ndim == 3:
             mask_prob = mask_prob[..., 0]
             
         h, w = mask_prob.shape
+        if roi_ratio is None:
+            roi_ratio = getattr(self, 'roi_ratio', 0.80)
         y0 = int(h * (1.0 - roi_ratio))
         roi = mask_prob[y0:, :]
         

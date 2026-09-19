@@ -16,6 +16,7 @@ cnn_driver_node:
 
     # Ngưỡng mask (dùng nội bộ, dynamic threshold sẽ override)
     mask_threshold: 0.04
+    roi_ratio: 0.80
 
     # Tốc độ di chuyển (m/s) — Giảm tốc x3 (Chậm rãi, mượt mà dễ quan sát)
     linear_speed: 0.20          # tốc độ bám hàng chậm rãi mượt mà (0.20 m/s)

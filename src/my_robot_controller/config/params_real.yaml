@@ -21,6 +21,7 @@ cnn_driver_node:
     use_hsv_mask: false
 
     mask_threshold: 0.35        # cao hơn sim vì model nhận diện ảnh thật tốt hơn
+    roi_ratio: 0.80             # Vùng quan tâm (ROI) 80% chiều cao ảnh tính từ cận cảnh đáy lên (nhìn xa và rộng hơn)
 
     # Tốc độ di chuyển (m/s) — Giảm tốc độ bò thẳng (0.075 m/s) để xe bám chậm và chắc chắn
     linear_speed: 0.075

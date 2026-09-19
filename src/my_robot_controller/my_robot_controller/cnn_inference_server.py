@@ -37,6 +37,7 @@ class CnnInferenceServer(Node):
         self.declare_parameter('input_height', 384)
         self.declare_parameter('input_width', 384)
         self.declare_parameter('mask_threshold', 0.30)
+        self.declare_parameter('roi_ratio', 0.80)
         self.declare_parameter('max_steering_angle_deg', 14.0)
         self.declare_parameter('num_threads', 0)
         self.declare_parameter('show_window', False)
@@ -46,6 +47,7 @@ class CnnInferenceServer(Node):
         self.input_height = p('input_height').value
         self.input_width = p('input_width').value
         self.mask_threshold = p('mask_threshold').value
+        self.roi_ratio = float(p('roi_ratio').value)
         self.max_steering_angle_deg = p('max_steering_angle_deg').value
         self.num_threads = p('num_threads').value
         self.show_window = p('show_window').value
@@ -78,7 +80,8 @@ class CnnInferenceServer(Node):
             mask_threshold=self.mask_threshold,
             input_size=(self.input_height, self.input_width),
             use_hsv_mask=False,
-            num_threads=self.num_threads
+            num_threads=self.num_threads,
+            roi_ratio=self.roi_ratio
         )
 
         # ── Publishers ────────────────────────────────────────────────

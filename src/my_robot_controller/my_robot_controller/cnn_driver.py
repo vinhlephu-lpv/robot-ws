@@ -51,6 +51,7 @@ class CnnDriverNode(Node):
         self.declare_parameter('input_width', 512)
         self.declare_parameter('num_threads', 0)
         self.declare_parameter('mask_threshold', 0.04)
+        self.declare_parameter('roi_ratio', 0.80)
         self.declare_parameter('linear_speed', 0.075)
         self.declare_parameter('turn_linear_speed', 0.075)
         self.declare_parameter('turn_angular_speed', 0.60)
@@ -118,6 +119,7 @@ class CnnDriverNode(Node):
         self.input_width              = p('input_width').value
         self.num_threads              = p('num_threads').value
         self.mask_threshold           = p('mask_threshold').value
+        self.roi_ratio                = float(p('roi_ratio').value)
         self.linear_speed             = p('linear_speed').value
         self.turn_linear_speed        = p('turn_linear_speed').value
         self.turn_angular_speed       = p('turn_angular_speed').value
@@ -235,7 +237,8 @@ class CnnDriverNode(Node):
             mask_threshold=self.mask_threshold,
             input_size=(self.input_height, self.input_width),
             use_hsv_mask=self.use_hsv_mask,
-            num_threads=self.num_threads
+            num_threads=self.num_threads,
+            roi_ratio=self.roi_ratio
         )
         self.lidar_processor = LidarProcessor()
         self.eor_detector = EndOfRowDetector(
