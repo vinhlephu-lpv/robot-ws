@@ -280,20 +280,14 @@ class InferenceHandler:
             clearance_l = image_center - med_left
             clearance_r = med_right - image_center
 
-            # Kiểm tra xem có bên nào vi phạm vùng an toàn thân xe không
-            if clearance_l < safe_half_px or clearance_r < safe_half_px:
-                diff = clearance_r - clearance_l
-                total_span = max(1.0, clearance_l + clearance_r)
-                ratio = diff / total_span
-                bias_deg = ratio * max_angle_deg * 1.5
-
-                # Nguy hiểm cận kề bánh xe: cưỡng bức bẻ lái thoát hiểm
-                if clearance_l < crit_half_px:
-                    crit_pen = (crit_half_px - clearance_l) / crit_half_px
-                    bias_deg = max(bias_deg, crit_pen * max_angle_deg)
-                elif clearance_r < crit_half_px:
-                    crit_pen = (crit_half_px - clearance_r) / crit_half_px
-                    bias_deg = min(bias_deg, -crit_pen * max_angle_deg)
+            # Nguy hiểm cận kề bánh xe (< crit_half_px): cưỡng bức bẻ lái thoát hiểm khẩn cấp
+            # (Không cộng dồn độ lệch ảo khi cả 2 hàng đều nằm ở khoảng cách an toàn, tránh lệch tâm ảo)
+            if clearance_l < crit_half_px:
+                crit_pen = (crit_half_px - clearance_l) / crit_half_px
+                bias_deg = max(bias_deg, crit_pen * max_angle_deg * 0.7)
+            elif clearance_r < crit_half_px:
+                crit_pen = (crit_half_px - clearance_r) / crit_half_px
+                bias_deg = min(bias_deg, -crit_pen * max_angle_deg * 0.7)
 
         # Trường hợp 2: Chỉ phát hiện mép hàng bên TRÁI ở cận cảnh
         elif med_left is not None:

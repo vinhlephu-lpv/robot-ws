@@ -61,8 +61,9 @@ class CnnDriverNode(Node):
         self.declare_parameter('eta_smc', 0.6)
         self.declare_parameter('phi_smc', 0.5)
         self.declare_parameter('max_steering_angle_deg', 14.0)
-        self.declare_parameter('turn_in_place_threshold_deg', 0.30)
-        self.declare_parameter('turn_in_place_resume_deg', 0.30)
+        self.declare_parameter('turn_in_place_threshold_deg', 5.0)
+        self.declare_parameter('turn_in_place_resume_deg', 2.0)
+        self.declare_parameter('camera_trim_deg', 0.0)
         self.declare_parameter('row_spacing', 0.90)
         self.declare_parameter('ema_alpha', 0.45)
         self.declare_parameter('enable_uturn', False)
@@ -129,6 +130,7 @@ class CnnDriverNode(Node):
         self.max_steering_angle_deg   = p('max_steering_angle_deg').value
         self.turn_in_place_threshold_deg = float(p('turn_in_place_threshold_deg').value)
         self.turn_in_place_resume_deg    = float(p('turn_in_place_resume_deg').value)
+        self.camera_trim_deg             = float(p('camera_trim_deg').value)
         self.row_spacing              = p('row_spacing').value
         self.ema_alpha                = p('ema_alpha').value
         self.enable_uturn             = p('enable_uturn').value
@@ -813,7 +815,7 @@ class CnnDriverNode(Node):
         confidence = perception["confidence"]
         obstacle_detected = perception["obstacle_detected"]
         end_of_row = perception["end_of_row_detected"]
-        raw_angle = perception["heading_error"]
+        raw_angle = perception["heading_error"] + getattr(self, 'camera_trim_deg', 0.0)
         lane_center = perception["lane_center"]
         lane_offset = perception["lane_offset"]
         left_side_dist = perception.get("left_side_dist", float('inf'))
@@ -998,12 +1000,11 @@ class CnnDriverNode(Node):
             
             _lin_smc, _ang_smc = self.StartTracking(dt_actual)
 
-            # ── LOGIC ĐIỀU HƯỚNG CNN: DỪNG XOAY KHI GÓC <= 0.3° ──
-            # 1. Khi đang chạy bình thường (|góc| <= 0.3°): Xe chạy tiến 0.10 m/s, tự bù lái mềm để giữ luống.
-            # 2. Khi góc lệch > 0.3°: Dừng tiến, xoay từ từ tại chỗ với lực vừa đủ (~0.28 rad/s, hãm về 0.18 rad/s).
-            # 3. Khi góc giảm về <= 0.3°: Ngừng xoay, tiếp tục chạy thẳng và giãn cách an toàn 1.2s.
-            stop_threshold = float(getattr(self, 'turn_in_place_threshold_deg', 0.30))
-            resume_threshold = float(getattr(self, 'turn_in_place_resume_deg', 0.30))
+            # ── LOGIC ĐIỀU HƯỚNG CNN ──
+            # Khi góc lệch bình thường (<= 5.0°): Xe chạy tiến liên tục 0.10 m/s, bẻ lái bằng bộ điều khiển trượt SMC.
+            # Chỉ dừng xoay tại chỗ khi góc lệch thực sự quá lớn (> 5.0°), và dừng việc xoay khi góc <= 2.0° để chạy tiếp.
+            stop_threshold = float(getattr(self, 'turn_in_place_threshold_deg', 5.0))
+            resume_threshold = float(getattr(self, 'turn_in_place_resume_deg', 2.0))
 
             if self.is_adjusting_heading:
                 # Kiểm tra đã thẳng hàng chưa (<= resume_threshold = 0.3°)
@@ -1062,8 +1063,8 @@ class CnnDriverNode(Node):
                 time_since_resume = now_sec - getattr(self, 'forward_resume_start_time', 0.0)
                 fwd_ramp = min(1.0, time_since_resume / 0.35) if time_since_resume < 0.35 else 1.0
                 lin_speed = self.linear_speed * fwd_ramp
-                # Khi đang chạy thẳng, bù lái nhẹ nhàng liên tục để giữ luống ổn định không khựng xe:
-                ang_vel = float(np.clip(-0.035 * self.smoothed_angle_deg, -0.10, 0.10))
+                # Dùng trọn vẹn bộ điều khiển trượt SMC để bám luống dứt khoát, mượt mà:
+                ang_vel = float(_ang_smc)
 
             twist.linear.x = lin_speed
             twist.angular.z = ang_vel
