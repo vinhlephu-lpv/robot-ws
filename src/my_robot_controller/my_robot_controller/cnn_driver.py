@@ -61,7 +61,7 @@ class CnnDriverNode(Node):
         self.declare_parameter('eta_smc', 0.6)
         self.declare_parameter('phi_smc', 0.5)
         self.declare_parameter('max_steering_angle_deg', 14.0)
-        self.declare_parameter('turn_in_place_threshold_deg', 0.5)
+        self.declare_parameter('turn_in_place_threshold_deg', 0.3)
         self.declare_parameter('turn_in_place_resume_deg', 0.2)
         self.declare_parameter('row_spacing', 0.90)
         self.declare_parameter('ema_alpha', 0.45)
@@ -946,12 +946,12 @@ class CnnDriverNode(Node):
             
             _lin_smc, _ang_smc = self.StartTracking(dt_actual)
 
-            # ── LOGIC ĐIỀU HƯỚNG CNN: HYSTERESIS DỪNG CHỈNH GÓC (0.5° / 0.2°) ──
-            stop_threshold = float(getattr(self, 'turn_in_place_threshold_deg', 0.50))
+            # ── LOGIC ĐIỀU HƯỚNG CNN: HYSTERESIS DỪNG CHỈNH GÓC (0.3° / 0.2°) ──
+            stop_threshold = float(getattr(self, 'turn_in_place_threshold_deg', 0.30))
             resume_threshold = float(getattr(self, 'turn_in_place_resume_deg', 0.20))
 
             if not self.is_adjusting_heading:
-                # 1. Khi đang chạy: Nếu góc CNN trả về > 0.5° -> Dừng tiến (linear.x = 0.0), xoay tại chỗ căn chỉnh
+                # 1. Khi đang chạy: Nếu góc CNN trả về > 0.3° -> Dừng tiến (linear.x = 0.0), xoay tại chỗ căn chỉnh
                 if abs(self.smoothed_angle_deg) > stop_threshold:
                     self.is_adjusting_heading = True
                     self.heading_adjust_start_time = now_sec

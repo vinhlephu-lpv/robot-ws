@@ -25,7 +25,7 @@ cnn_driver_node:
     # Tốc độ di chuyển (m/s) — Chạy thẳng chậm ổn định, lực quay bẻ lái êm ái chống trượt trên cỏ
     linear_speed: 0.10
     turn_linear_speed: 0.10
-    turn_in_place_threshold_deg: 0.5  # Ngưỡng dừng xoay căn chỉnh hướng: khi CNN trả góc lệch > 0.5° dừng tiến xoay tại chỗ
+    turn_in_place_threshold_deg: 0.3  # Ngưỡng dừng xoay căn chỉnh hướng: khi CNN trả góc lệch > 0.3° dừng tiến xoay tại chỗ
     turn_in_place_resume_deg: 0.2     # Ngưỡng cho phép đi tiếp: khi góc chỉnh về <= 0.2° mới chạy thẳng tiếp
 
     # Bộ điều khiển trượt SMC bám luống với lực bẻ lái mạnh mẽ, dứt khoát
