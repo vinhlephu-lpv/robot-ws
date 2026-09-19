@@ -53,7 +53,7 @@ class CnnDriverNode(Node):
         self.declare_parameter('mask_threshold', 0.04)
         self.declare_parameter('linear_speed', 0.20)
         self.declare_parameter('turn_linear_speed', 0.20)
-        self.declare_parameter('turn_angular_speed', 0.35)
+        self.declare_parameter('turn_angular_speed', 0.28)
         self.declare_parameter('low_confidence_threshold', 0.35)
         self.declare_parameter('high_confidence_threshold', 0.50)
         self.declare_parameter('lambda_smc', 2.0)
@@ -61,8 +61,8 @@ class CnnDriverNode(Node):
         self.declare_parameter('eta_smc', 0.6)
         self.declare_parameter('phi_smc', 0.5)
         self.declare_parameter('max_steering_angle_deg', 14.0)
-        self.declare_parameter('turn_in_place_threshold_deg', 3.5)
-        self.declare_parameter('turn_in_place_resume_deg', 1.5)
+        self.declare_parameter('turn_in_place_threshold_deg', 0.30)
+        self.declare_parameter('turn_in_place_resume_deg', 0.30)
         self.declare_parameter('row_spacing', 0.90)
         self.declare_parameter('ema_alpha', 0.45)
         self.declare_parameter('enable_uturn', False)
@@ -705,11 +705,11 @@ class CnnDriverNode(Node):
 
         # Tăng tốc mềm trong 0.25s đầu để triệt tiêu giật xe
         ramp = min(1.0, elapsed / 0.25)
-        base_w = float(getattr(self, 'turn_angular_speed', 0.35))
+        base_w = float(getattr(self, 'turn_angular_speed', 0.28))
         
-        # Khi góc lệch đã về gần chuẩn (< 2.0°), giảm nhẹ tốc xoay xuống 0.22 rad/s để hãm đà
-        if abs(self.smoothed_angle_deg) < 2.0:
-            target_w = 0.22
+        # Khi góc lệch đã về gần chuẩn (< 0.8°), giảm nhẹ tốc xoay xuống 0.18 rad/s để tiếp cận êm mà không văng lố
+        if abs(self.smoothed_angle_deg) < 0.8:
+            target_w = 0.18
         else:
             target_w = base_w
 
@@ -995,43 +995,41 @@ class CnnDriverNode(Node):
             
             _lin_smc, _ang_smc = self.StartTracking(dt_actual)
 
-            # ── LOGIC ĐIỀU HƯỚNG CNN: CHẮC CHẮN THẲNG HÀNG MỚI ĐI TIẾP ──
-            # 1. Khi đang chạy bình thường (|góc| <= 3.5°): Xe chạy tiến liên tục 0.10 m/s, tự bù lái nhẹ để giữ luống.
-            # 2. Khi góc lệch rõ ràng (> 3.5°): Dừng tiến, xoay từ từ tại chỗ với lực đủ mạnh (~0.35 rad/s).
-            # 3. Chỉ khi góc giảm về <= 1.5° liên tiếp 2 frame (chắc chắn thẳng hàng) xe mới tiếp tục chạy thẳng!
-            stop_threshold = float(getattr(self, 'turn_in_place_threshold_deg', 3.50))
-            resume_threshold = float(getattr(self, 'turn_in_place_resume_deg', 1.50))
+            # ── LOGIC ĐIỀU HƯỚNG CNN: DỪNG XOAY KHI GÓC <= 0.3° ──
+            # 1. Khi đang chạy bình thường (|góc| <= 0.3°): Xe chạy tiến 0.10 m/s, tự bù lái mềm để giữ luống.
+            # 2. Khi góc lệch > 0.3°: Dừng tiến, xoay từ từ tại chỗ với lực vừa đủ (~0.28 rad/s, hãm về 0.18 rad/s).
+            # 3. Khi góc giảm về <= 0.3°: Ngừng xoay, tiếp tục chạy thẳng và giãn cách an toàn 1.2s.
+            stop_threshold = float(getattr(self, 'turn_in_place_threshold_deg', 0.30))
+            resume_threshold = float(getattr(self, 'turn_in_place_resume_deg', 0.30))
 
             if self.is_adjusting_heading:
-                # Kiểm tra chắc chắn thẳng hàng chưa (<= 1.5° trong 2 frame liên tiếp)
+                # Kiểm tra đã thẳng hàng chưa (<= resume_threshold = 0.3°)
                 if abs(self.smoothed_angle_deg) <= resume_threshold:
-                    self._aligned_frame_count = getattr(self, '_aligned_frame_count', 0) + 1
-                    if self._aligned_frame_count >= 2:
-                        self.is_adjusting_heading = False
-                        self._aligned_frame_count = 0
-                        self.heading_adjust_cooldown_until = now_sec + 1.0
+                    self.is_adjusting_heading = False
+                    self._aligned_frame_count = 0
+                    self.heading_adjust_cooldown_until = now_sec + 1.2
 
-                        twist = Twist()
-                        twist.linear.x = self.linear_speed
-                        twist.angular.z = 0.0
-                        self.cmd_vel_pub.publish(twist)
+                    twist = Twist()
+                    twist.linear.x = self.linear_speed
+                    twist.angular.z = 0.0
+                    self.cmd_vel_pub.publish(twist)
 
-                        self.get_logger().info(
-                            f"✅ [ĐIỀU HƯỚNG CNN] ĐÃ CHẮC CHẮN THẲNG HÀNG "
-                            f"(|góc|={abs(self.smoothed_angle_deg):.2f}° <= {resume_threshold:.2f}°)! "
-                            f"Tiếp tục chạy thẳng liên tục với {self.linear_speed:.2f} m/s."
+                    self.get_logger().info(
+                        f"✅ [ĐIỀU HƯỚNG CNN] ĐÃ THẲNG HÀNG "
+                        f"(|góc|={abs(self.smoothed_angle_deg):.2f}° <= {resume_threshold:.2f}°)! "
+                        f"Tiếp tục chạy thẳng liên tục với {self.linear_speed:.2f} m/s."
+                    )
+                    if self.enable_file_logging and self.telemetry_logger:
+                        self.telemetry_logger.log_event(
+                            "CNN_HEADING_CONFIRMED_ALIGNED",
+                            f"Thẳng hàng |góc|={abs(self.smoothed_angle_deg):.2f}°. Chạy tiếp {self.linear_speed:.2f} m/s"
                         )
-                        if self.enable_file_logging and self.telemetry_logger:
-                            self.telemetry_logger.log_event(
-                                "CNN_HEADING_CONFIRMED_ALIGNED",
-                                f"Chắc chắn thẳng hàng |góc|={abs(self.smoothed_angle_deg):.2f}°. Chạy tiếp {self.linear_speed:.2f} m/s"
-                            )
                 else:
                     self._aligned_frame_count = 0
-                    # Khóa hướng xoay chống đảo chiều liên tục: chỉ đổi hướng khi góc đổi dấu rõ rệt (> 1.0°)
-                    if self.smoothed_angle_deg > 1.0 and self.heading_adjust_dir > 0:
+                    # Khóa hướng xoay chống đảo chiều liên tục: chỉ đổi hướng khi góc đổi dấu rõ rệt (> 0.5°)
+                    if self.smoothed_angle_deg > 0.5 and self.heading_adjust_dir > 0:
                         self.heading_adjust_dir = -1.0
-                    elif self.smoothed_angle_deg < -1.0 and self.heading_adjust_dir < 0:
+                    elif self.smoothed_angle_deg < -0.5 and self.heading_adjust_dir < 0:
                         self.heading_adjust_dir = 1.0
 
             else:
@@ -1043,7 +1041,7 @@ class CnnDriverNode(Node):
                     self._aligned_frame_count = 0
                     self.get_logger().info(
                         f"🌾 [ĐIỀU HƯỚNG CNN] CNN trả góc lệch {self.smoothed_angle_deg:+.2f}° > {stop_threshold:.2f}°. "
-                        f"Dừng tiến, xoay từ từ tại chỗ ({self.turn_angular_speed:.2f} rad/s) chờ chắc chắn thẳng hàng (<= {resume_threshold:.2f}°)..."
+                        f"Dừng tiến, xoay từ từ tại chỗ ({self.turn_angular_speed:.2f} rad/s) chờ thẳng hàng (<= {resume_threshold:.2f}°)..."
                     )
                     if self.enable_file_logging and self.telemetry_logger:
                         self.telemetry_logger.log_event(
@@ -1057,7 +1055,7 @@ class CnnDriverNode(Node):
             else:
                 lin_speed = self.linear_speed
                 # Khi đang chạy thẳng, bù lái nhẹ nhàng liên tục để giữ luống ổn định không khựng xe:
-                ang_vel = float(np.clip(-0.025 * self.smoothed_angle_deg, -0.08, 0.08))
+                ang_vel = float(np.clip(-0.035 * self.smoothed_angle_deg, -0.10, 0.10))
 
             twist.linear.x = lin_speed
             twist.angular.z = ang_vel

@@ -1,0 +1,382 @@
+bao@bao-desktop:~/robot_ws$ cd ~/robot_ws
+
+# 1. Ép nạp bản cập nhật mới nhất từ GitHub
+git fetch origin
+git reset --hard origin/main
+
+# 2. Biên dịch lại package điều khiển
+colcon build --symlink-install --packages-select my_robot_controller my_robot_bringup
+
+# 3. Nạp biến môi trường và chạy thử nghiệm
+source install/setup.bash
+real-cnn
+remote: Enumerating objects: 14, done.
+remote: Counting objects: 100% (14/14), done.
+remote: Compressing objects: 100% (3/3), done.
+remote: Total 8 (delta 5), reused 8 (delta 5), pack-reused 0 (from 0)
+Unpacking objects: 100% (8/8), 3.60 KiB | 614.00 KiB/s, done.
+From https://github.com/vinhlephu-lpv/robot-ws
+   ec27f49..74c2b0f  main       -> origin/main
+   ca7ce5d..74c2b0f  bao        -> origin/bao
+HEAD is now at 74c2b0f fix(cnn_driver): prevent inching and rapid chattering, steady turn until confirmed straight
+Starting >>> my_robot_controller
+Finished <<< my_robot_controller [2.81s]          
+Starting >>> my_robot_bringup
+Finished <<< my_robot_bringup [2.83s]          
+
+Summary: 2 packages finished [5.91s]
+================================================================================
+🌾 [REAL-CNN] KHỞI ĐỘNG TỰ HÀNH BÁM LUỐNG BẰNG AI
+📁 Dữ liệu góc lái & log tự động lưu tại: /home/bao/robot_ws/logs/
+================================================================================
+📡 [CẢM BIẾN] Đã bật LiDAR C1 (serial_port:=/dev/rplidar), Costmap (enable_costmap:=true), ESP32 (esp32_port:=/dev/esp32)
+📱 [AI CNN] Tự động kết nối Camera iPhone qua cáp USB: camera_device:=http://172.20.10.1:4747/video
+^C
+bao@bao-desktop:~/robot_ws$ real-cnn
+================================================================================
+🌾 [REAL-CNN] KHỞI ĐỘNG TỰ HÀNH BÁM LUỐNG BẰNG AI
+📁 Dữ liệu góc lái & log tự động lưu tại: /home/bao/robot_ws/logs/
+================================================================================
+📡 [CẢM BIẾN] Đã bật LiDAR C1 (serial_port:=/dev/rplidar), Costmap (enable_costmap:=true), ESP32 (esp32_port:=/dev/esp32)
+📱 [AI CNN] Tự động kết nối Camera iPhone qua cáp USB: camera_device:=http://172.20.10.1:4747/video
+Delaying for 3 seconds before starting...
+SLLidar S/N: 8A2EE18AC1EA9ED2B29C92F5098A466C
+Firmware Ver: 1.02
+Hardware Rev: 18
+SLLidar health status : 0
+SLLidar health status : OK.
+current scan mode: Standard, sample rate: 5 Khz, max_distance: 16.0 m, scan frequency:10.0 Hz,
+Got description, configuring robot
+Delay elapsed. Continuing.
+✅ Successfully connected to ESP32 on /dev/esp32 at 115200 baud
+ESP32 Bridge started [Mode: serial] [Port: /dev/esp32] [Wheel D: 0.2m, Base: 0.58m, CPR: 800 (PPR:200 x Quad:4 x Gear:1.0)]
+✅ Đã kết nối thành công GPS Hardware: /dev/ttyAMA0 @ 38400 baud.
+============================================================
+🛡️ [GPS Filter] Đã kích hoạt Bộ Lọc 4 Lớp: [Min Sats: 5 | Max HDOP: 2.5 | Max Jump: 2.0m | Median: 3 mẫu | Stationary Lock: True]
+🚀 [ICM-20948 IMU] ĐÃ KẾT NỐI THÀNH CÔNG!
+📍 I2C: /dev/i2c-1 @ 0x68 | Topic: /imu/data_complementary
+🔄 Đang tự động hiệu chuẩn Zero-Bias Gyroscope (60 mẫu)...
+============================================================
+✅ Real-Time Costmap Node started! Grid: 1200x400 (60.0mx20.0m), res=0.05m, inscribed=0.35m, inflation=0.45m
+Datum (latitude, longitude, altitude) is (10.03, 105.77, 9.50)
+Datum UTM coordinate is (48 north, 584052.08, 1109141.76)
+🚀 [AI CNN Driver] Sẵn sàng tự hành bám luống (Vận tốc: 0.10 m/s | Model INT8)
+✅ [ICM-20948] HIỆU CHUẨN XONG! Bias Gyro (deg/s): X=1.90, Y=0.62, Z=0.04
+First IMU message received.
+📐 [IMU Live] Roll:  +0.8° | Pitch:  +5.3° | Yaw:  +0.0° | Acc: (-0.96, +0.14, +10.21) | Wz: +0.000 rad/s | [TĨNH (ZUPT)]
+Corrected for magnetic declination of -0.01, user-specified offset of 0 and meridian convergence of 0.00233222. Transform heading factor is now 2.98842
+⏳ Đang chờ nhận hình ảnh từ Camera...
+📐 [IMU Live] Roll:  +0.8° | Pitch:  +5.2° | Yaw:  -0.0° | Acc: (-0.93, +0.13, +10.23) | Wz: -0.001 rad/s | [TĨNH (ZUPT)]
+📱 Camera iPhone / IP Stream đã kết nối thành công: http://172.20.10.1:4747/video (1280x720)
+✅ Đã nhận tín hiệu Camera! Bắt đầu chuỗi tự hành AI.
+📐 [IMU Live] Roll:  +0.8° | Pitch:  +5.2° | Yaw:  -0.0° | Acc: (-0.93, +0.14, +10.21) | Wz: +0.001 rad/s | [TĨNH (ZUPT)]
+🌾 [BÁM HÀNG] Nhận diện luống thành công tại x=0.00m, y=0.00m (conf=1.00). Bắt đầu dẫn hướng vào tim hàng!
+🌾 [AI Lái Xe] Luống 1 (x=0.00m) | Góc: +2.15° | Trạng thái: [ TRACKING ] | Tin cậy: 100.0% | AI: 678ms (1.5FPS) | V: 0.10m/s | GPS: 10.03284°, 105.76699°
+🌾 [ĐIỀU HƯỚNG CNN] CNN trả góc lệch +3.57° > 3.50°. Dừng tiến, xoay từ từ tại chỗ (0.35 rad/s) chờ chắc chắn thẳng hàng (<= 1.50°)...
+🌾 [AI Lái Xe] Luống 1 (x=0.00m) | Góc: +3.57° | Trạng thái: [CHỈNH GÓC ] | Tin cậy: 100.0% | AI: 673ms (1.5FPS) | V: 0.00m/s | GPS: 10.03284°, 105.76699°
+Failed to meet update rate! Took 0.14175241899999999062seconds. Try decreasing the rate, limiting sensor output frequency, or limiting the number of sensors.
+📐 [IMU Live] Roll:  -1.1° | Pitch:  +4.9° | Yaw:  -0.1° | Acc: (-0.68, +0.25, +10.61) | Wz: -0.011 rad/s | [CHẠY]
+Failed to meet update rate! Took 0.9465254829999999453seconds. Try decreasing the rate, limiting sensor output frequency, or limiting the number of sensors.
+📐 [IMU Live] Roll:  +0.8° | Pitch:  +4.9° | Yaw:  -1.7° | Acc: (-0.97, +0.11, +10.17) | Wz: -0.025 rad/s | [CHẠY]
+🌾 [AI Lái Xe] Luống 1 (x=0.04m) | Góc: +5.89° | Trạng thái: [CHỈNH GÓC ] | Tin cậy: 100.0% | AI: 534ms (1.9FPS) | V: 0.00m/s | GPS: 10.03284°, 105.76699°
+🌾 [AI Lái Xe] Luống 1 (x=0.04m) | Góc: +6.10° | Trạng thái: [CHỈNH GÓC ] | Tin cậy: 100.0% | AI: 582ms (1.7FPS) | V: 0.00m/s | GPS: 10.03284°, 105.76699°
+📐 [IMU Live] Roll:  +0.5° | Pitch:  +5.0° | Yaw:  -2.1° | Acc: (-0.89, +0.13, +10.23) | Wz: -0.003 rad/s | [TĨNH (ZUPT)]
+🌾 [AI Lái Xe] Luống 1 (x=0.04m) | Góc: +6.19° | Trạng thái: [CHỈNH GÓC ] | Tin cậy: 100.0% | AI: 534ms (1.9FPS) | V: 0.00m/s | GPS: 10.03284°, 105.76699°
+📐 [IMU Live] Roll:  +0.7° | Pitch:  +4.9° | Yaw:  -2.5° | Acc: (-0.88, +0.14, +10.29) | Wz: -0.009 rad/s | [TĨNH (ZUPT)]
+📐 [IMU Live] Roll:  +0.7° | Pitch:  +4.9° | Yaw:  -3.2° | Acc: (-0.95, -0.07, +10.27) | Wz: -0.024 rad/s | [TĨNH (ZUPT)]
+🌾 [AI Lái Xe] Luống 1 (x=0.03m) | Góc: +6.27° | Trạng thái: [CHỈNH GÓC ] | Tin cậy: 100.0% | AI: 615ms (1.6FPS) | V: 0.00m/s | GPS: 10.03284°, 105.76699°
+🌾 [AI Lái Xe] Luống 1 (x=0.02m) | Góc: +6.25° | Trạng thái: [CHỈNH GÓC ] | Tin cậy: 100.0% | AI: 552ms (1.8FPS) | V: 0.00m/s | GPS: 10.03284°, 105.76699°
+📐 [IMU Live] Roll:  +0.6° | Pitch:  +5.0° | Yaw:  -4.3° | Acc: (-0.86, +0.05, +10.22) | Wz: -0.011 rad/s | [TĨNH (ZUPT)]
+⚠️ [ĐIỀU HƯỚNG CNN - WATCHDOG] Căn chỉnh quá 6.0s -> Khôi phục chạy thẳng 0.10 m/s an toàn!
+🌾 [AI Lái Xe] Luống 1 (x=0.02m) | Góc: +6.19° | Trạng thái: [ TRACKING ] | Tin cậy: 100.0% | AI: 586ms (1.7FPS) | V: 0.00m/s | GPS: 10.03284°, 105.76698°
+📐 [IMU Live] Roll:  +0.5° | Pitch:  +4.9° | Yaw:  -4.6° | Acc: (-0.86, -0.32, +10.11) | Wz: +0.012 rad/s | [TĨNH (ZUPT)]
+📐 [IMU Live] Roll:  -0.4° | Pitch:  +4.8° | Yaw:  -5.0° | Acc: (-1.05, +0.95, +10.62) | Wz: -0.016 rad/s | [CHẠY]
+🌾 [ĐIỀU HƯỚNG CNN] CNN trả góc lệch +4.59° > 3.50°. Dừng tiến, xoay từ từ tại chỗ (0.35 rad/s) chờ chắc chắn thẳng hàng (<= 1.50°)...
+🌾 [AI Lái Xe] Luống 1 (x=0.20m) | Góc: +4.59° | Trạng thái: [CHỈNH GÓC ] | Tin cậy: 100.0% | AI: 608ms (1.6FPS) | V: 0.00m/s | GPS: 10.03284°, 105.76698°
+🌾 [AI Lái Xe] Luống 1 (x=0.48m) | Góc: +3.31° | Trạng thái: [CHỈNH GÓC ] | Tin cậy: 100.0% | AI: 606ms (1.7FPS) | V: 0.00m/s | GPS: 10.03284°, 105.76698°
+📐 [IMU Live] Roll:  +1.2° | Pitch:  +5.0° | Yaw:  -7.0° | Acc: (-1.01, -0.22, +10.40) | Wz: -0.036 rad/s | [CHẠY]
+Failed to meet update rate! Took 0.89478507200000001465seconds. Try decreasing the rate, limiting sensor output frequency, or limiting the number of sensors.
+🌾 [AI Lái Xe] Luống 1 (x=0.54m) | Góc: +2.90° | Trạng thái: [CHỈNH GÓC ] | Tin cậy: 100.0% | AI: 574ms (1.7FPS) | V: 0.00m/s | GPS: 10.03284°, 105.76698°
+📐 [IMU Live] Roll:  -0.3° | Pitch:  +4.9° | Yaw:  -7.7° | Acc: (-0.77, -0.09, +10.30) | Wz: -0.004 rad/s | [CHẠY]
+📐 [IMU Live] Roll:  -0.3° | Pitch:  +4.9° | Yaw:  -7.7° | Acc: (-0.96, -0.03, +10.18) | Wz: -0.000 rad/s | [CHẠY]
+🌾 [AI Lái Xe] Luống 1 (x=0.61m) | Góc: +2.37° | Trạng thái: [CHỈNH GÓC ] | Tin cậy: 100.0% | AI: 592ms (1.7FPS) | V: 0.00m/s | GPS: 10.03284°, 105.76698°
+🌾 [AI Lái Xe] Luống 1 (x=0.64m) | Góc: +2.00° | Trạng thái: [CHỈNH GÓC ] | Tin cậy: 100.0% | AI: 516ms (1.9FPS) | V: 0.00m/s | GPS: 10.03284°, 105.76698°
+✅ [ĐIỀU HƯỚNG CNN] ĐÃ CHẮC CHẮN THẲNG HÀNG (|góc|=0.41° <= 1.50°)! Tiếp tục chạy thẳng liên tục với 0.10 m/s.
+🌾 [AI Lái Xe] Luống 1 (x=0.71m) | Góc: +0.41° | Trạng thái: [ TRACKING ] | Tin cậy: 100.0% | AI: 526ms (1.9FPS) | V: 0.10m/s | GPS: 10.03284°, 105.76698°
+📐 [IMU Live] Roll:  -0.6° | Pitch:  +4.9° | Yaw:  -7.8° | Acc: (-0.84, -0.39, +10.34) | Wz: +0.009 rad/s | [CHẠY]
+🌾 [AI Lái Xe] Luống 1 (x=0.86m) | Góc: +0.27° | Trạng thái: [ TRACKING ] | Tin cậy: 100.0% | AI: 498ms (2.0FPS) | V: 0.10m/s | GPS: 10.03284°, 105.76698°
+📐 [IMU Live] Roll:  -2.2° | Pitch:  +6.2° | Yaw:  -8.2° | Acc: (-1.32, +0.09, +10.27) | Wz: -0.018 rad/s | [CHẠY]
+🌾 [AI Lái Xe] Luống 1 (x=1.30m) | Góc: +0.27° | Trạng thái: [ TRACKING ] | Tin cậy: 100.0% | AI: 498ms (2.0FPS) | V: 0.10m/s | GPS: 10.03284°, 105.76698°
+📐 [IMU Live] Roll:  -1.6° | Pitch:  +7.1° | Yaw:  -8.4° | Acc: (-1.44, -0.14, +10.08) | Wz: +0.002 rad/s | [CHẠY]
+📐 [IMU Live] Roll:  -1.6° | Pitch:  +6.3° | Yaw:  -7.8° | Acc: (-0.93, -0.45, +10.34) | Wz: +0.010 rad/s | [CHẠY]
+🌾 [AI Lái Xe] Luống 1 (x=1.53m) | Góc: +0.04° | Trạng thái: [ TRACKING ] | Tin cậy: 100.0% | AI: 574ms (1.7FPS) | V: 0.10m/s | GPS: 10.03284°, 105.76698°
+🌾 [AI Lái Xe] Luống 1 (x=1.70m) | Góc: -0.05° | Trạng thái: [ TRACKING ] | Tin cậy: 100.0% | AI: 557ms (1.8FPS) | V: 0.10m/s | GPS: 10.03284°, 105.76698°
+Failed to meet update rate! Took 0.095856434000000004247seconds. Try decreasing the rate, limiting sensor output frequency, or limiting the number of sensors.
+📐 [IMU Live] Roll:  +0.5° | Pitch:  +7.3° | Yaw:  -8.1° | Acc: (-1.26, +0.07, +10.25) | Wz: +0.006 rad/s | [CHẠY]
+Failed to meet update rate! Took 0.68835398100000000365seconds. Try decreasing the rate, limiting sensor output frequency, or limiting the number of sensors.
+🌾 [AI Lái Xe] Luống 1 (x=2.08m) | Góc: -0.07° | Trạng thái: [ TRACKING ] | Tin cậy: 100.0% | AI: 568ms (1.8FPS) | V: 0.10m/s | GPS: 10.03284°, 105.76697°
+📐 [IMU Live] Roll:  +0.6° | Pitch:  +7.6° | Yaw:  -8.5° | Acc: (-1.35, -0.01, +10.30) | Wz: -0.001 rad/s | [CHẠY]
+📐 [IMU Live] Roll:  +0.3° | Pitch:  +7.8° | Yaw:  -8.9° | Acc: (-1.50, +0.17, +10.22) | Wz: -0.003 rad/s | [CHẠY]
+🌾 [AI Lái Xe] Luống 1 (x=2.42m) | Góc: -1.19° | Trạng thái: [ TRACKING ] | Tin cậy: 100.0% | AI: 563ms (1.8FPS) | V: 0.10m/s | GPS: 10.03284°, 105.76697°
+📐 [IMU Live] Roll:  -1.4° | Pitch:  +7.9° | Yaw:  -8.9° | Acc: (-1.41, -0.59, +10.28) | Wz: -0.005 rad/s | [CHẠY]
+🌾 [ĐIỀU HƯỚNG CNN] CNN trả góc lệch -4.55° > 3.50°. Dừng tiến, xoay từ từ tại chỗ (0.35 rad/s) chờ chắc chắn thẳng hàng (<= 1.50°)...
+🌾 [AI Lái Xe] Luống 1 (x=2.70m) | Góc: -4.55° | Trạng thái: [CHỈNH GÓC ] | Tin cậy: 100.0% | AI: 579ms (1.7FPS) | V: 0.00m/s | GPS: 10.03284°, 105.76697°
+🌾 [AI Lái Xe] Luống 1 (x=2.84m) | Góc: -10.63° | Trạng thái: [CHỈNH GÓC ] | Tin cậy: 68.1% | AI: 540ms (1.9FPS) | V: 0.00m/s | GPS: 10.03284°, 105.76697°
+📐 [IMU Live] Roll:  +0.8° | Pitch:  +8.2° | Yaw:  -8.5° | Acc: (-1.46, +0.02, +10.36) | Wz: +0.010 rad/s | [CHẠY]
+🌾 [AI Lái Xe] Luống 1 (x=2.89m) | Góc: -10.12° | Trạng thái: [CHỈNH GÓC ] | Tin cậy: 100.0% | AI: 534ms (1.9FPS) | V: 0.00m/s | GPS: 10.03284°, 105.76697°
+📐 [IMU Live] Roll:  -0.2° | Pitch:  +8.0° | Yaw:  -8.4° | Acc: (-1.50, -0.03, +10.11) | Wz: +0.002 rad/s | [CHẠY]
+🌾 [AI Lái Xe] Luống 1 (x=2.84m) | Góc: -11.54° | Trạng thái: [CHỈNH GÓC ] | Tin cậy: 87.4% | AI: 548ms (1.8FPS) | V: 0.00m/s | GPS: 10.03283°, 105.76697°
+📐 [IMU Live] Roll:  -0.3° | Pitch:  +8.0° | Yaw:  -8.3° | Acc: (-1.59, -0.01, +10.20) | Wz: +0.001 rad/s | [CHẠY]
+^C
+bao@bao-desktop:~/robot_ws$ real-cnn
+================================================================================
+🌾 [REAL-CNN] KHỞI ĐỘNG TỰ HÀNH BÁM LUỐNG BẰNG AI
+📁 Dữ liệu góc lái & log tự động lưu tại: /home/bao/robot_ws/logs/
+================================================================================
+📡 [CẢM BIẾN] Đã bật LiDAR C1 (serial_port:=/dev/rplidar), Costmap (enable_costmap:=true), ESP32 (esp32_port:=/dev/esp32)
+📱 [AI CNN] Tự động kết nối Camera iPhone qua cáp USB: camera_device:=http://172.20.10.1:4747/video
+Delaying for 3 seconds before starting...
+SLLidar S/N: 8A2EE18AC1EA9ED2B29C92F5098A466C
+Firmware Ver: 1.02
+Hardware Rev: 18
+SLLidar health status : 0
+SLLidar health status : OK.
+current scan mode: Standard, sample rate: 5 Khz, max_distance: 16.0 m, scan frequency:10.0 Hz,
+============================================================
+🚀 [ICM-20948 IMU] ĐÃ KẾT NỐI THÀNH CÔNG!
+📍 I2C: /dev/i2c-1 @ 0x68 | Topic: /imu/data_complementary
+🔄 Đang tự động hiệu chuẩn Zero-Bias Gyroscope (60 mẫu)...
+============================================================
+Got description, configuring robot
+Delay elapsed. Continuing.
+✅ Đã kết nối thành công GPS Hardware: /dev/ttyAMA0 @ 38400 baud.
+🛡️ [GPS Filter] Đã kích hoạt Bộ Lọc 4 Lớp: [Min Sats: 5 | Max HDOP: 2.5 | Max Jump: 2.0m | Median: 3 mẫu | Stationary Lock: True]
+✅ [ICM-20948] HIỆU CHUẨN XONG! Bias Gyro (deg/s): X=1.90, Y=0.56, Z=0.06
+First IMU message received.
+📐 [IMU Live] Roll:  -0.3° | Pitch:  +5.5° | Yaw:  -0.0° | Acc: (-0.98, -0.04, +10.29) | Wz: -0.001 rad/s | [TĨNH (ZUPT)]
+✅ Successfully connected to ESP32 on /dev/esp32 at 115200 baud
+ESP32 Bridge started [Mode: serial] [Port: /dev/esp32] [Wheel D: 0.2m, Base: 0.58m, CPR: 800 (PPR:200 x Quad:4 x Gear:1.0)]
+Datum (latitude, longitude, altitude) is (10.03, 105.77, 9.50)
+Datum UTM coordinate is (48 north, 584050.97, 1109142.37)
+Corrected for magnetic declination of -0.01, user-specified offset of 0 and meridian convergence of 0.00233219. Transform heading factor is now -3.10836
+✅ Real-Time Costmap Node started! Grid: 1200x400 (60.0mx20.0m), res=0.05m, inscribed=0.35m, inflation=0.45m
+📐 [IMU Live] Roll:  -0.4° | Pitch:  +5.6° | Yaw:  -0.1° | Acc: (-0.99, -0.07, +10.20) | Wz: -0.001 rad/s | [TĨNH (ZUPT)]
+🚀 [AI CNN Driver] Sẵn sàng tự hành bám luống (Vận tốc: 0.10 m/s | Model INT8)
+📐 [IMU Live] Roll:  -0.4° | Pitch:  +5.5° | Yaw:  -0.1° | Acc: (-0.99, -0.07, +10.22) | Wz: +0.001 rad/s | [TĨNH (ZUPT)]
+⏳ Đang chờ nhận hình ảnh từ Camera...
+📱 Camera iPhone / IP Stream đã kết nối thành công: http://172.20.10.1:4747/video (1280x720)
+✅ Đã nhận tín hiệu Camera! Bắt đầu chuỗi tự hành AI.
+📐 [IMU Live] Roll:  -0.4° | Pitch:  +5.5° | Yaw:  -0.1° | Acc: (-0.98, -0.06, +10.20) | Wz: -0.001 rad/s | [TĨNH (ZUPT)]
+🌾 [BÁM HÀNG] Nhận diện luống thành công tại x=0.00m, y=0.00m (conf=1.00). Bắt đầu dẫn hướng vào tim hàng!
+🌾 [AI Lái Xe] Luống 1 (x=0.00m) | Góc: +1.67° | Trạng thái: [ TRACKING ] | Tin cậy: 100.0% | AI: 673ms (1.5FPS) | V: 0.10m/s | GPS: 10.03285°, 105.76698°
+📐 [IMU Live] Roll:  -3.3° | Pitch:  +5.4° | Yaw:  -0.3° | Acc: (-1.61, -0.99, +10.32) | Wz: -0.009 rad/s | [CHẠY]
+🌾 [AI Lái Xe] Luống 1 (x=0.00m) | Góc: +2.76° | Trạng thái: [ TRACKING ] | Tin cậy: 100.0% | AI: 726ms (1.4FPS) | V: 0.10m/s | GPS: 10.03285°, 105.76698°
+📐 [IMU Live] Roll:  -0.4° | Pitch:  +5.7° | Yaw:  -0.5° | Acc: (-0.72, -0.43, +10.32) | Wz: +0.015 rad/s | [CHẠY]
+🌾 [ĐIỀU HƯỚNG CNN] CNN trả góc lệch +3.76° > 3.50°. Dừng tiến, xoay từ từ tại chỗ (0.35 rad/s) chờ chắc chắn thẳng hàng (<= 1.50°)...
+🌾 [AI Lái Xe] Luống 1 (x=0.00m) | Góc: +3.76° | Trạng thái: [CHỈNH GÓC ] | Tin cậy: 100.0% | AI: 549ms (1.8FPS) | V: 0.00m/s | GPS: 10.03285°, 105.76698°
+Failed to meet update rate! Took 1.6005616469999999207seconds. Try decreasing the rate, limiting sensor output frequency, or limiting the number of sensors.
+Failed to meet update rate! Took 0.13435247300000000004seconds. Try decreasing the rate, limiting sensor output frequency, or limiting the number of sensors.
+🌾 [AI Lái Xe] Luống 1 (x=0.11m) | Góc: +4.42° | Trạng thái: [CHỈNH GÓC ] | Tin cậy: 100.0% | AI: 508ms (2.0FPS) | V: 0.00m/s | GPS: 10.03285°, 105.76698°
+📐 [IMU Live] Roll:  -0.4° | Pitch:  +6.2° | Yaw:  -0.5° | Acc: (-0.93, +0.36, +10.49) | Wz: -0.012 rad/s | [CHẠY]
+🌾 [AI Lái Xe] Luống 1 (x=0.72m) | Góc: +4.80° | Trạng thái: [CHỈNH GÓC ] | Tin cậy: 100.0% | AI: 612ms (1.6FPS) | V: 0.00m/s | GPS: 10.03285°, 105.76698°
+📐 [IMU Live] Roll:  -0.5° | Pitch:  +6.1° | Yaw:  -0.6° | Acc: (-1.01, -0.15, +10.25) | Wz: -0.002 rad/s | [CHẠY]
+📐 [IMU Live] Roll:  -0.6° | Pitch:  +6.2° | Yaw:  -0.7° | Acc: (-1.01, -0.23, +10.09) | Wz: +0.001 rad/s | [CHẠY]
+🌾 [AI Lái Xe] Luống 1 (x=0.79m) | Góc: +4.50° | Trạng thái: [CHỈNH GÓC ] | Tin cậy: 100.0% | AI: 539ms (1.9FPS) | V: 0.00m/s | GPS: 10.03285°, 105.76698°
+🌾 [AI Lái Xe] Luống 1 (x=0.82m) | Góc: +4.72° | Trạng thái: [CHỈNH GÓC ] | Tin cậy: 100.0% | AI: 586ms (1.7FPS) | V: 0.00m/s | GPS: 10.03285°, 105.76698°
+📐 [IMU Live] Roll:  -0.9° | Pitch:  +6.4° | Yaw:  -0.7° | Acc: (-1.13, -0.08, +10.06) | Wz: -0.002 rad/s | [CHẠY]
+🌾 [AI Lái Xe] Luống 1 (x=0.88m) | Góc: +4.55° | Trạng thái: [CHỈNH GÓC ] | Tin cậy: 100.0% | AI: 678ms (1.5FPS) | V: 0.00m/s | GPS: 10.03285°, 105.76697°
+📐 [IMU Live] Roll:  -0.8° | Pitch:  +6.1° | Yaw:  -0.7° | Acc: (-0.97, -0.16, +10.32) | Wz: -0.000 rad/s | [CHẠY]
+📐 [IMU Live] Roll:  -0.8° | Pitch:  +6.3° | Yaw:  -0.8° | Acc: (-1.16, -0.12, +10.23) | Wz: +0.001 rad/s | [CHẠY]
+⚠️ [ĐIỀU HƯỚNG CNN - WATCHDOG] Căn chỉnh quá 6.0s -> Khôi phục chạy thẳng 0.10 m/s an toàn!
+🌾 [AI Lái Xe] Luống 1 (x=0.94m) | Góc: +4.01° | Trạng thái: [ TRACKING ] | Tin cậy: 99.3% | AI: 564ms (1.8FPS) | V: 0.00m/s | GPS: 10.03285°, 105.76697°
+🌾 [AI Lái Xe] Luống 1 (x=0.96m) | Góc: +4.17° | Trạng thái: [ TRACKING ] | Tin cậy: 100.0% | AI: 608ms (1.6FPS) | V: 0.10m/s | GPS: 10.03285°, 105.76697°
+📐 [IMU Live] Roll:  -1.9° | Pitch:  +6.6° | Yaw:  -0.7° | Acc: (-1.06, -0.10, +10.35) | Wz: -0.033 rad/s | [CHẠY]
+🌾 [ĐIỀU HƯỚNG CNN] CNN trả góc lệch +5.06° > 3.50°. Dừng tiến, xoay từ từ tại chỗ (0.35 rad/s) chờ chắc chắn thẳng hàng (<= 1.50°)...
+🌾 [AI Lái Xe] Luống 1 (x=0.96m) | Góc: +6.25° | Trạng thái: [CHỈNH GÓC ] | Tin cậy: 100.0% | AI: 489ms (2.0FPS) | V: 0.00m/s | GPS: 10.03285°, 105.76697°
+📐 [IMU Live] Roll:  +0.5° | Pitch:  +7.3° | Yaw:  -2.1° | Acc: (-1.33, -0.17, +10.13) | Wz: -0.013 rad/s | [TĨNH (ZUPT)]
+Failed to meet update rate! Took 1.5970484789999999098seconds. Try decreasing the rate, limiting sensor output frequency, or limiting the number of sensors.
+🌾 [AI Lái Xe] Luống 1 (x=1.30m) | Góc: +5.17° | Trạng thái: [CHỈNH GÓC ] | Tin cậy: 100.0% | AI: 529ms (1.9FPS) | V: 0.00m/s | GPS: 10.03284°, 105.76697°
+📐 [IMU Live] Roll:  +0.0° | Pitch:  +7.2° | Yaw:  -2.2° | Acc: (-1.25, -0.11, +10.18) | Wz: -0.002 rad/s | [TĨNH (ZUPT)]
+🌾 [AI Lái Xe] Luống 1 (x=1.30m) | Góc: +5.15° | Trạng thái: [CHỈNH GÓC ] | Tin cậy: 581ms (1.7FPS) | V: 0.00m/s | GPS: 10.03284°, 105.76697°
+📐 [IMU Live] Roll:  -0.5° | Pitch:  +7.1° | Yaw:  -2.3° | Acc: (-1.25, -0.09, +10.23) | Wz: -0.000 rad/s | [TĨNH (ZUPT)]
+🌾 [AI Lái Xe] Luống 1 (x=1.30m) | Góc: +5.18° | Trạng thái: [CHỈNH GÓC ] | Tin cậy: 100.0% | AI: 491ms (2.0FPS) | V: 0.00m/s | GPS: 10.03284°, 105.76697°
+📐 [IMU Live] Roll:  -0.5° | Pitch:  +7.1° | Yaw:  -2.5° | Acc: (-1.27, -0.13, +10.21) | Wz: -0.004 rad/s | [TĨNH (ZUPT)]
+🌾 [AI Lái Xe] Luống 1 (x=1.30m) | Góc: +5.18° | Trạng thái: [CHỈNH GÓC ] | Tin cậy: 100.0% | AI: 491ms (2.0FPS) | V: 0.00m/s | GPS: 10.03284°, 105.76697°
+📐 [IMU Live] Roll:  -0.6° | Pitch:  +7.1° | Yaw:  -2.6° | Acc: (-1.29, -0.07, +10.19) | Wz: -0.001 rad/s | [TĨNH (ZUPT)]
+🌾 [AI Lái Xe] Luống 1 (x=1.30m) | Góc: +4.98° | Trạng thái: [CHỈNH GÓC ] | Tin cậy: 100.0% | AI: 573ms (1.7FPS) | V: 0.00m/s | GPS: 10.03284°, 105.76697°
+📐 [IMU Live] Roll:  -1.1° | Pitch:  +7.1° | Yaw:  -2.8° | Acc: (-1.29, -0.07, +10.19) | Wz: -0.006 rad/s | [CHẠY]
+⚠️ [ĐIỀU HƯỚNG CNN] Quá 6s căn chỉnh -> Tự động khôi phục chạy thẳng!
+🌾 [AI Lái Xe] Luống 1 (x=1.28m) | Góc: +4.98° | Trạng thái: [ TRACKING ] | Tin cậy: 100.0% | AI: 573ms (1.7FPS) | V: 0.00m/s | GPS: 10.03284°, 105.76697°
+📐 [IMU Live] Roll:  -2.0° | Pitch:  +6.7° | Yaw:  -2.3° | Acc: (-1.28, -0.01, +10.49) | Wz: -0.012 rad/s | [CHẠY]
+🌾 [ĐIỀU HƯỚNG CNN] CNN trả góc lệch +4.99° > 3.50°. Dừng tiến, xoay từ từ tại chỗ (0.35 rad/s) chờ chắc chắn thẳng hàng (<= 1.50°)...
+🌾 [AI Lái Xe] Luống 1 (x=1.39m) | Góc: +4.99° | Trạng thái: [CHỈNH GÓC ] | Tin cậy: 100.0% | AI: 612ms (1.6FPS) | V: 0.00m/s | GPS: 10.03284°, 105.76697°
+📐 [IMU Live] Roll:  +1.6° | Pitch:  +7.5° | Yaw:  -4.8° | Acc: (-1.23, +0.04, +10.23) | Wz: -0.003 rad/s | [TĨNH (ZUPT)]
+🌾 [AI Lái Xe] Luống 1 (x=1.66m) | Góc: +5.13° | Trạng thái: [CHỈNH GÓC ] | Tin cậy: 100.0% | AI: 548ms (1.8FPS) | V: 0.00m/s | GPS: 10.03284°, 105.76697°
+Failed to meet update rate! Took 1.5979531460000000465seconds. Try decreasing the rate, limiting sensor output frequency, or limiting the number of sensors.
+📐 [IMU Live] Roll:  +0.3° | Pitch:  +7.0° | Yaw:  -4.8° | Acc: (-1.27, +0.01, +10.23) | Wz: +0.002 rad/s | [TĨNH (ZUPT)]
+Failed to meet update rate! Took 0.092517136999999999292seconds. Try decreasing the rate, limiting sensor output frequency, or limiting the number of sensors.
+🌾 [AI Lái Xe] Luống 1 (x=2.18m) | Góc: +5.13° | Trạng thái: [CHỈNH GÓC ] | Tin cậy: 100.0% | AI: 548ms (1.8FPS) | V: 0.00m/s | GPS: 10.03284°, 105.76697°
+📐 [IMU Live] Roll:  +0.2° | Pitch:  +7.0° | Yaw:  -4.8° | Acc: (-1.28, +0.06, +10.16) | Wz: -0.003 rad/s | [TĨNH (ZUPT)]
+🌾 [AI Lái Xe] Luống 1 (x=2.19m) | Góc: +5.23° | Trạng thái: [CHỈNH GÓC ] | Tin cậy: 100.0% | AI: 624ms (1.6FPS) | V: 0.00m/s | GPS: 10.03284°, 105.76697°
+📐 [IMU Live] Roll:  +0.1° | Pitch:  +7.0° | Yaw:  -4.7° | Acc: (-1.25, +0.01, +10.21) | Wz: +0.002 rad/s | [TĨNH (ZUPT)]
+🌾 [AI Lái Xe] Luống 1 (x=2.19m) | Góc: +5.35° | Trạng thái: [CHỈNH GÓC ] | Tin cậy: 100.0% | AI: 525ms (1.9FPS) | V: 0.00m/s | GPS: 10.03284°, 105.76697°
+📐 [IMU Live] Roll:  +0.1° | Pitch:  +7.0° | Yaw:  -4.7° | Acc: (-1.25, +0.00, +10.20) | Wz: +0.000 rad/s | [TĨNH (ZUPT)]
+🌾 [AI Lái Xe] Luống 1 (x=2.19m) | Góc: +5.45° | Trạng thái: [CHỈNH GÓC ] | Tin cậy: 100.0% | AI: 666ms (1.5FPS) | V: 0.00m/s
+📐 [IMU Live] Roll:  +0.1° | Pitch:  +7.0° | Yaw:  -4.8° | Acc: (-1.27, -0.07, +10.12) | Wz: -0.007 rad/s | [TĨNH (ZUPT)]
+🌾 [AI Lái Xe] Luống 1 (x=2.19m) | Góc: +5.45° | Trạng thái: [CHỈNH GÓC ] | Tin cậy: 100.0% | AI: 666ms (1.5FPS) | V: 0.00m/s
+⚠️ [ĐIỀU HƯỚNG CNN] Quá 6s căn chỉnh -> Tự động khôi phục chạy thẳng!
+📐 [IMU Live] Roll:  -2.7° | Pitch:  +6.8° | Yaw:  -4.2° | Acc: (-0.99, +0.02, +10.47) | Wz: +0.019 rad/s | [CHẠY]
+🌾 [AI Lái Xe] Luống 1 (x=2.48m) | Góc: +5.45° | Trạng thái: [ TRACKING ] | Tin cậy: 100.0% | AI: 666ms (1.5FPS) | V: 0.00m/s
+📐 [IMU Live] Roll:  +0.7° | Pitch:  +6.9° | Yaw:  -4.1° | Acc: (-1.31, +0.55, +10.24) | Wz: -0.022 rad/s | [CHẠY]
+🌾 [ĐIỀU HƯỚNG CNN] CNN trả góc lệch +5.50° > 3.50°. Dừng tiến, xoay từ từ tại chỗ (0.35 rad/s) chờ chắc chắn thẳng hàng (<= 1.50°)...
+🎯 [MỐC GOAL 1] Đã đến cuối Luống 1 tại x=2.87m (dist=3.72m)! Kích hoạt quay đầu Omega Turn chuyển sang Luống 2...
+TRACKING ──► UTURN_PLANNING
+⚠️ Mất tín hiệu Camera quá 3 giây! Xe đang tạm dừng.
+Failed to meet update rate! Took 0.57543158299999996874seconds. Try decreasing the rate, limiting sensor output frequency, or limiting the number of sensors.
+📐 [IMU Live] Roll:  +0.7° | Pitch:  +7.5° | Yaw:  -3.9° | Acc: (-1.16, +0.47, +10.33) | Wz: +0.011 rad/s | [CHẠY]
+🌾 [BÁM HÀNG] Nhận diện luống thành công tại x=2.87m, y=-0.16m (conf=1.00). Bắt đầu dẫn hướng vào tim hàng!
+🔄 [OMEGA TURN - IMU QUAY ĐẦU] Bắt đầu quay đầu 180° từ IMU Yaw=+177.3° -> Hướng mục tiêu Luống 2: -2.7° (turn_side=RIGHT, spacing=1.20m, R1=0.65m, alpha=35.0°)...
+UTURN_PLANNING ──► PATH_FOLLOWING
+🚀 Bắt đầu bám quỹ đạo Omega Turn (101 điểm, R1=0.65m, mở góc=35.0°)...
+🌾 [AI Lái Xe] Luống 2 (x=3.12m) | Góc: +0.00° | Trạng thái: [PATH_FOLLOWING] | Tin cậy: 100.0% | AI: 601ms (1.7FPS) | V: 0.00m/s | GPS: 10.03284°, 105.76697°
+🌾 [AI Lái Xe] Luống 2 (x=3.16m) | Góc: +48.28° | Trạng thái: [PATH_FOLLOWING] | Tin cậy: 100.0% | AI: 535ms (1.9FPS) | V: 0.10m/s | GPS: 10.03284°, 105.76697°
+📐 [IMU Live] Roll:  +1.1° | Pitch:  +7.8° | Yaw:  -3.7° | Acc: (-1.52, +0.03, +10.11) | Wz: +0.008 rad/s | [TĨNH (ZUPT)]
+📷 Camera: 640x480 | 1.1 FPS | Đang cấp dữ liệu trực tiếp cho AI CNN (33 frames)
+🌾 [AI Lái Xe] Luống 2 (x=3.35m) | Góc: +63.78° | Trạng thái: [PATH_FOLLOWING] | Tin cậy: 100.0% | AI: 585ms (1.7FPS) | V: 0.10m/s | GPS: 10.03284°, 105.76697°
+📐 [IMU Live] Roll:  -0.3° | Pitch:  +7.7° | Yaw:  -2.9° | Acc: (-1.38, +0.20, +10.17) | Wz: +0.008 rad/s | [CHẠY]
+🌾 [AI Lái Xe] Luống 2 (x=3.83m) | Góc: +63.78° | Trạng thái: [PATH_FOLLOWING] | Tin cậy: 100.0% | AI: 585ms (1.7FPS) | V: 0.10m/s | GPS: 10.03284°, 105.76697°
+⚠️ [CẢNH BÁO TRƯỢT BÁNH] Bánh xe quay 13.6° nhưng IMU thực tế chỉ quay 5.5° (Trượt 8.0° trên cỏ/đất)! Hệ thống đang điều khiển bù góc theo IMU để đảm bảo quay đúng 180°!
+📐 [IMU Live] Roll:  -0.2° | Pitch:  +7.3° | Yaw:  -3.2° | Acc: (-1.34, -0.30, +10.26) | Wz: -0.004 rad/s | [CHẠY]
+🌾 [AI Lái Xe] Luống 2 (x=4.17m) | Góc: +63.78° | Trạng thái: [PATH_FOLLOWING] | Tin cậy: 100.0% | AI: 585ms (1.7FPS) | V: 0.10m/s | GPS: 10.03284°, 105.76697°
+📐 [IMU Live] Roll:  +0.4° | Pitch:  +5.5° | Yaw:  -2.7° | Acc: (-1.17, +0.72, +10.18) | Wz: +0.011 rad/s | [CHẠY]
+🌾 [AI Lái Xe] Luống 2 (x=4.33m) | Góc: -27.42° | Trạng thái: [PATH_FOLLOWING] | Tin cậy: 56.8% | AI: 566ms (1.8FPS) | V: 0.10m/s | GPS: 10.03283°, 105.76697°
+📐 [IMU Live] Roll:  +1.5° | Pitch:  +6.2° | Yaw:  -2.5° | Acc: (-1.22, -0.08, +10.02) | Wz: +0.009 rad/s | [CHẠY]
+🌾 [AI Lái Xe] Luống 2 (x=4.89m) | Góc: -27.42° | Trạng thái: [PATH_FOLLOWING] | Tin cậy: 56.8% | AI: 566ms (1.8FPS) | V: 0.10m/s | GPS: 10.03283°, 105.76697°
+📐 [IMU Live] Roll:  +2.7° | Pitch:  +6.8° | Yaw:  -2.0° | Acc: (-1.29, +0.73, +10.30) | Wz: +0.007 rad/s | [CHẠY]
+🌾 [AI Lái Xe] Luống 2 (x=5.29m) | Góc: -27.42° | Trạng thái: [PATH_FOLLOWING] | Tin cậy: 56.8% | AI: 566ms (1.8FPS) | V: 0.10m/s | GPS: 10.03283°, 105.76697°
+Failed to meet update rate! Took 0.31764887800000002338seconds. Try decreasing the rate, limiting sensor output frequency, or limiting the number of sensors.
+📐 [IMU Live] Roll:  +2.5° | Pitch:  +6.6° | Yaw:  -2.4° | Acc: (-1.30, +0.29, +10.29) | Wz: -0.018 rad/s | [CHẠY]
+🌾 [AI Lái Xe] Luống 2 (x=5.67m) | Góc: -23.04° | Trạng thái: [PATH_FOLLOWING] | Tin cậy: 100.0% | AI: 553ms (1.8FPS) | V: 0.06m/s | GPS: 10.03283°, 105.76697°
+📐 [IMU Live] Roll:  +1.0° | Pitch:  +6.4° | Yaw:  -2.2° | Acc: (-1.16, +0.40, +10.25) | Wz: +0.012 rad/s | [CHẠY]
+🌾 [AI Lái Xe] Luống 2 (x=5.95m) | Góc: -21.47° | Trạng thái: [PATH_FOLLOWING] | Tin cậy: 100.0% | AI: 653ms (1.5FPS) | V: 0.06m/s | GPS: 10.03283°, 105.76696°
+📐 [IMU Live] Roll:  +0.7° | Pitch:  +6.2° | Yaw:  -2.2° | Acc: (-1.02, +0.10, +10.19) | Wz: +0.003 rad/s | [CHẠY]
+🌾 [AI Lái Xe] Luống 2 (x=6.42m) | Góc: -16.05° | Trạng thái: [PATH_FOLLOWING] | Tin cậy: 100.0% | AI: 527ms (1.9FPS) | V: 0.06m/s | GPS: 10.03283°, 105.76696°
+📐 [IMU Live] Roll:  -0.3° | Pitch:  +6.0° | Yaw:  -2.2° | Acc: (-0.98, -0.26, +10.28) | Wz: +0.015 rad/s | [CHẠY]
+🌾 [AI Lái Xe] Luống 2 (x=6.68m) | Góc: -7.11° | Trạng thái: [PATH_FOLLOWING] | Tin cậy: 100.0% | AI: 553ms (1.8FPS) | V: 0.06m/s | GPS: 10.03282°, 105.76696°
+📐 [IMU Live] Roll:  +1.0° | Pitch:  +5.8° | Yaw:  -2.1° | Acc: (-1.12, +0.14, +10.21) | Wz: -0.011 rad/s | [CHẠY]
+🌾 [AI Lái Xe] Luống 2 (x=7.05m) | Góc: -5.67° | Trạng thái: [PATH_FOLLOWING] | Tin cậy: 100.0% | AI: 565ms (1.8FPS) | V: 0.06m/s | GPS: 10.03282°, 105.76696°
+📐 [IMU Live] Roll:  +0.8° | Pitch:  +5.3° | Yaw:  -2.3° | Acc: (-0.83, +0.00, +10.38) | Wz: -0.009 rad/s | [CHẠY]
+🌾 [AI Lái Xe] Luống 2 (x=7.53m) | Góc: -5.67° | Trạng thái: [PATH_FOLLOWING] | Tin cậy: 100.0% | AI: 565ms (1.8FPS) | V: 0.06m/s | GPS: 10.03282°, 105.76696°
+📐 [IMU Live] Roll:  +0.2° | Pitch:  +5.3° | Yaw:  -2.2° | Acc: (-1.22, -0.03, +10.26) | Wz: -0.004 rad/s | [CHẠY]
+🌾 [AI Lái Xe] Luống 2 (x=7.88m) | Góc: -5.67° | Trạng thái: [PATH_FOLLOWING] | Tin cậy: 100.0% | AI: 565ms (1.8FPS) | V: 0.06m/s | GPS: 10.03282°, 105.76696°
+📐 [IMU Live] Roll:  +1.2° | Pitch:  +5.2° | Yaw:  -2.0° | Acc: (-0.81, +0.26, +10.29) | Wz: -0.006 rad/s | [CHẠY]
+🌾 [AI Lái Xe] Luống 2 (x=8.24m) | Góc: -3.06° | Trạng thái: [PATH_FOLLOWING] | Tin cậy: 100.0% | AI: 559ms (1.8FPS) | V: 0.06m/s | GPS: 10.03282°, 105.76696°
+📐 [IMU Live] Roll:  +0.7° | Pitch:  +4.9° | Yaw:  -2.0° | Acc: (-1.28, -0.05, +10.17) | Wz: -0.001 rad/s | [CHẠY]
+🌾 [AI Lái Xe] Luống 2 (x=8.25m) | Góc: -2.69° | Trạng thái: [PATH_FOLLOWING] | Tin cậy: 100.0% | AI: 563ms (1.8FPS) | V: 0.06m/s | GPS: 10.03281°, 105.76695°
+Failed to meet update rate! Took 1.5997732940000000124seconds. Try decreasing the rate, limiting sensor output frequency, or limiting the number of sensors.
+📐 [IMU Live] Roll:  +1.3° | Pitch:  +5.3° | Yaw:  -1.9° | Acc: (-1.00, +0.03, +10.37) | Wz: +0.001 rad/s | [CHẠY]
+🌾 [AI Lái Xe] Luống 2 (x=8.25m) | Góc: -2.69° | Trạng thái: [PATH_FOLLOWING] | Tin cậy: 69.6% | AI: 578ms (1.7FPS) | V: 0.06m/s | GPS: 10.03281°, 105.76695°
+📐 [IMU Live] Roll:  +0.8° | Pitch:  +4.4° | Yaw:  -0.9° | Acc: (-1.06, +0.52, +9.96) | Wz: -0.034 rad/s | [CHẠY]
+🌾 [AI Lái Xe] Luống 2 (x=9.29m) | Góc: -2.69° | Trạng thái: [PATH_FOLLOWING] | Tin cậy: 38.5% | AI: 544ms (1.8FPS) | V: 0.06m/s | GPS: 10.03281°, 105.76695°
+^C
+bao@bao-desktop:~/robot_ws$ real-cnn
+================================================================================
+🌾 [REAL-CNN] KHỞI ĐỘNG TỰ HÀNH BÁM LUỐNG BẰNG AI
+📁 Dữ liệu góc lái & log tự động lưu tại: /home/bao/robot_ws/logs/
+================================================================================
+📡 [CẢM BIẾN] Đã bật LiDAR C1 (serial_port:=/dev/rplidar), Costmap (enable_costmap:=true), ESP32 (esp32_port:=/dev/esp32)
+📱 [AI CNN] Tự động kết nối Camera iPhone qua cáp USB: camera_device:=http://172.20.10.1:4747/video
+Delaying for 3 seconds before starting...
+SLLidar S/N: 8A2EE18AC1EA9ED2B29C92F5098A466C
+Firmware Ver: 1.02
+Hardware Rev: 18
+SLLidar health status : 0
+SLLidar health status : OK.
+current scan mode: Standard, sample rate: 5 Khz, max_distance: 16.0 m, scan frequency:10.0 Hz,
+Delay elapsed. Continuing.
+Got description, configuring robot
+============================================================
+🚀 [ICM-20948 IMU] ĐÃ KẾT NỐI THÀNH CÔNG!
+📍 I2C: /dev/i2c-1 @ 0x68 | Topic: /imu/data_complementary
+🔄 Đang tự động hiệu chuẩn Zero-Bias Gyroscope (60 mẫu)...
+============================================================
+✅ Đã kết nối thành công GPS Hardware: /dev/ttyAMA0 @ 38400 baud.
+🛡️ [GPS Filter] Đã kích hoạt Bộ Lọc 4 Lớp: [Min Sats: 5 | Max HDOP: 2.5 | Max Jump: 2.0m | Median: 3 mẫu | Stationary Lock: True]
+✅ Successfully connected to ESP32 on /dev/esp32 at 115200 baud
+ESP32 Bridge started [Mode: serial] [Port: /dev/esp32] [Wheel D: 0.2m, Base: 0.58m, CPR: 800 (PPR:200 x Quad:4 x Gear:1.0)]
+✅ Real-Time Costmap Node started! Grid: 1200x400 (60.0mx20.0m), res=0.05m, inscribed=0.35m, inflation=0.45m
+✅ [ICM-20948] HIỆU CHUẨN XONG! Bias Gyro (deg/s): X=1.87, Y=0.54, Z=0.00
+First IMU message received.
+📐 [IMU Live] Roll:  +1.7° | Pitch:  +3.6° | Yaw:  -0.0° | Acc: (-0.64, +0.31, +10.20) | Wz: -0.000 rad/s | [TĨNH (ZUPT)]
+Datum (latitude, longitude, altitude) is (10.03, 105.77, 9.10)
+Datum UTM coordinate is (48 north, 584050.69, 1109138.70)
+Corrected for magnetic declination of -0.01, user-specified offset of 0 and meridian convergence of 0.00233218. Transform heading factor is now 2.68682
+🚀 [AI CNN Driver] Sẵn sàng tự hành bám luống (Vận tốc: 0.10 m/s | Model INT8)
+📐 [IMU Live] Roll:  +1.8° | Pitch:  +3.8° | Yaw:  +0.0° | Acc: (-0.66, +0.32, +10.22) | Wz: +0.000 rad/s | [TĨNH (ZUPT)]
+⚠️ Không kết nối được luồng iPhone, đang tự động quét tìm USB Webcam (/dev/video*)...
+⏳ Đang dò tìm & kết nối Camera (http://172.20.10.1:4747/video)... (Kiểm tra DroidCam trên iPhone hoặc cắm lại cổng USB Webcam)
+⏳ Đang chờ nhận hình ảnh từ Camera...
+📐 [IMU Live] Roll:  +1.8° | Pitch:  +3.8° | Yaw:  +0.0° | Acc: (-0.66, +0.31, +10.22) | Wz: +0.001 rad/s | [TĨNH (ZUPT)]
+📐 [IMU Live] Roll:  +1.8° | Pitch:  +3.7° | Yaw:  +0.0° | Acc: (-0.70, +0.34, +10.23) | Wz: -0.001 rad/s | [TĨNH (ZUPT)]
+📐 [IMU Live] Roll:  +1.7° | Pitch:  +3.7° | Yaw:  +0.1° | Acc: (-0.67, +0.31, +10.24) | Wz: -0.000 rad/s | [TĨNH (ZUPT)]
+📱 Camera iPhone / IP Stream đã kết nối thành công: http://172.20.10.1:4747/video (1280x720)
+📐 [IMU Live] Roll:  +1.8° | Pitch:  +3.7° | Yaw:  +0.1° | Acc: (-0.67, +0.31, +10.22) | Wz: -0.001 rad/s | [TĨNH (ZUPT)]
+✅ Đã nhận tín hiệu Camera! Bắt đầu chuỗi tự hành AI.
+🌾 [BÁM HÀNG] Nhận diện luống thành công tại x=0.00m, y=0.00m (conf=1.00). Bắt đầu dẫn hướng vào tim hàng!
+🌾 [AI Lái Xe] Luống 1 (x=0.00m) | Góc: +1.08° | Trạng thái: [ TRACKING ] | Tin cậy: 100.0% | AI: 668ms (1.5FPS) | V: 0.10m/s | GPS: 10.03282°, 105.76697°
+📐 [IMU Live] Roll:  -0.8° | Pitch:  +3.0° | Yaw:  +0.0° | Acc: (-0.40, -0.80, +10.10) | Wz: -0.006 rad/s | [CHẠY]
+🌾 [AI Lái Xe] Luống 1 (x=0.05m) | Góc: +1.77° | Trạng thái: [ TRACKING ] | Tin cậy: 100.0% | AI: 798ms (1.3FPS) | V: 0.10m/s
+📐 [IMU Live] Roll:  +0.3° | Pitch:  +4.5° | Yaw:  -0.4° | Acc: (-0.94, +0.41, +10.25) | Wz: +0.003 rad/s | [CHẠY]
+🌾 [AI Lái Xe] Luống 1 (x=0.36m) | Góc: +2.22° | Trạng thái: [ TRACKING ] | Tin cậy: 100.0% | AI: 801ms (1.2FPS) | V: 0.10m/s | GPS: 10.03282°, 105.76697°
+📐 [IMU Live] Roll:  -0.4° | Pitch:  +5.3° | Yaw:  -1.4° | Acc: (-1.14, +0.28, +10.12) | Wz: -0.017 rad/s | [CHẠY]
+🌾 [AI Lái Xe] Luống 1 (x=0.79m) | Góc: +2.68° | Trạng thái: [ TRACKING ] | Tin cậy: 100.0% | AI: 552ms (1.8FPS) | V: 0.10m/s | GPS: 10.03281°, 105.76697°
+📐 [IMU Live] Roll:  -0.3° | Pitch:  +5.0° | Yaw:  -1.0° | Acc: (-0.82, -0.25, +10.25) | Wz: +0.010 rad/s | [CHẠY]
+🌾 [AI Lái Xe] Luống 1 (x=1.22m) | Góc: +2.62° | Trạng thái: [ TRACKING ] | Tin cậy: 100.0% | AI: 668ms (1.5FPS) | V: 0.10m/s | GPS: 10.03281°, 105.76697°
+📐 [IMU Live] Roll:  +0.8° | Pitch:  +6.4° | Yaw:  -1.1° | Acc: (-0.77, +0.27, +10.07) | Wz: +0.009 rad/s | [CHẠY]
+🌾 [AI Lái Xe] Luống 1 (x=1.45m) | Góc: +2.53° | Trạng thái: [ TRACKING ] | Tin cậy: 100.0% | AI: 634ms (1.6FPS) | V: 0.10m/s | GPS: 10.03281°, 105.76697°
+📐 [IMU Live] Roll:  +1.8° | Pitch:  +5.9° | Yaw:  -0.4° | Acc: (-1.01, +0.30, +10.16) | Wz: +0.010 rad/s | [CHẠY]
+🌾 [AI Lái Xe] Luống 1 (x=1.80m) | Góc: +2.55° | Trạng thái: [ TRACKING ] | Tin cậy: 100.0% | AI: 561ms (1.8FPS) | V: 0.10m/s | GPS: 10.03282°, 105.76698°
+Failed to meet update rate! Took 0.26808470600000000594seconds. Try decreasing the rate, limiting sensor output frequency, or limiting the number of sensors.
+📐 [IMU Live] Roll:  +2.6° | Pitch:  +4.8° | Yaw:  -0.0° | Acc: (-0.94, +0.87, +10.05) | Wz: +0.010 rad/s | [CHẠY]
+🌾 [AI Lái Xe] Luống 1 (x=1.99m) | Góc: +2.66° | Trạng thái: [ TRACKING ] | Tin cậy: 100.0% | AI: 562ms (1.8FPS) | V: 0.10m/s | GPS: 10.03282°, 105.76698°
+📐 [IMU Live] Roll:  +3.0° | Pitch:  +3.3° | Yaw:  +0.1° | Acc: (-0.43, +0.53, +10.06) | Wz: -0.008 rad/s | [CHẠY]
+🌾 [AI Lái Xe] Luống 1 (x=1.99m) | Góc: +2.51° | Trạng thái: [ TRACKING ] | Tin cậy: 100.0% | AI: 581ms (1.7FPS) | V: 0.10m/s | GPS: 10.03282°, 105.76698°
+Failed to meet update rate! Took 2.4110059700000001648seconds. Try decreasing the rate, limiting sensor output frequency, or limiting the number of sensors.
+📐 [IMU Live] Roll:  +1.4° | Pitch:  +3.6° | Yaw:  -0.6° | Acc: (-0.59, +0.37, +10.36) | Wz: -0.018 rad/s | [CHẠY]
+🌾 [AI Lái Xe] Luống 1 (x=1.99m) | Góc: +1.14° | Trạng thái: [ TRACKING ] | Tin cậy: 100.0% | AI: 637ms (1.6FPS) | V: 0.10m/s | GPS: 10.03282°, 105.76698°
+📐 [IMU Live] Roll:  +1.6° | Pitch:  +4.2° | Yaw:  -0.9° | Acc: (-0.72, +0.40, +10.32) | Wz: +0.026 rad/s | [CHẠY]
+🎯 [MỐC GOAL 1] Đã đến cuối Luống 1 tại x=3.24m (dist=3.24m)! Kích hoạt quay đầu Omega Turn chuyển sang Luống 2...
+TRACKING ──► UTURN_PLANNING
+🌾 [AI Lái Xe] Luống 2 (x=3.50m) | Góc: -0.50° | Trạng thái: [UTURN_PLANNING] | Tin cậy: 100.0% | AI: 614ms (1.6FPS) | V: 0.10m/s | GPS: 10.03283°, 105.76698°
+📐 [IMU Live] Roll:  +4.7° | Pitch:  +3.1° | Yaw:  -1.3° | Acc: (-0.73, +1.59, +10.07) | Wz: -0.006 rad/s | [CHẠY]
+🌾 [BÁM HÀNG] Nhận diện luống thành công tại x=3.50m, y=-0.03m (conf=1.00). Bắt đầu dẫn hướng vào tim hàng!
+🔄 [OMEGA TURN - IMU QUAY ĐẦU] Bắt đầu quay đầu 180° từ IMU Yaw=+153.3° -> Hướng mục tiêu Luống 2: -26.7° (turn_side=RIGHT, spacing=1.20m, R1=0.65m, alpha=35.0°)...
+UTURN_PLANNING ──► PATH_FOLLOWING
+🚀 Bắt đầu bám quỹ đạo Omega Turn (101 điểm, R1=0.65m, mở góc=35.0°)...
+🌾 [AI Lái Xe] Luống 2 (x=3.77m) | Góc: +39.83° | Trạng thái: [PATH_FOLLOWING] | Tin cậy: 100.0% | AI: 728ms (1.4FPS) | V: 0.10m/s | GPS: 10.03283°, 105.76698°
+📐 [IMU Live] Roll:  +2.9° | Pitch:  +3.7° | Yaw:  -1.3° | Acc: (-0.67, +0.43, +10.23) | Wz: +0.001 rad/s | [TĨNH (ZUPT)]
+🌾 [AI Lái Xe] Luống 2 (x=3.77m) | Góc: +46.51° | Trạng thái: [PATH_FOLLOWING] | Tin cậy: 90.4% | AI: 593ms (1.7FPS) | V: 0.10m/s | GPS: 10.03283°, 105.76699°
+📐 [IMU Live] Roll:  +2.4° | Pitch:  +3.3° | Yaw:  -1.8° | Acc: (-0.60, +0.70, +10.07) | Wz: -0.008 rad/s | [CHẠY]
+🌾 [AI Lái Xe] Luống 2 (x=4.01m) | Góc: +47.56° | Trạng thái: [PATH_FOLLOWING] | Tin cậy: 65.2% | AI: 745ms (1.3FPS) | V: 0.10m/s | GPS: 10.03283°, 105.76699°
+⚠️ [CẢNH BÁO TRƯỢT BÁNH] Bánh xe quay 10.8° nhưng IMU thực tế chỉ quay 1.8° (Trượt 9.0° trên cỏ/đất)! Hệ thống đang điều khiển bù góc theo IMU để đảm bảo quay đúng 180°!
+📐 [IMU Live] Roll:  +2.2° | Pitch:  +3.1° | Yaw:  -2.8° | Acc: (-0.70, +0.19, +10.12) | Wz: +0.001 rad/s | [CHẠY]
+🌾 [AI Lái Xe] Luống 2 (x=4.28m) | Góc: +66.62° | Trạng thái: [PATH_FOLLOWING] | Tin cậy:  0.0% | AI: 621ms (1.6FPS) | V: 0.09m/s | GPS: 10.03283°, 105.76699°
+📐 [IMU Live] Roll:  +1.3° | Pitch:  +4.4° | Yaw:  -2.1° | Acc: (-0.44, -0.12, +10.18) | Wz: -0.005 rad/s | [CHẠY]
+🌾 [AI Lái Xe] Luống 2 (x=4.30m) | Góc: +67.07° | Trạng thái: [PATH_FOLLOWING] | Tin cậy:  0.0% | AI: 633ms (1.6FPS) | V: 0.09m/s | GPS: 10.03284°, 105.76699°
+📐 [IMU Live] Roll:  +2.4° | Pitch:  +5.2° | Yaw:  -2.2° | Acc: (-1.33, +1.10, +9.81) | Wz: -0.018 rad/s | [CHẠY]
+🌾 [AI Lái Xe] Luống 2 (x=4.30m) | Góc: +67.24° | Trạng thái: [PATH_FOLLOWING] | Tin cậy:  0.0% | AI: 696ms (1.4FPS) | V: 0.09m/s | GPS: 10.03284°, 105.76699°
+Failed to meet update rate! Took 2.410935691999999797seconds. Try decreasing the rate, limiting sensor output frequency, or limiting the number of sensors.
+📐 [IMU Live] Roll:  +2.0° | Pitch:  +6.3° | Yaw:  -2.7° | Acc: (-1.25, +0.27, +10.42) | Wz: -0.013 rad/s | [CHẠY]
+🌾 [AI Lái Xe] Luống 2 (x=4.92m) | Góc: +67.38° | Trạng thái: [PATH_FOLLOWING] | Tin cậy:  0.0% | AI: 718ms (1.4FPS) | V: 0.08m/s | GPS: 10.03284°, 105.76699°
+📐 [IMU Live] Roll:  +1.7° | Pitch:  +6.7° | Yaw:  -2.9° | Acc: (-1.02, +0.42, +10.64) | Wz: +0.003 rad/s | [CHẠY]
+🌾 [AI Lái Xe] Luống 2 (x=5.63m) | Góc: -69.14° | Trạng thái: [PATH_FOLLOWING] | Tin cậy:  0.0% | AI: 594ms (1.7FPS) | V: 0.08m/s | GPS: 10.03284°, 105.76699°
+📐 [IMU Live] Roll:  +2.4° | Pitch:  +6.0° | Yaw:  -3.0° | Acc: (-0.92, +0.46, +10.12) | Wz: -0.008 rad/s | [CHẠY]
+🌾 [AI Lái Xe] Luống 2 (x=5.92m) | Góc: -65.78° | Trạng thái: [PATH_FOLLOWING] | Tin cậy:  0.0% | AI: 659ms (1.5FPS) | V: 0.06m/s | GPS: 10.03284°, 105.76699°
+📐 [IMU Live] Roll:  +2.0° | Pitch:  +6.3° | Yaw:  -3.3° | Acc: (-1.06, -0.05, +10.26) | Wz: -0.004 rad/s | [CHẠY]
+🌾 [AI Lái Xe] Luống 2 (x=6.39m) | Góc: -26.80° | Trạng thái: [PATH_FOLLOWING] | Tin cậy:  0.0% | AI: 567ms (1.8FPS) | V: 0.06m/s | GPS: 10.03284°, 105.76699°
+📐 [IMU Live] Roll:  +0.5° | Pitch:  +5.7° | Yaw:  -3.4° | Acc: (-1.15, +0.40, +10.60) | Wz: -0.017 rad/s | [CHẠY]
+🌾 [AI Lái Xe] Luống 2 (x=6.86m) | Góc: -15.11° | Trạng thái: [PATH_FOLLOWING] | Tin cậy:  0.0% | AI: 653ms (1.5FPS) | V: 0.06m/s | GPS: 10.03285°, 105.76699°
+📐 [IMU Live] Roll:  -1.4° | Pitch:  +5.0° | Yaw:  -3.7° | Acc: (-0.99, -0.54, +10.31) | Wz: -0.002 rad/s | [CHẠY]
+🌾 [AI Lái Xe] Luống 2 (x=7.00m) | Góc: -11.26° | Trạng thái: [PATH_FOLLOWING] | Tin cậy:  0.0% | AI: 623ms (1.6FPS) | V: 0.06m/s | GPS: 10.03285°, 105.76700°
+^C
+bao@bao-desktop:~/robot_ws$ 
