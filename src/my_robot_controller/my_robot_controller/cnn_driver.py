@@ -62,7 +62,8 @@ class CnnDriverNode(Node):
         self.declare_parameter('phi_smc', 0.5)
         self.declare_parameter('max_steering_angle_deg', 14.0)
         self.declare_parameter('turn_in_place_threshold_deg', 0.3)
-        self.declare_parameter('turn_in_place_resume_deg', 0.2)
+        self.declare_parameter('heading_adjust_cycle_duration', 0.40)
+        self.declare_parameter('heading_adjust_cooldown', 0.50)
         self.declare_parameter('row_spacing', 0.90)
         self.declare_parameter('ema_alpha', 0.45)
         self.declare_parameter('enable_uturn', False)
@@ -128,7 +129,8 @@ class CnnDriverNode(Node):
         self.phi_smc                  = p('phi_smc').value
         self.max_steering_angle_deg   = p('max_steering_angle_deg').value
         self.turn_in_place_threshold_deg = float(p('turn_in_place_threshold_deg').value)
-        self.turn_in_place_resume_deg    = float(p('turn_in_place_resume_deg').value)
+        self.heading_adjust_cycle_duration = float(p('heading_adjust_cycle_duration').value)
+        self.heading_adjust_cooldown = float(p('heading_adjust_cooldown').value)
         self.row_spacing              = p('row_spacing').value
         self.ema_alpha                = p('ema_alpha').value
         self.enable_uturn             = p('enable_uturn').value
@@ -296,6 +298,8 @@ class CnnDriverNode(Node):
         self.heading_adjust_target_yaw = 0.0
         self.heading_adjust_dir     = 0.0
         self.heading_adjust_start_time = 0.0
+        self.heading_adjust_peak_w  = 0.20
+        self.heading_adjust_cooldown_until = 0.0
         self.current_lane_y         = 0.0
 
         # ── Odometry tracking ─────────────────────────────────────────
@@ -351,6 +355,7 @@ class CnnDriverNode(Node):
         self.gps_pub     = self.create_publisher(NavSatFix, '/localization/gps', 10)
         self.plan_pub    = self.create_publisher(RosPath, '/plan', 10)
         self.plan_timer  = self.create_timer(1.0, self.publish_mission_path)
+        self.heading_adjust_timer = self.create_timer(0.05, self._heading_adjust_timer_callback)
 
         self.image_sub = self.create_subscription(
             Image, self.image_topic, self.image_callback, 10)
@@ -641,18 +646,19 @@ class CnnDriverNode(Node):
         self._prev_odom_x   = x
         self._prev_odom_y   = y
 
-        # ── IMU/Odom Watchdog cho điều hướng xoay căn chỉnh CNN (4.5s safety timeout) ──
+        # ── IMU/Odom Watchdog an toàn cho chu kỳ căn chỉnh CNN (1.0s fallback safety) ──
         if self.is_adjusting_heading and self.fsm.get_state() == FSMState.TRACKING:
             now_sec = self.get_clock().now().nanoseconds / 1e9
-            timed_out = (now_sec - self.heading_adjust_start_time) > 4.5
+            timed_out = (now_sec - self.heading_adjust_start_time) > 1.0
             
             if timed_out:
                 self.is_adjusting_heading = False
+                self.heading_adjust_cooldown_until = now_sec + getattr(self, 'heading_adjust_cooldown', 0.50)
                 twist = Twist()
                 twist.linear.x = self.linear_speed
                 twist.angular.z = 0.0
                 self.cmd_vel_pub.publish(twist)
-                log_msg = f"⚠️ [ĐIỀU HƯỚNG CNN - TIMEOUT SAFETY] Xoay căn chỉnh hướng quá 4.5s -> Tiếp tục chạy thẳng {self.linear_speed:.2f} m/s an toàn!"
+                log_msg = f"⚠️ [ĐIỀU HƯỚNG CNN - WATCHDOG] Chu kỳ căn chỉnh vượt 1.0s -> Khôi phục chạy thẳng {self.linear_speed:.2f} m/s an toàn!"
                 self.get_logger().warn(log_msg)
                 if self.enable_file_logging and self.telemetry_logger:
                     self.telemetry_logger.log_event("CNN_HEADING_TIMEOUT", log_msg)
@@ -672,6 +678,48 @@ class CnnDriverNode(Node):
             self._prev_yaw_for_turn = self.current_yaw
         else:
             self._prev_yaw_for_turn = None
+
+    def _heading_adjust_timer_callback(self):
+        """
+        Bộ điều khiển tăng giảm tốc mềm cho chu kỳ căn chỉnh hướng (< 0.5s).
+        Sinh quỹ đạo vận tốc góc mượt mà (Half-Sine S-curve) triệt tiêu giật quán tính,
+        sau đó lập tức bàn giao quyền cho xe chạy thẳng mà không kẹt điều kiện góc nhỏ.
+        """
+        if not self.is_adjusting_heading or self.fsm.get_state() != FSMState.TRACKING:
+            return
+
+        now_sec = self.get_clock().now().nanoseconds / 1e9
+        elapsed = now_sec - self.heading_adjust_start_time
+        duration = getattr(self, 'heading_adjust_cycle_duration', 0.40)
+
+        if elapsed >= duration:
+            self.is_adjusting_heading = False
+            self.heading_adjust_cooldown_until = now_sec + getattr(self, 'heading_adjust_cooldown', 0.50)
+
+            twist = Twist()
+            twist.linear.x = self.linear_speed
+            twist.angular.z = 0.0
+            self.cmd_vel_pub.publish(twist)
+
+            self.get_logger().info(
+                f"✅ [ĐIỀU HƯỚNG CNN] Hoàn thành chu kỳ tăng giảm tốc mềm {duration:.2f}s! "
+                f"Tiếp tục chạy thẳng {self.linear_speed:.2f} m/s (Góc hiện tại: {self.smoothed_angle_deg:+.2f}°)"
+            )
+            if self.enable_file_logging and self.telemetry_logger:
+                self.telemetry_logger.log_event(
+                    "CNN_HEADING_SOFT_CYCLE_END",
+                    f"Hoàn thành chu kỳ mềm {duration:.2f}s. Chạy thẳng {self.linear_speed:.2f} m/s"
+                )
+            return
+
+        s = float(np.clip(elapsed / duration, 0.0, 1.0))
+        w_factor = math.sin(math.pi * s)
+        current_w = self.heading_adjust_dir * self.heading_adjust_peak_w * w_factor
+
+        twist = Twist()
+        twist.linear.x = 0.0
+        twist.angular.z = current_w
+        self.cmd_vel_pub.publish(twist)
 
     # ── Image conversion ───────────────────────────────────────────────
     def convert_image(self, msg: Image) -> np.ndarray:
@@ -927,10 +975,11 @@ class CnnDriverNode(Node):
                 self.smoothed_angle_deg = (
                     0.25 * assist_steer_deg + 0.75 * self.smoothed_angle_deg
                 )
-                self.get_logger().info_throttle(
-                    2.0,
-                    f"🌾 [GLOBAL PLAN ASSIST] Conf thấp ({confidence*100:.1f}%) -> Hỗ trợ giữ tim Luống {self.current_lane_idx} (y={target_y:.2f}m, dy={lat_err:.2f}m, steer={self.smoothed_angle_deg:+.1f}°)"
-                )
+                if now_sec - getattr(self, '_last_global_assist_log_time', 0.0) >= 2.0:
+                    self._last_global_assist_log_time = now_sec
+                    self.get_logger().info(
+                        f"🌾 [GLOBAL PLAN ASSIST] Conf thấp ({confidence*100:.1f}%) -> Hỗ trợ giữ tim Luống {self.current_lane_idx} (y={target_y:.2f}m, dy={lat_err:.2f}m, steer={self.smoothed_angle_deg:+.1f}°)"
+                    )
             else:
                 # Chỉ triệt tiêu góc lái về 0 khi thực sự ở bãi đất trống ngoài luống
                 self.smoothed_angle_deg *= 0.90
@@ -946,54 +995,45 @@ class CnnDriverNode(Node):
             
             _lin_smc, _ang_smc = self.StartTracking(dt_actual)
 
-            # ── LOGIC ĐIỀU HƯỚNG CNN: HYSTERESIS DỪNG CHỈNH GÓC (0.3° / 0.2°) ──
+            # ── LOGIC ĐIỀU HƯỚNG CNN: CHU KỲ TĂNG GIẢM TỐC MỀM (< 0.5s) ──
+            # Loại bỏ hoàn toàn ngưỡng dưới < 0.2 độ (gây kẹt do nhiễu camera).
+            # Thay bằng cơ chế kích hoạt chu kỳ mềm: nắn hướng êm dịu rồi lập tức chạy thẳng tiếp.
             stop_threshold = float(getattr(self, 'turn_in_place_threshold_deg', 0.30))
-            resume_threshold = float(getattr(self, 'turn_in_place_resume_deg', 0.20))
 
             if not self.is_adjusting_heading:
-                # 1. Khi đang chạy: Nếu góc CNN trả về > 0.3° -> Dừng tiến (linear.x = 0.0), xoay tại chỗ căn chỉnh
-                if abs(self.smoothed_angle_deg) > stop_threshold:
+                can_trigger = (now_sec >= getattr(self, 'heading_adjust_cooldown_until', 0.0))
+                if can_trigger and abs(self.smoothed_angle_deg) > stop_threshold:
                     self.is_adjusting_heading = True
                     self.heading_adjust_start_time = now_sec
                     self.heading_adjust_dir = -1.0 if self.smoothed_angle_deg > 0 else 1.0
-                    delta_yaw = -math.radians(self.smoothed_angle_deg)
-                    target_yaw = self.current_yaw + delta_yaw
-                    self.heading_adjust_target_yaw = math.atan2(math.sin(target_yaw), math.cos(target_yaw))
+
+                    # Tính vận tốc góc đỉnh (Peak Wz) êm ái:
+                    # Với góc lệch nhỏ (< 2°): quay cực nhẹ 0.14 rad/s
+                    # Với góc lệch lớn hơn: tăng dần nhưng không vượt quá 0.22 rad/s
+                    base_turn = float(self.turn_angular_speed) if hasattr(self, 'turn_angular_speed') else 0.25
+                    angle_err_mag = abs(self.smoothed_angle_deg)
+                    if angle_err_mag < 2.0:
+                        self.heading_adjust_peak_w = 0.14
+                    elif angle_err_mag < 5.0:
+                        self.heading_adjust_peak_w = 0.18
+                    else:
+                        self.heading_adjust_peak_w = min(base_turn, 0.22)
+
+                    cycle_dur = getattr(self, 'heading_adjust_cycle_duration', 0.40)
                     self.get_logger().info(
                         f"🌾 [ĐIỀU HƯỚNG CNN] CNN trả góc lệch {self.smoothed_angle_deg:+.2f}° > {stop_threshold:.2f}°. "
-                        f"Dừng tiến (linear.x = 0.0 m/s), xoay tại chỗ căn chỉnh hướng (chờ |góc| <= {resume_threshold:.2f}°)..."
+                        f"Kích hoạt chu kỳ tăng giảm tốc mềm {cycle_dur:.2f}s "
+                        f"(Peak Wz: {self.heading_adjust_peak_w:.2f} rad/s)..."
                     )
                     if self.enable_file_logging and self.telemetry_logger:
                         self.telemetry_logger.log_event(
-                            "CNN_HEADING_STOP_ADJUST",
-                            f"Lệch {self.smoothed_angle_deg:+.2f}° > {stop_threshold:.2f}°. Dừng tiến xoay tại chỗ."
-                        )
-            else:
-                # 2. Khi đang dừng chỉnh góc: Phải nhỏ hơn hoặc = 0.2° mới được phép đi tiếp
-                is_aligned = (abs(self.smoothed_angle_deg) <= resume_threshold) or \
-                             (abs(raw_angle) <= resume_threshold and abs(self.smoothed_angle_deg) <= resume_threshold + 0.10)
-                if is_aligned:
-                    self.is_adjusting_heading = False
-                    self.get_logger().info(
-                        f"✅ [ĐIỀU HƯỚNG CNN] Hướng đã căn chuẩn (|góc|={abs(self.smoothed_angle_deg):.2f}° <= {resume_threshold:.2f}°). "
-                        f"Tiếp tục chạy thẳng với {self.linear_speed:.2f} m/s (chỉ dừng lại khi lệch > {stop_threshold:.2f}°)!"
-                    )
-                    if self.enable_file_logging and self.telemetry_logger:
-                        self.telemetry_logger.log_event(
-                            "CNN_HEADING_RESUME",
-                            f"Đã căn chuẩn |góc|={abs(self.smoothed_angle_deg):.2f}° <= {resume_threshold:.2f}°. Tiếp tục chạy thẳng {self.linear_speed:.2f} m/s"
+                            "CNN_HEADING_SOFT_CYCLE_START",
+                            f"Lệch {self.smoothed_angle_deg:+.2f}°. Bắt đầu chu kỳ mềm {cycle_dur:.2f}s"
                         )
 
             if self.is_adjusting_heading:
                 lin_speed = 0.0
-                # Cập nhật hướng xoay liên tục theo góc lệch thực tế từ camera
-                self.heading_adjust_dir = -1.0 if self.smoothed_angle_deg > 0 else 1.0
-                base_turn = float(self.turn_angular_speed) if hasattr(self, 'turn_angular_speed') else 0.25
-                turn_speed = max(0.16, min(base_turn, 0.35))
-                # Khi góc lệch đã về gần chuẩn (< 1.0 độ), giảm nhẹ tốc xoay để hãm đà chống văng/overshoot
-                if abs(self.smoothed_angle_deg) < 1.0:
-                    turn_speed = max(0.15, turn_speed * 0.75)
-                ang_vel = self.heading_adjust_dir * turn_speed
+                ang_vel = 0.0  # Vận tốc góc tăng giảm mềm do timer 20Hz kiểm soát độc lập
             else:
                 lin_speed = self.linear_speed
                 ang_vel = 0.0  # Chạy thẳng ổn định tuyệt đối
@@ -1263,7 +1303,10 @@ class CnnDriverNode(Node):
         # ── EMERGENCY_STOP ────────────────────────────────────────────
         elif current_state == FSMState.EMERGENCY_STOP:
             self.StopRobot()
-        self.cmd_vel_pub.publish(twist)
+
+        # Khi đang trong chu kỳ căn chỉnh góc mềm, cmd_vel do timer 20Hz (_heading_adjust_timer_callback) kiểm soát
+        if not self.is_adjusting_heading:
+            self.cmd_vel_pub.publish(twist)
 
         # ── Telemetry File Logging & Standardized Terminal Status Output ──
         pose_info = self.localization_manager.get_pose()

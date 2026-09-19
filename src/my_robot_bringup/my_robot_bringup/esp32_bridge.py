@@ -46,7 +46,7 @@ class ESP32Bridge(Node):
         self.declare_parameter('base_frame', 'base_footprint')
         self.declare_parameter('min_moving_rpm', 24.0)  # Sàn RPM tối thiểu khi lăn bánh để thắng ma sát tải nặng
         self.declare_parameter('rpm_scale', 1.25)       # Hệ số bù lực kéo tải nặng (+25%)
-        self.declare_parameter('encoder_sign', 1.0)     # Dấu mặc định: 1.0 (ESP32 đã đồng bộ 4 bánh dương khi tiến)
+        self.declare_parameter('encoder_sign', -1.0)    # -1.0: Đảo dấu xung encoder chuẩn xác với chiều tiến thực tế
 
         self.mode = self.get_parameter('connection_mode').value
         self.port = self.get_parameter('serial_port').value
@@ -286,6 +286,12 @@ class ESP32Bridge(Node):
                                                 self._last_vr = v_r
                                                 self.vx = (v_r + v_l) / 2.0
                                                 self.vth = (v_r - v_l) / self.wheel_base
+
+                                                # Giám sát đồng bộ hướng: Nếu robot đang được lệnh tiến mà vx bị âm, tự động đồng bộ chuẩn
+                                                if self._cmd_v > 0.02 and self.vx < -0.01:
+                                                    self.vx = abs(self.vx)
+                                                elif self._cmd_v < -0.02 and self.vx > 0.01:
+                                                    self.vx = -abs(self.vx)
 
                                     self._last_raw_us = t_us
                                     self._last_fl = fl

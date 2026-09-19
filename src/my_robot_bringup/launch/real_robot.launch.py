@@ -204,6 +204,7 @@ def generate_launch_description():
             'gear_ratio': 1.0,
             'publish_tf': PythonExpression(["'false' if '", LaunchConfiguration('enable_ekf'), "' == 'true' else 'true'"]),
             'odom_topic': PythonExpression(["'/wheel/odom' if '", LaunchConfiguration('enable_ekf'), "' == 'true' else '/odom'"]),
+            'encoder_sign': -1.0,
         }],
         condition=IfCondition(LaunchConfiguration('enable_esp32'))
     )
