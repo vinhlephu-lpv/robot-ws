@@ -51,9 +51,9 @@ class CnnDriverNode(Node):
         self.declare_parameter('input_width', 512)
         self.declare_parameter('num_threads', 0)
         self.declare_parameter('mask_threshold', 0.04)
-        self.declare_parameter('linear_speed', 0.20)
-        self.declare_parameter('turn_linear_speed', 0.20)
-        self.declare_parameter('turn_angular_speed', 0.50)
+        self.declare_parameter('linear_speed', 0.075)
+        self.declare_parameter('turn_linear_speed', 0.075)
+        self.declare_parameter('turn_angular_speed', 0.60)
         self.declare_parameter('low_confidence_threshold', 0.35)
         self.declare_parameter('high_confidence_threshold', 0.50)
         self.declare_parameter('lambda_smc', 2.0)
@@ -61,8 +61,8 @@ class CnnDriverNode(Node):
         self.declare_parameter('eta_smc', 0.6)
         self.declare_parameter('phi_smc', 0.5)
         self.declare_parameter('max_steering_angle_deg', 14.0)
-        self.declare_parameter('turn_in_place_threshold_deg', 5.0)
-        self.declare_parameter('turn_in_place_resume_deg', 2.0)
+        self.declare_parameter('turn_in_place_threshold_deg', 1.2)
+        self.declare_parameter('turn_in_place_resume_deg', 0.8)
         self.declare_parameter('camera_trim_deg', 0.0)
         self.declare_parameter('row_spacing', 0.90)
         self.declare_parameter('ema_alpha', 0.45)
@@ -702,19 +702,25 @@ class CnnDriverNode(Node):
             twist.linear.x = self.linear_speed
             twist.angular.z = 0.0
             self.cmd_vel_pub.publish(twist)
-            self.get_logger().warn("⚠️ [ĐIỀU HƯỚNG CNN] Quá 6s căn chỉnh -> Tự động khôi phục chạy thẳng!")
+            cur_yaw = float(self.localization_manager.imu_yaw)
+            start_yaw = getattr(self, 'heading_adjust_start_imu_yaw', cur_yaw)
+            delta_yaw_deg = math.degrees(math.atan2(math.sin(cur_yaw - start_yaw), math.cos(cur_yaw - start_yaw)))
+            self.get_logger().warn(
+                f"⚠️ [ĐIỀU HƯỚNG CNN] Quá 6s căn chỉnh -> Tự động khôi phục chạy thẳng! "
+                f"(CNN còn lệch: {self.smoothed_angle_deg:+.2f}° | IMU tham khảo đã xoay: {delta_yaw_deg:+.1f}°)"
+            )
             return
 
-        # Tăng tốc mềm với mô-men khởi động tức thì (tối thiểu 75% để thắng ma sát tĩnh trên cỏ)
-        ramp = min(1.0, 0.75 + 0.25 * (elapsed / 0.15))
-        base_w = float(getattr(self, 'turn_angular_speed', 0.50))
+        # Tăng tốc mềm với mô-men khởi động tức thì (tối thiểu 80% để thắng ma sát tĩnh trên cỏ)
+        ramp = min(1.0, 0.80 + 0.20 * (elapsed / 0.15))
+        base_w = float(getattr(self, 'turn_angular_speed', 0.60))
         
-        # Đảm bảo sàn tốc độ >= 0.35 rad/s để 4 bánh xoay khỏe khoắn trên cỏ, không bị khựng
+        # Đảm bảo sàn tốc độ >= 0.45 rad/s để 4 bánh xoay khỏe khoắn trên cỏ, không bị khựng/stall
         angle_err = abs(self.smoothed_angle_deg)
-        if angle_err < 0.6:
-            target_w = 0.35
-        elif angle_err < 1.0:
-            target_w = 0.42
+        if angle_err < 0.8:
+            target_w = 0.45
+        elif angle_err < 1.5:
+            target_w = 0.52
         else:
             target_w = base_w
 
@@ -1001,10 +1007,11 @@ class CnnDriverNode(Node):
             _lin_smc, _ang_smc = self.StartTracking(dt_actual)
 
             # ── LOGIC ĐIỀU HƯỚNG CNN ──
-            # Khi góc lệch bình thường (<= 5.0°): Xe chạy tiến liên tục 0.10 m/s, bẻ lái bằng bộ điều khiển trượt SMC.
-            # Chỉ dừng xoay tại chỗ khi góc lệch thực sự quá lớn (> 5.0°), và dừng việc xoay khi góc <= 2.0° để chạy tiếp.
-            stop_threshold = float(getattr(self, 'turn_in_place_threshold_deg', 5.0))
-            resume_threshold = float(getattr(self, 'turn_in_place_resume_deg', 2.0))
+            # ── LOGIC ĐIỀU HƯỚNG CNN: DỪNG XOAY KHI GÓC > stop_threshold ──
+            # Khi góc lệch bình thường (<= stop_threshold): Xe chạy tiến liên tục, bẻ lái bằng bộ điều khiển trượt SMC.
+            # Khi góc lệch vượt ngưỡng (> stop_threshold): Dừng tiến, xoay tại chỗ căn chỉnh về <= resume_threshold.
+            stop_threshold = float(getattr(self, 'turn_in_place_threshold_deg', 1.2))
+            resume_threshold = float(getattr(self, 'turn_in_place_resume_deg', 0.8))
 
             if self.is_adjusting_heading:
                 # Kiểm tra đã thẳng hàng chưa (<= resume_threshold)
@@ -1020,15 +1027,19 @@ class CnnDriverNode(Node):
                     twist.angular.z = 0.0
                     self.cmd_vel_pub.publish(twist)
 
+                    cur_yaw = float(self.localization_manager.imu_yaw)
+                    start_yaw = getattr(self, 'heading_adjust_start_imu_yaw', cur_yaw)
+                    delta_yaw_deg = math.degrees(math.atan2(math.sin(cur_yaw - start_yaw), math.cos(cur_yaw - start_yaw)))
+
                     self.get_logger().info(
                         f"✅ [ĐIỀU HƯỚNG CNN] ĐÃ THẲNG HÀNG "
-                        f"(|góc|={abs(self.smoothed_angle_deg):.2f}° <= {resume_threshold:.2f}°)! "
-                        f"Hãm xoay êm dịu và tăng tốc tiến mượt mà {self.linear_speed:.2f} m/s."
+                        f"(|góc CNN|={abs(self.smoothed_angle_deg):.2f}° <= {resume_threshold:.2f}° | IMU tham khảo xoay: {delta_yaw_deg:+.1f}°)! "
+                        f"Hãm xoay êm dịu và tăng tốc tiến mượt mà {self.linear_speed:.3f} m/s."
                     )
                     if self.enable_file_logging and self.telemetry_logger:
                         self.telemetry_logger.log_event(
                             "CNN_HEADING_CONFIRMED_ALIGNED",
-                            f"Thẳng hàng |góc|={abs(self.smoothed_angle_deg):.2f}°. Chạy tiếp {self.linear_speed:.2f} m/s"
+                            f"Thẳng hàng |góc|={abs(self.smoothed_angle_deg):.2f}°. Chạy tiếp {self.linear_speed:.3f} m/s"
                         )
                 else:
                     self._aligned_frame_count = 0
@@ -1045,9 +1056,10 @@ class CnnDriverNode(Node):
                     self.heading_adjust_start_time = now_sec
                     self.heading_adjust_dir = -1.0 if self.smoothed_angle_deg > 0 else 1.0
                     self._aligned_frame_count = 0
+                    self.heading_adjust_start_imu_yaw = float(self.localization_manager.imu_yaw)
                     self.get_logger().info(
                         f"🌾 [ĐIỀU HƯỚNG CNN] CNN trả góc lệch {self.smoothed_angle_deg:+.2f}° > {stop_threshold:.2f}°. "
-                        f"Dừng tiến, xoay từ từ tại chỗ ({self.turn_angular_speed:.2f} rad/s) chờ thẳng hàng (<= {resume_threshold:.2f}°)..."
+                        f"Dừng tiến, xoay tại chỗ ({self.turn_angular_speed:.2f} rad/s) chờ thẳng hàng (<= {resume_threshold:.2f}°)..."
                     )
                     if self.enable_file_logging and self.telemetry_logger:
                         self.telemetry_logger.log_event(

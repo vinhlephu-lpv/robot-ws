@@ -22,12 +22,12 @@ cnn_driver_node:
 
     mask_threshold: 0.35        # cao hơn sim vì model nhận diện ảnh thật tốt hơn
 
-    # Tốc độ di chuyển (m/s) — Chạy thẳng ổn định, dừng xoay căn chỉnh khi lệch > 0.3°
-    linear_speed: 0.10
-    turn_linear_speed: 0.10
-    turn_angular_speed: 0.50          # rad/s — Vận tốc góc xoay căn chỉnh (tăng lực mô-men xoắn xoay khỏe trên cỏ)
-    turn_in_place_threshold_deg: 5.0  # Chỉ dừng xoay tại chỗ khi góc CNN lệch quá lớn > 5.0°
-    turn_in_place_resume_deg: 2.0     # Dừng việc xoay khi góc <= 2.0°, sau đó vừa chạy vừa bẻ lái bằng SMC
+    # Tốc độ di chuyển (m/s) — Giảm tốc độ bò thẳng (0.075 m/s) để xe bám chậm và chắc chắn
+    linear_speed: 0.075
+    turn_linear_speed: 0.075
+    turn_angular_speed: 0.60          # rad/s — Vận tốc góc xoay căn chỉnh (tăng lực mô-men xoắn xoay khỏe, không bị kẹt trên cỏ)
+    turn_in_place_threshold_deg: 1.2  # Dừng tiến xoay tại chỗ khi góc CNN lệch > 1.2°
+    turn_in_place_resume_deg: 0.8     # Ngừng xoay, tiếp tục chạy thẳng khi góc CNN <= 0.8°
     camera_trim_deg: 0.0              # Bù trừ góc đặt camera iPhone (nếu xe lệch phải đặt số âm như -1.5)
 
     # Bộ điều khiển trượt SMC bám luống với lực bẻ lái mạnh mẽ, dứt khoát
