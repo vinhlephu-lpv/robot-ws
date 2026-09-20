@@ -106,9 +106,9 @@ class CameraPublisher(Node):
 
         # ── Parameters ────────────────────────────────────────────────
         self.declare_parameter('video_device', 'realsense')
-        self.declare_parameter('width', 1920)
-        self.declare_parameter('height', 1080)
-        self.declare_parameter('fps', 60.0)
+        self.declare_parameter('width', 640)
+        self.declare_parameter('height', 480)
+        self.declare_parameter('fps', 15.0)
         self.declare_parameter('camera_frame_id', 'camera_link')
 
         self.device = self.get_parameter('video_device').value

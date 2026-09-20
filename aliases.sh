@@ -1104,7 +1104,9 @@ cat << 'EOF'
   savemap <tên_map>  : Lưu bản đồ SLAM vừa quét xong vào thư mục maps/
 
 🔍 [KIỂM TRA CẢM BIẾN & AI] (1-Click Test trên Pi / Laptop)
-  check-cnn (test-cnn): Kiểm tra chẩn đoán toàn diện chuỗi AI CNN (512x512, góc lái, ESP32)
+  test-img (cnn-img) : Mô phỏng 100% luồng AI CNN & điều khiển xe thật trên ảnh (384x384, ROI 80%, SMC, ESP32, BTS7960)
+  test-d435          : Kiểm tra Camera Intel RealSense D435 (640x480 @ 15 FPS)
+  check-cnn (test-cnn): Kiểm tra chẩn đoán toàn diện chuỗi AI CNN (384x384 INT8, góc lái, ESP32)
   check-ekf (test-ekf): Chẩn đoán bảng số liệu trực tiếp EKF (Wheel, IMU, GPS, Độ lệch)
   check-imu          : Kiểm tra lọc rung & bù trôi tĩnh ZUPT của cảm biến IMU
   test-cam           : Kiểm tra hình ảnh Webcam DVD20 1080p 60FPS (/dev/video0)

@@ -33,6 +33,12 @@ def generate_launch_description():
         description='Camera image height'
     )
 
+    image_fps_arg = DeclareLaunchArgument(
+        'fps',
+        default_value='15.0',
+        description='Camera capture FPS'
+    )
+
     # ── Camera Publisher Node (Hỗ trợ RealSense D435, iPhone & Webcam) ──
     camera_node = Node(
         package='my_robot_bringup',
@@ -43,7 +49,7 @@ def generate_launch_description():
             'video_device': LaunchConfiguration('video_device'),
             'width': LaunchConfiguration('image_width'),
             'height': LaunchConfiguration('image_height'),
-            'fps': 30.0,
+            'fps': LaunchConfiguration('fps'),
             'camera_frame_id': 'camera_link',
         }],
     )
@@ -61,6 +67,7 @@ def generate_launch_description():
         video_device_arg,
         image_width_arg,
         image_height_arg,
+        image_fps_arg,
         camera_node,
         rqt_image_view_node,
     ])
