@@ -33,8 +33,8 @@ def generate_launch_description():
 
     # ── Launch Arguments ─────────────────────────────────────────────
     camera_device_arg = DeclareLaunchArgument(
-        'camera_device', default_value='http://172.20.10.1:4747/video',
-        description='Camera stream URL hoặc cổng USB (/dev/video0, http://172.20.10.1:4747/video, http://127.0.0.1:4747/video)')
+        'camera_device', default_value='realsense',
+        description='Nguồn camera: realsense (Intel D435), http://172.20.10.1:4747/video (iPhone), /dev/video* (Webcam)')
 
     enable_camera_arg = DeclareLaunchArgument(
         'enable_camera', default_value='true',

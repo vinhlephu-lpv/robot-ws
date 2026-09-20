@@ -42,8 +42,8 @@ def generate_launch_description():
         description='RPLIDAR C1 serial port')
 
     camera_device_arg = DeclareLaunchArgument(
-        'camera_device', default_value='/dev/video0',
-        description='USB camera device path (/dev/video0)')
+        'camera_device', default_value='realsense',
+        description='Nguồn camera: realsense (Intel D435), http://... (iPhone), /dev/video* (Webcam)')
 
     esp32_port_arg = DeclareLaunchArgument(
         'esp32_port', default_value='/dev/esp32',

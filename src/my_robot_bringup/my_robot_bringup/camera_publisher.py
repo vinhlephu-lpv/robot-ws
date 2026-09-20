@@ -52,14 +52,60 @@ def _is_url_accessible(url: str, timeout: float = 0.8) -> bool:
         return False
 
 
+class RealSenseCapture:
+    """
+    Bộ bọc (Wrapper) cho Intel RealSense D435 qua pyrealsense2 pipeline.
+    Cung cấp giao diện tương thích 100% với cv2.VideoCapture (isOpened, read, release, get).
+    """
+    def __init__(self, pipeline, width: int = 640, height: int = 480, fps: float = 30.0):
+        self.pipeline = pipeline
+        self.width = width
+        self.height = height
+        self.fps = fps
+        self._opened = True
+
+    def isOpened(self) -> bool:
+        return self._opened
+
+    def read(self):
+        if not self._opened:
+            return False, None
+        try:
+            frames = self.pipeline.wait_for_frames(timeout_ms=1000)
+            color_frame = frames.get_color_frame()
+            if not color_frame:
+                return False, None
+            frame = np.asanyarray(color_frame.get_data())
+            return True, frame
+        except Exception:
+            return False, None
+
+    def release(self):
+        self._opened = False
+        try:
+            self.pipeline.stop()
+        except Exception:
+            pass
+
+    def get(self, prop):
+        if cv2 is not None:
+            if prop == cv2.CAP_PROP_FRAME_WIDTH:
+                return self.width
+            if prop == cv2.CAP_PROP_FRAME_HEIGHT:
+                return self.height
+            if prop == cv2.CAP_PROP_FPS:
+                return self.fps
+        return 0
+
+
 class CameraPublisher(Node):
-    """Publish ảnh USB Webcam hoặc iPhone DroidCam qua OpenCV MJPG backend."""
+    """Publish ảnh từ Intel RealSense D435, iPhone DroidCam hoặc USB Webcam."""
 
     def __init__(self):
         super().__init__('camera_publisher')
 
         # ── Parameters ────────────────────────────────────────────────
-        self.declare_parameter('video_device', '/dev/video0')
+        self.declare_parameter('video_device', 'realsense')
         self.declare_parameter('width', 1920)
         self.declare_parameter('height', 1080)
         self.declare_parameter('fps', 60.0)
@@ -123,14 +169,124 @@ class CameraPublisher(Node):
                             pass
         return None
 
+    def _is_realsense_device(self, dev: str) -> bool:
+        """Kiểm tra xem thiết bị video có phải là RealSense không (tránh mở nhầm IR/Depth làm Webcam)."""
+        try:
+            real_path = os.path.realpath(dev) if os.path.exists(dev) else dev
+            bname = os.path.basename(real_path)
+            npath = f"/sys/class/video4linux/{bname}/name"
+            if os.path.exists(npath):
+                with open(npath, 'r') as f:
+                    cname = f.read().strip()
+                if any(kw in cname for kw in ['RealSense', 'realsense', 'D435', 'd435']):
+                    return True
+        except Exception:
+            pass
+        return False
+
+    def _try_open_realsense(self):
+        """
+        ƯU TIÊN 1: Dò tìm và kết nối Camera Intel RealSense D435.
+        Cách 1: Thử qua pyrealsense2 pipeline (nếu thư viện có sẵn trên máy).
+        Cách 2: Quét V4L2 device node của RealSense (/dev/v4l/by-id/*RealSense* hoặc sysfs) mở bằng OpenCV.
+        """
+        # ── Cách 1: pyrealsense2 SDK ──
+        try:
+            import pyrealsense2 as rs
+            ctx = rs.context()
+            devices = ctx.query_devices()
+            if len(devices) > 0:
+                dev = devices[0]
+                dev_name = dev.get_info(rs.camera_info.name)
+                self.get_logger().info(f"🔍 [RealSense] Phát hiện thiết bị phần cứng: {dev_name}")
+                pipeline = rs.pipeline()
+                config = rs.config()
+                rs_w = 640 if self.width <= 640 else 1280
+                rs_h = 480 if self.height <= 480 else 720
+                rs_fps = int(min(30.0, self.fps))
+                config.enable_stream(rs.stream.color, rs_w, rs_h, rs.format.bgr8, rs_fps)
+                pipeline.start(config)
+
+                # Kiểm tra frame thực tế
+                frames = pipeline.wait_for_frames(timeout_ms=2000)
+                color_frame = frames.get_color_frame()
+                if color_frame:
+                    self.get_logger().info(
+                        f"📷 [ƯU TIÊN 1] Intel RealSense D435 đã kết nối thành công qua pyrealsense2 SDK "
+                        f"({rs_w}x{rs_h} @ {rs_fps} FPS, BGR8)!")
+                    return RealSenseCapture(pipeline, rs_w, rs_h, rs_fps)
+                pipeline.stop()
+        except Exception:
+            pass
+
+        # ── Cách 2: V4L2 UVC Driver qua OpenCV ──
+        rs_devs = []
+        by_id = '/dev/v4l/by-id'
+        if os.path.exists(by_id):
+            for fn in sorted(os.listdir(by_id)):
+                if any(kw in fn for kw in ['RealSense', 'realsense', 'D435', 'd435', 'Intel_R__RealSense']):
+                    full = os.path.join(by_id, fn)
+                    if 'index0' in fn:
+                        rs_devs.insert(0, full)
+                    else:
+                        rs_devs.append(full)
+
+        sys_v4l = '/sys/class/video4linux'
+        if os.path.exists(sys_v4l):
+            for vn in sorted(os.listdir(sys_v4l)):
+                nfile = os.path.join(sys_v4l, vn, 'name')
+                if os.path.exists(nfile):
+                    try:
+                        with open(nfile, 'r') as f:
+                            cname = f.read().strip()
+                        if any(kw in cname for kw in ['RealSense', 'realsense', 'D435', 'd435']):
+                            dev_node = f'/dev/{vn}'
+                            if os.path.exists(dev_node):
+                                if 'RGB' in cname:
+                                    rs_devs.insert(0, dev_node)
+                                elif dev_node not in rs_devs:
+                                    rs_devs.append(dev_node)
+                    except Exception:
+                        pass
+
+        for dev in rs_devs:
+            cap = None
+            try:
+                cap = cv2.VideoCapture(dev, cv2.CAP_V4L2)
+                if not cap.isOpened():
+                    cap = cv2.VideoCapture(dev)
+                if cap.isOpened():
+                    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+                    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+                    cap.set(cv2.CAP_PROP_FPS, 30)
+                    ret, test_frame = cap.read()
+                    if ret and test_frame is not None:
+                        actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                        actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                        actual_fps = cap.get(cv2.CAP_PROP_FPS)
+                        self.get_logger().info(
+                            f"📷 [ƯU TIÊN 1] Intel RealSense D435 đã kết nối thành công qua V4L2: {dev} "
+                            f"({actual_w}x{actual_h} @ {actual_fps:.0f} FPS)!")
+                        return cap
+                    cap.release()
+            except Exception:
+                if cap is not None:
+                    try:
+                        cap.release()
+                    except Exception:
+                        pass
+        return None
+
     def _try_open_usb_devices(self):
-        """Thử mở USB Webcam (/dev/video*). Trả về VideoCapture nếu thành công."""
+        """Thử mở USB Webcam (/dev/video*). Bỏ qua RealSense để tránh xung đột IR/Depth."""
         candidates = []
         if isinstance(self.device, str) and self.device.startswith('/dev/video') and os.path.exists(self.device):
-            candidates.append(self.device)
+            if not self._is_realsense_device(self.device):
+                candidates.append(self.device)
         for i in range(8):
             dev = f'/dev/video{i}'
-            if dev not in candidates and os.path.exists(dev):
+            if dev not in candidates and os.path.exists(dev) and not self._is_realsense_device(dev):
                 candidates.append(dev)
 
         resolutions_to_try = [(self.width, self.height, self.fps)]
@@ -166,7 +322,7 @@ class CameraPublisher(Node):
                             actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
                             actual_fps = cap.get(cv2.CAP_PROP_FPS)
                             self.get_logger().info(
-                                f"📷 Camera USB đã kết nối thành công: {dev} "
+                                f"📷 [ƯU TIÊN 3] Camera USB Webcam đã kết nối thành công: {dev} "
                                 f"({actual_w}x{actual_h} @ {actual_fps:.0f} FPS, MJPG)")
                             return cap
                         cap.release()
@@ -179,45 +335,64 @@ class CameraPublisher(Node):
         return None
 
     def _open_camera(self):
-        """Mở camera: tự động tìm luồng iPhone hoặc USB Webcam với hỗ trợ fallback hai chiều."""
-        urls_to_try = []
-        is_http_target = isinstance(self.device, str) and self.device.startswith(('http://', 'https://', 'rtsp://'))
+        """
+        Mở camera: tự động tìm kiếm theo thứ tự ưu tiên nghiêm ngặt:
+          1. Intel RealSense D435
+          2. Camera iPhone (DroidCam qua USB / Wi-Fi Hotspot)
+          3. USB Webcam (/dev/video*)
+        """
+        target = str(self.device).strip() if self.device else 'realsense'
+        is_explicit_http = target.startswith(('http://', 'https://', 'rtsp://'))
+        is_explicit_v4l = target.startswith('/dev/video') and os.path.exists(target) and not self._is_realsense_device(target)
 
-        if is_http_target:
-            urls_to_try.append(self.device)
-            if self.device.endswith('/video'):
-                urls_to_try.append(self.device.replace('/video', '/mjpegfeed'))
-            elif self.device.endswith('/mjpegfeed'):
-                urls_to_try.append(self.device.replace('/mjpegfeed', '/video'))
+        # ── 1. ƯU TIÊN 1: INTEL REALSENSE D435 ──
+        if target in ('realsense', 'auto', 'd435', 'd435i', '') or (not is_explicit_http and not is_explicit_v4l):
+            cap = self._try_open_realsense()
+            if cap is not None:
+                return cap
+
+        if target in ('realsense', 'd435', 'd435i'):
+            self.get_logger().info(
+                "⚠️ Không tìm thấy Intel RealSense D435, chuyển sang [ƯU TIÊN 2] iPhone DroidCam...",
+                throttle_duration_sec=10.0)
+
+        # ── 2. ƯU TIÊN 2: CAMERA IPHONE DROIDCAM ──
+        urls_to_try = []
+        if is_explicit_http:
+            urls_to_try.append(target)
+            if target.endswith('/video'):
+                urls_to_try.append(target.replace('/video', '/mjpegfeed'))
+            elif target.endswith('/mjpegfeed'):
+                urls_to_try.append(target.replace('/mjpegfeed', '/video'))
 
         default_iphone = 'http://172.20.10.1:4747/video'
         if default_iphone not in urls_to_try:
             urls_to_try.append(default_iphone)
             urls_to_try.append('http://172.20.10.1:4747/mjpegfeed')
 
-        # 1. Nếu chỉ định HTTP, ưu tiên thử HTTP trước
-        if is_http_target:
-            cap = self._try_open_urls(urls_to_try)
-            if cap is not None:
-                return cap
-            # Nếu HTTP không phản hồi, tự động fallback sang USB Webcam
-            self.get_logger().info(
-                "⚠️ Không kết nối được luồng iPhone, đang tự động quét tìm USB Webcam (/dev/video*)...",
-                throttle_duration_sec=10.0)
+        cap = self._try_open_urls(urls_to_try)
+        if cap is not None:
+            return cap
 
-        # 2. Thử mở USB Webcam
+        # ── 3. ƯU TIÊN 3: USB WEBCAM VẬT LÝ ──
+        self.get_logger().info(
+            "⚠️ Không tìm thấy iPhone DroidCam, chuyển sang [ƯU TIÊN 3] USB Webcam (/dev/video*)...",
+            throttle_duration_sec=10.0)
         cap = self._try_open_usb_devices()
         if cap is not None:
             return cap
 
-        # 3. Nếu ban đầu chỉ định USB Webcam nhưng không có, thử fallback sang iPhone DroidCam
-        if not is_http_target:
-            self.get_logger().info(
-                "⚠️ Không tìm thấy USB Webcam, đang dò tìm luồng iPhone (DroidCam)...",
-                throttle_duration_sec=10.0)
-            cap = self._try_open_urls(urls_to_try)
-            if cap is not None:
-                return cap
+        # Fallback cho explicit video device nếu chưa nhận diện được
+        if is_explicit_v4l:
+            try:
+                cap = cv2.VideoCapture(target, cv2.CAP_V4L2)
+                if cap.isOpened():
+                    ret, test_frame = cap.read()
+                    if ret and test_frame is not None:
+                        return cap
+                    cap.release()
+            except Exception:
+                pass
 
         return None
 
@@ -236,8 +411,8 @@ class CameraPublisher(Node):
                     self.cap = self._open_camera()
                     if self.cap is None or not self.cap.isOpened():
                         self.get_logger().warn(
-                            f"⏳ Đang dò tìm & kết nối Camera ({self.device})... "
-                            f"(Kiểm tra DroidCam trên iPhone hoặc cắm lại cổng USB Webcam)",
+                            f"⏳ Đang dò tìm & kết nối Camera (Ưu tiên: 1. Intel D435 -> 2. iPhone -> 3. Webcam)... "
+                            f"(Cắm cáp RealSense D435, bật DroidCam iPhone hoặc cắm USB Webcam)",
                             throttle_duration_sec=4.0)
                         time.sleep(1.5)
                         continue

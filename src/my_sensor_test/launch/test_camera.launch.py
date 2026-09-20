@@ -17,8 +17,8 @@ from launch_ros.actions import Node
 def generate_launch_description():
     video_device_arg = DeclareLaunchArgument(
         'video_device',
-        default_value='/dev/video0',
-        description='V4L2 camera device path for webcam (e.g. /dev/video0, /dev/video2)'
+        default_value='realsense',
+        description='Camera input: realsense (Intel D435), http://... (iPhone), /dev/video* (Webcam)'
     )
 
     image_width_arg = DeclareLaunchArgument(
@@ -33,23 +33,19 @@ def generate_launch_description():
         description='Camera image height'
     )
 
-    # ── V4L2 USB Webcam Node ──────────────────────────────────────────
-    v4l2_camera_node = Node(
-        package='v4l2_camera',
-        executable='v4l2_camera_node',
-        namespace='camera',
-        name='camera_node',
+    # ── Camera Publisher Node (Hỗ trợ RealSense D435, iPhone & Webcam) ──
+    camera_node = Node(
+        package='my_robot_bringup',
+        executable='camera_publisher',
+        name='camera_publisher',
         output='screen',
         parameters=[{
             'video_device': LaunchConfiguration('video_device'),
-            'image_size': [LaunchConfiguration('image_width'), LaunchConfiguration('image_height')],
+            'width': LaunchConfiguration('image_width'),
+            'height': LaunchConfiguration('image_height'),
+            'fps': 30.0,
             'camera_frame_id': 'camera_link',
-            'pixel_format': 'MJPG',
         }],
-        remappings=[
-            ('image_raw', '/camera/color/image_raw'),
-            ('camera_info', '/camera/color/camera_info'),
-        ],
     )
 
     # ── GUI rqt_image_view ────────────────────────────────────────────
@@ -65,6 +61,6 @@ def generate_launch_description():
         video_device_arg,
         image_width_arg,
         image_height_arg,
-        v4l2_camera_node,
+        camera_node,
         rqt_image_view_node,
     ])
