@@ -118,11 +118,11 @@ class CameraPublisher(Node):
         self.fps = float(self.get_parameter('fps').value)
         self.frame_id = self.get_parameter('camera_frame_id').value
 
-        # ── Publisher (RELIABLE để tương thích CNN driver + wifi_cam_bridge) ─
+        # ── Publisher (BEST_EFFORT depth 1: không bao giờ block luồng đọc camera) ─
         cam_qos = QoSProfile(
-            reliability=ReliabilityPolicy.RELIABLE,
+            reliability=ReliabilityPolicy.BEST_EFFORT,
             history=HistoryPolicy.KEEP_LAST,
-            depth=2,
+            depth=1,
             durability=DurabilityPolicy.VOLATILE,
         )
         self.image_pub = self.create_publisher(
@@ -448,24 +448,7 @@ class CameraPublisher(Node):
                         time.sleep(1.5)
                         continue
                     consecutive_failures = 0
-                # Tạm redirect stderr để suppress libjpeg warnings
-                old_err = None
-                if null_fd is not None:
-                    try:
-                        old_err = os.dup(2)
-                        os.dup2(null_fd, 2)
-                    except Exception:
-                        old_err = None
-
                 ret, frame = self.cap.read()
-
-                # Khôi phục stderr
-                if old_err is not None:
-                    try:
-                        os.dup2(old_err, 2)
-                        os.close(old_err)
-                    except Exception:
-                        pass
 
                 if not ret or frame is None:
                     consecutive_failures += 1
@@ -481,11 +464,13 @@ class CameraPublisher(Node):
                     continue
                 consecutive_failures = 0
 
-                # Resize 1080p → 640x480 trước khi publish
-                # (CNN driver resize lại 512x512, wifi_cam_bridge resize 320x240)
-                # Tiết kiệm từ 6.2MB → 920KB mỗi frame
-                pub_frame = cv2.resize(frame, (640, 480),
-                                       interpolation=cv2.INTER_LINEAR)
+                # Bỏ qua resize nếu frame đã đúng kích thước (tiết kiệm CPU)
+                target_w = self.width
+                target_h = self.height
+                if frame.shape[1] != target_w or frame.shape[0] != target_h:
+                    pub_frame = cv2.resize(frame, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
+                else:
+                    pub_frame = frame
 
                 ph, pw, pc = pub_frame.shape
 
@@ -504,7 +489,8 @@ class CameraPublisher(Node):
                     break
                 try:
                     self.image_pub.publish(msg)
-                    self.image_alt_pub.publish(msg)
+                    if self.image_alt_pub.get_subscription_count() > 0:
+                        self.image_alt_pub.publish(msg)
                 except Exception:
                     break
 

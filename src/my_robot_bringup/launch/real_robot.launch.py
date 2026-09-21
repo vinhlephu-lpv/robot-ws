@@ -218,7 +218,7 @@ def generate_launch_description():
         parameters=[
             params_real,
             {
-                'image_topic': '/camera/color/image_raw',
+                'image_topic': PythonExpression(["'/camera/color/image_raw' if '", LaunchConfiguration('enable_camera'), "' == 'true' else '/camera/disabled_on_slave'"]),
                 'odom_topic': PythonExpression(["'/odometry/filtered' if '", LaunchConfiguration('enable_ekf'), "' == 'true' else '/odom'"]),
                 'imu_topic': '/imu/data',
             }

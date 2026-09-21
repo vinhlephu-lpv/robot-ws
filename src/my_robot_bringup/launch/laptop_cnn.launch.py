@@ -66,6 +66,10 @@ def generate_launch_description():
             'fps': 30.0,
             'camera_frame_id': 'camera_link',
         }],
+        remappings=[
+            ('/camera/color/image_raw', '/camera/local/image_raw'),
+            ('/camera/image_raw', '/camera/local/image_raw_alt'),
+        ],
         condition=IfCondition(LaunchConfiguration('enable_camera'))
     )
 
@@ -83,6 +87,9 @@ def generate_launch_description():
             'max_steering_angle_deg': 14.0,
             'show_window': LaunchConfiguration('view'),
         }],
+        remappings=[
+            ('/camera/color/image_raw', '/camera/local/image_raw'),
+        ],
         condition=IfCondition(PythonExpression(["'", LaunchConfiguration('mode'), "' == 'server'"]))
     )
 
@@ -95,7 +102,7 @@ def generate_launch_description():
         parameters=[
             params_real,
             {
-                'image_topic': '/camera/color/image_raw',
+                'image_topic': '/camera/local/image_raw',
                 'odom_topic': '/odometry/filtered',
                 'imu_topic': '/imu/data',
             }

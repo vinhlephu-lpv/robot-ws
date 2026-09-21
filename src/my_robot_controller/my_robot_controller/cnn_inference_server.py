@@ -237,9 +237,9 @@ class CnnInferenceServer(Node):
         # ── Publishers ────────────────────────────────────────────────
         # Topic bắn kết quả phát hiện về Pi (gọn nhẹ ~20 bytes, truyền cực nhanh qua Wi-Fi)
         qos_det = QoSProfile(
-            reliability=ReliabilityPolicy.RELIABLE,
+            reliability=ReliabilityPolicy.BEST_EFFORT,
             history=HistoryPolicy.KEEP_LAST,
-            depth=5,
+            depth=1,
             durability=DurabilityPolicy.VOLATILE
         )
         self.detection_pub = self.create_publisher(Float32MultiArray, '/crop_row/detection', qos_det)

@@ -596,7 +596,7 @@ pi_cnn_func() {
     echo "   📡 Nhận góc lái (/crop_row/detection) từ Laptop qua Wi-Fi"
     echo "   🏎️ Điều khiển động cơ ESP32, Madgwick IMU, EKF & tránh vật cản LiDAR"
     echo "================================================================================"
-    real_cnn_func enable_camera:=false "$@"
+    real_cnn_func enable_camera:=false enable_costmap:=false "$@"
 }
 alias pi-cnn="pi_cnn_func"
 alias pi-robot="pi_cnn_func"
