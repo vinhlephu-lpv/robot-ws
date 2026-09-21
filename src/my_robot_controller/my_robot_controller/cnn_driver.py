@@ -723,10 +723,11 @@ class CnnDriverNode(Node):
         # - Lệch vừa (1.0° <= err < 1.5°): giảm tốc vừa 0.48 rad/s.
         # - Sát vạch chuẩn (err < 1.0° chuẩn bị về ngưỡng 0.8°): hãm êm xuống 0.35 rad/s triệt tiêu quán tính quay!
         angle_err = abs(self.smoothed_angle_deg)
+        base_w = getattr(self, 'turn_angular_speed', 0.60)
         if angle_err < 1.0:
-            target_w = 0.35
+            target_w = min(0.35, base_w)
         elif angle_err < 1.5:
-            target_w = 0.48
+            target_w = min(0.48, base_w)
         else:
             target_w = base_w
 
