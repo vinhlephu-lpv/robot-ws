@@ -27,6 +27,11 @@ from std_msgs.msg import Float32MultiArray
 
 from .inference_handler import InferenceHandler
 
+try:
+    from cv_bridge import CvBridge
+except ImportError:
+    CvBridge = None
+
 
 class CnnInferenceServer(Node):
     def __init__(self):
@@ -84,12 +89,14 @@ class CnnInferenceServer(Node):
             roi_ratio=self.roi_ratio
         )
 
+        self.bridge = CvBridge() if CvBridge is not None else None
+
         # ── Publishers ────────────────────────────────────────────────
         # Topic bắn kết quả phát hiện về Pi (gọn nhẹ ~20 bytes, truyền cực nhanh qua Wi-Fi)
         qos_det = QoSProfile(
-            reliability=ReliabilityPolicy.BEST_EFFORT,
+            reliability=ReliabilityPolicy.RELIABLE,
             history=HistoryPolicy.KEEP_LAST,
-            depth=1,
+            depth=5,
             durability=DurabilityPolicy.VOLATILE
         )
         self.detection_pub = self.create_publisher(Float32MultiArray, '/crop_row/detection', qos_det)
@@ -107,11 +114,11 @@ class CnnInferenceServer(Node):
             CompressedImage, '/camera/compressed', self.compressed_image_callback, qos_compressed
         )
 
-        # 2. Nhận ảnh raw (Nếu nối cáp LAN tốc độ cao hoặc local)
+        # 2. Nhận ảnh raw (Tương thích với cả RELIABLE và BEST_EFFORT từ camera_publisher)
         qos_raw = QoSProfile(
-            reliability=ReliabilityPolicy.RELIABLE,
+            reliability=ReliabilityPolicy.BEST_EFFORT,
             history=HistoryPolicy.KEEP_LAST,
-            depth=1,
+            depth=2,
             durability=DurabilityPolicy.VOLATILE
         )
         self.raw_sub = self.create_subscription(
@@ -125,10 +132,11 @@ class CnnInferenceServer(Node):
         self._latest_fps = 0.0
         self._latest_latency_ms = 0.0
 
-        self.get_logger().info("🚀 [CNN Server Laptop] Sẵn sàng xử lý AI! Đang lắng nghe luồng ảnh từ Pi...")
+        self.get_logger().info("🚀 [CNN Server Laptop] Sẵn sàng xử lý AI! Đang lắng nghe luồng ảnh từ Camera...")
 
     def compressed_image_callback(self, msg: CompressedImage):
         """Giải nén JPEG và chạy inference."""
+        self._last_compressed_time = time.time()
         t_start = time.time()
         try:
             np_arr = np.frombuffer(msg.data, dtype=np.uint8)
@@ -148,19 +156,18 @@ class CnnInferenceServer(Node):
 
         t_start = time.time()
         try:
-            channels = 3
-            expected_size = msg.height * msg.width * channels
-            if len(msg.data) < expected_size:
-                return
-            img = np.frombuffer(msg.data, dtype=np.uint8)[:expected_size].reshape(msg.height, msg.width, channels)
-            if msg.encoding in ('rgb8', 'RGB8'):
+            if self.bridge is not None:
+                img = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
+            elif msg.encoding in ('rgb8', 'RGB8'):
+                img = np.frombuffer(msg.data, dtype=np.uint8).reshape(msg.height, msg.width, 3)
                 img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+            else:
+                img = np.frombuffer(msg.data, dtype=np.uint8).reshape(msg.height, msg.width, 3)
             self._process_and_publish(img, t_start)
         except Exception as e:
             self.get_logger().warn(f"Lỗi đọc raw: {e}", throttle_duration_sec=2.0)
 
     def _process_and_publish(self, bgr_img: np.ndarray, t_start: float):
-        self._last_compressed_time = time.time()
         heading_error, lane_offset, lane_center, confidence = self.inference.process_image(
             bgr_img, self.max_steering_angle_deg
         )

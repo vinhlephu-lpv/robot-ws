@@ -394,7 +394,7 @@ class CnnDriverNode(Node):
         self._remote_cnn_data = None
         self._remote_cnn_time = 0.0
         self.crop_row_sub = self.create_subscription(
-            Float32MultiArray, '/crop_row/detection', self.remote_cnn_callback, 10
+            Float32MultiArray, '/crop_row/detection', self.remote_cnn_callback, qos_profile_sensor_data
         )
 
         self.get_logger().info(
