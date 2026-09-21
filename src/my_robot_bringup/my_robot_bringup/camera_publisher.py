@@ -16,6 +16,7 @@ Sử dụng:
 """
 
 import os
+import re
 import time
 import threading
 import socket
@@ -252,39 +253,69 @@ class CameraPublisher(Node):
         for dev in rs_devs:
             cap = None
             try:
-                cap = cv2.VideoCapture(dev, cv2.CAP_V4L2)
-                if not cap.isOpened():
-                    cap = cv2.VideoCapture(dev)
-                if cap.isOpened():
+                real_path = os.path.realpath(dev) if os.path.exists(dev) else dev
+                m = re.search(r'video(\d+)', real_path)
+                dev_idx = int(m.group(1)) if m else None
+
+                targets = []
+                if dev_idx is not None:
+                    targets.append(dev_idx)
+                targets.append(dev)
+
+                self.get_logger().info(f"🔍 [RealSense] Đang thử kết nối: {dev} -> {real_path} (Index: {dev_idx})")
+
+                for target in targets:
+                    for api in [cv2.CAP_V4L2, cv2.CAP_ANY]:
+                        try:
+                            cap = cv2.VideoCapture(target, api)
+                            if cap.isOpened():
+                                break
+                        except Exception:
+                            pass
+                    if cap and cap.isOpened():
+                        break
+
+                if cap and cap.isOpened():
                     cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
                     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
                     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-                    cap.set(cv2.CAP_PROP_FPS, 30)
+                    cap.set(cv2.CAP_PROP_FPS, int(self.fps))
                     ret, test_frame = cap.read()
                     if ret and test_frame is not None:
+                        diff_channels = 0.0
+                        if test_frame.ndim == 3 and test_frame.shape[2] == 3:
+                            diff_channels = float(np.max(np.abs(test_frame[:, :, 0].astype(np.int16) - test_frame[:, :, 1].astype(np.int16))))
+                        if diff_channels < 2.0 and 'index0' not in dev and len(rs_devs) > 1:
+                            self.get_logger().info(f"ℹ️ [RealSense] Bỏ qua cổng {dev} (kênh đơn sắc IR), đang tìm cổng RGB màu...")
+                            cap.release()
+                            cap = None
+                            continue
+
                         actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
                         actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                        actual_fps = cap.get(cv2.CAP_PROP_FPS)
+                        actual_fps = cap.get(cv2.CAP_PROP_FPS) or self.fps
                         self.get_logger().info(
-                            f"📷 [ƯU TIÊN 1] Intel RealSense D435 đã kết nối thành công qua V4L2: {dev} "
-                            f"({actual_w}x{actual_h} @ {actual_fps:.0f} FPS)!")
+                            f"📷 [ƯU TIÊN 1] Intel RealSense D435 đã kết nối thành công qua V4L2: {dev} -> {real_path} (Index {dev_idx}) "
+                            f"({actual_w}x{actual_h} @ {actual_fps:.0f} FPS, RGB Color)!")
                         return cap
                     cap.release()
-            except Exception:
+                    cap = None
+            except Exception as err:
+                self.get_logger().warn(f"⚠️ [RealSense] Lỗi khi mở {dev}: {err}")
                 if cap is not None:
                     try:
                         cap.release()
                     except Exception:
                         pass
+                    cap = None
         return None
 
     def _try_open_usb_devices(self):
         """Thử mở USB Webcam (/dev/video*). Bỏ qua RealSense để tránh xung đột IR/Depth."""
         candidates = []
         if isinstance(self.device, str) and self.device.startswith('/dev/video') and os.path.exists(self.device):
-            if not self._is_realsense_device(self.device):
-                candidates.append(self.device)
-        for i in range(8):
+            candidates.append(self.device)
+        for i in range(12):
             dev = f'/dev/video{i}'
             if dev not in candidates and os.path.exists(dev) and not self._is_realsense_device(dev):
                 candidates.append(dev)

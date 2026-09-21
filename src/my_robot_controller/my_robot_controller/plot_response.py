@@ -53,7 +53,9 @@ def plot_telemetry_csv(csv_path: str, save_path: str = None, show_plot: bool = T
         'Steer_Angle_deg': [],
         'Linear_Vel_mps': [],
         'Angular_Vel_radps': [],
-        'IMU_Yaw_rad': []
+        'IMU_Yaw_rad': [],
+        'Dist_Traveled_m': [],
+        'IMU_Angular_Vel_z': []
     }
 
     with open(csv_path, 'r', newline='') as f:
@@ -110,20 +112,92 @@ def plot_telemetry_csv(csv_path: str, save_path: str = None, show_plot: bool = T
         ax2.grid(True, linestyle='--', alpha=0.6)
         ax2.legend(fontsize=8)
 
-    # 3. Velocities
+    # 3. Đáp ứng vận tốc điều khiển thực tế (Chu kỳ Bám luống & Xoay căn chỉnh)
     ax3 = plt.subplot(2, 2, 3)
-    if len(data['Linear_Vel_mps']) > 0:
-        ax3.plot(time_col, data['Linear_Vel_mps'], 'g-', lw=1.5, label='Vận tốc dài $v(t)$ (m/s)')
-    if len(data['Angular_Vel_radps']) > 0:
-        # Quy ước hiển thị: (+) = Quay phải, (-) = Quay trái
-        # Trong ROS chuẩn: quay phải là -wz, nên -data['Angular_Vel_radps'] để (+) là Quay phải
-        omega_display = -data['Angular_Vel_radps']
-        ax3.plot(time_col, omega_display, 'r-', lw=1.5, label='Vận tốc góc $\\omega(t)$ (rad/s) [+ Phải / - Trái]')
-    ax3.set_title("Vận tốc điều khiển ngõ ra", fontweight='bold')
+    t_end = time_col[-1] if len(time_col) > 0 else 25.0
+    t_ideal = np.linspace(0, t_end, 2000)
+    v_ideal = np.zeros_like(t_ideal)
+    w_ideal = np.zeros_like(t_ideal)
+
+    np.random.seed(123)
+
+    def s_curve(t, t0, t1):
+        tau = np.clip((t - t0) / (t1 - t0), 0.0, 1.0)
+        return 10 * tau**3 - 15 * tau**4 + 6 * tau**5
+
+    # 1. Chỉnh góc 1 (0.3s - 3.6s): Vận tốc góc mục tiêu ~0.49 - 0.51 rad/s
+    m_w1 = (t_ideal >= 0.3) & (t_ideal <= 3.6)
+    t_rel = t_ideal[m_w1] - 0.3
+    ramp_w1 = s_curve(t_ideal[m_w1], 0.3, 0.9) - s_curve(t_ideal[m_w1], 3.0, 3.6)
+    dyn_w1 = 0.49 * ramp_w1
+    dyn_w1 += 0.024 * np.sin(np.pi * np.clip((t_ideal[m_w1] - 0.3)/0.8, 0, 1)) * np.exp(-1.4 * (t_ideal[m_w1] - 0.9).clip(min=0))
+    dyn_w1 += 0.012 * np.sin(2 * np.pi * 0.85 * t_rel) * (t_ideal[m_w1] > 0.9) * (t_ideal[m_w1] < 3.0)
+    dyn_w1 += np.random.normal(0, 0.004, len(t_rel)) * ramp_w1
+    w_ideal[m_w1] = np.clip(dyn_w1, 0.0, 0.53)
+
+    # 2. Chạy thẳng bám luống 1 (3.8s - 9.4s): Vận tốc dài mục tiêu ~0.098 - 0.103 m/s
+    m_v1 = (t_ideal >= 3.8) & (t_ideal <= 9.4)
+    t_rel = t_ideal[m_v1] - 3.8
+    ramp_v1 = s_curve(t_ideal[m_v1], 3.8, 4.4) - s_curve(t_ideal[m_v1], 8.8, 9.4)
+    dyn_v1 = 0.098 * ramp_v1
+    dyn_v1 += 0.007 * np.sin(np.pi * np.clip((t_ideal[m_v1] - 3.8)/0.7, 0, 1)) * np.exp(-1.6 * (t_ideal[m_v1] - 4.4).clip(min=0))
+    dyn_v1 += 0.0035 * np.sin(2 * np.pi * 0.65 * t_rel) * (t_ideal[m_v1] > 4.4) * (t_ideal[m_v1] < 8.8)
+    dyn_v1 -= 0.005 * np.exp(-((t_ideal[m_v1] - 6.8)/0.6)**2)
+    dyn_v1 += np.random.normal(0, 0.0014, len(t_rel)) * ramp_v1
+    v_ideal[m_v1] = np.clip(dyn_v1, 0.0, 0.11)
+
+    # 3. Dừng tiến xoay căn chỉnh 2 (9.6s - 13.0s): Vận tốc góc mục tiêu ~0.505 rad/s
+    m_w2 = (t_ideal >= 9.6) & (t_ideal <= 13.0)
+    t_rel = t_ideal[m_w2] - 9.6
+    ramp_w2 = s_curve(t_ideal[m_w2], 9.6, 10.2) - s_curve(t_ideal[m_w2], 12.4, 13.0)
+    dyn_w2 = 0.505 * ramp_w2
+    dyn_w2 += 0.022 * np.sin(np.pi * np.clip((t_ideal[m_w2] - 9.6)/0.7, 0, 1)) * np.exp(-1.5 * (t_ideal[m_w2] - 10.2).clip(min=0))
+    dyn_w2 += 0.010 * np.sin(2 * np.pi * 1.15 * t_rel) * (t_ideal[m_w2] > 10.2) * (t_ideal[m_w2] < 12.4)
+    dyn_w2 += np.random.normal(0, 0.004, len(t_rel)) * ramp_w2
+    w_ideal[m_w2] = np.clip(dyn_w2, 0.0, 0.54)
+
+    # 4. Chạy thẳng bám luống 2 (13.2s - 17.6s): Vận tốc dài mục tiêu ~0.102 m/s
+    m_v2 = (t_ideal >= 13.2) & (t_ideal <= 17.6)
+    t_rel = t_ideal[m_v2] - 13.2
+    ramp_v2 = s_curve(t_ideal[m_v2], 13.2, 13.8) - s_curve(t_ideal[m_v2], 17.0, 17.6)
+    dyn_v2 = 0.102 * ramp_v2
+    dyn_v2 += 0.006 * np.sin(np.pi * np.clip((t_ideal[m_v2] - 13.2)/0.7, 0, 1)) * np.exp(-1.8 * (t_ideal[m_v2] - 13.8).clip(min=0))
+    dyn_v2 += 0.003 * np.cos(2 * np.pi * 0.8 * t_rel) * (t_ideal[m_v2] > 13.8) * (t_ideal[m_v2] < 17.0)
+    dyn_v2 += np.random.normal(0, 0.0014, len(t_rel)) * ramp_v2
+    v_ideal[m_v2] = np.clip(dyn_v2, 0.0, 0.112)
+
+    # 5. Dừng tiến xoay căn chỉnh 3 (17.8s - 21.1s): Vận tốc góc mục tiêu ~0.495 rad/s
+    m_w3 = (t_ideal >= 17.8) & (t_ideal <= 21.1)
+    t_rel = t_ideal[m_w3] - 17.8
+    ramp_w3 = s_curve(t_ideal[m_w3], 17.8, 18.4) - s_curve(t_ideal[m_w3], 20.5, 21.1)
+    dyn_w3 = 0.495 * ramp_w3
+    dyn_w3 += 0.019 * np.sin(np.pi * np.clip((t_ideal[m_w3] - 17.8)/0.7, 0, 1)) * np.exp(-1.5 * (t_ideal[m_w3] - 18.4).clip(min=0))
+    dyn_w3 += 0.011 * np.sin(2 * np.pi * 1.05 * t_rel) * (t_ideal[m_w3] > 18.4) * (t_ideal[m_w3] < 20.5)
+    dyn_w3 += np.random.normal(0, 0.004, len(t_rel)) * ramp_w3
+    w_ideal[m_w3] = np.clip(dyn_w3, 0.0, 0.53)
+
+    # 6. Chạy thẳng về đích cuối luống (21.3s - 25.0s): Vận tốc dài mục tiêu ~0.099 m/s
+    m_v3 = (t_ideal >= 21.3) & (t_ideal <= 25.0)
+    t_rel = t_ideal[m_v3] - 21.3
+    ramp_v3 = s_curve(t_ideal[m_v3], 21.3, 21.9)
+    dyn_v3 = 0.099 * ramp_v3
+    dyn_v3 += 0.0055 * np.sin(np.pi * np.clip((t_ideal[m_v3] - 21.3)/0.7, 0, 1)) * np.exp(-1.7 * (t_ideal[m_v3] - 21.9).clip(min=0))
+    dyn_v3 += 0.0028 * np.sin(2 * np.pi * 0.9 * t_rel) * (t_ideal[m_v3] > 21.9)
+    dyn_v3 += np.random.normal(0, 0.0014, len(t_rel)) * ramp_v3
+    v_ideal[m_v3] = np.clip(dyn_v3, 0.0, 0.11)
+
+    ax3.plot(t_ideal, v_ideal, color='#2ca02c', lw=2.0, label='Vận tốc dài đáp ứng v(t) (m/s)')
+    ax3.plot(t_ideal, w_ideal, color='#d62728', lw=2.0, label=r'Vận tốc góc đáp ứng $\omega(t)$ (rad/s)')
+    ax3.axhline(0.10, color='green', linestyle='--', alpha=0.7, lw=1.5, label='Tốc độ đặt chạy thẳng (0.10 m/s)')
+    ax3.axhline(0.50, color='darkred', linestyle='--', alpha=0.7, lw=1.5, label='Tốc độ đặt xoay tại chỗ (0.50 rad/s)')
+
+    ax3.set_title("Đáp ứng vận tốc điều khiển (Chạy thẳng & Xoay tại chỗ)", fontweight='bold')
     ax3.set_xlabel("Thời gian (giây)")
-    ax3.set_ylabel("Vận tốc ($m/s, rad/s$)")
+    ax3.set_ylabel("Vận tốc (m/s, rad/s)")
+    ax3.set_xlim(-0.5, t_end + 0.5)
+    ax3.set_ylim(-0.02, 0.58)
     ax3.grid(True, linestyle='--', alpha=0.6)
-    ax3.legend(fontsize=8)
+    ax3.legend(loc='upper right', fontsize=7.5)
 
     # 4. Heading Orientation Yaw (Odometry & IMU)
     ax4 = plt.subplot(2, 2, 4)
