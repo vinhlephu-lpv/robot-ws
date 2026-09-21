@@ -586,6 +586,8 @@ alias laptop-cnn="laptop_cnn_func"
 alias cnn-laptop="laptop_cnn_func"
 alias offload-cnn="laptop_cnn_func"
 alias pc-cnn="laptop_cnn_func"
+alias laptop-cnn-fast="laptop_cnn_func view:=false"
+alias pc-cnn-fast="laptop_cnn_func view:=false"
 
 pi_cnn_func() {
     load_ws

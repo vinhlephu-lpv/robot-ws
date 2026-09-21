@@ -55,11 +55,12 @@ def draw_hud_3panel(bgr_orig, mask_prob, lane_center, conf, heading_err, lane_of
                     v_lin, w_ang, rpm_l, rpm_r, duty_l, duty_r, esp_cmd, inference_ms,
                     state_name, state_color, roi_ratio=0.80, mask_thresh=0.35, max_steer=14.0):
     """
-    Renders exact 3-panel vehicle HUD matching test-img:
-    [Camera Gốc Thực Tế] | [Mặt Nạ CNN 384x384 (ROI 80%)] | [Dashboard Điều Khiển Xe Thật 100%]
+    Renders 3-panel vehicle HUD:
+    [1: Camera Gốc] | [2: Mặt Nạ CNN (ROI 80%)] | [3: Dashboard Điều Khiển Xe Thật]
+    Kích thước tối ưu: 1260x360 (420x360 mỗi panel), siêu nhẹ, siêu mượt, vừa vặn mọi màn hình Laptop.
     """
     h_orig, w_orig = bgr_orig.shape[:2]
-    vis_h, vis_w = 480, 560
+    vis_h, vis_w = 360, 420
 
     # Panel 1: Original resized to match HUD aspect
     p1 = cv2.resize(bgr_orig, (vis_w, vis_h))
@@ -74,16 +75,16 @@ def draw_hud_3panel(bgr_orig, mask_prob, lane_center, conf, heading_err, lane_of
     
     # Boundary contour overlay
     contours, _ = cv2.findContours(bin_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    cv2.drawContours(p2, contours, -1, (255, 255, 255), 2)
+    cv2.drawContours(p2, contours, -1, (255, 255, 255), 1)
 
     # Vạch giới hạn ROI 80% trên Panel 2
     y_roi = int(round(vis_h * (1.0 - roi_ratio)))
     p2_top_shade = p2[0:y_roi, :].copy()
     p2[0:y_roi, :] = cv2.addWeighted(p2_top_shade, 0.4, np.zeros_like(p2_top_shade), 0.6, 0)
     for x in range(0, vis_w, 16):
-        cv2.line(p2, (x, y_roi), (min(x + 8, vis_w), y_roi), (0, 180, 255), 2)
-    cv2.putText(p2, f"CUT TOP {int((1.0-roi_ratio)*100)}% (BO QUA HAU CANH)", (15, max(y_roi - 8, 20)), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (160, 160, 255), 1, cv2.LINE_AA)
-    cv2.putText(p2, f"VUNG ROI {int(roi_ratio*100)}% DUNG SUY LUAN", (15, y_roi + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 200), 1, cv2.LINE_AA)
+        cv2.line(p2, (x, y_roi), (min(x + 8, vis_w), y_roi), (0, 180, 255), 1)
+    cv2.putText(p2, f"CUT TOP {int((1.0-roi_ratio)*100)}% (BO QUA HAU CANH)", (10, max(y_roi - 6, 18)), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (160, 160, 255), 1, cv2.LINE_AA)
+    cv2.putText(p2, f"VUNG ROI {int(roi_ratio*100)}% DUNG SUY LUAN", (10, y_roi + 18), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (0, 255, 200), 1, cv2.LINE_AA)
 
     # Panel 3: Live Vehicle HUD (100% Robot Driving Simulation)
     p3 = p1.copy()
@@ -101,44 +102,44 @@ def draw_hud_3panel(bgr_orig, mask_prob, lane_center, conf, heading_err, lane_of
     target_center_x = int(np.clip(lane_center * (vis_w / float(w_mask)), 0, vis_w - 1))
 
     # 1. Image Center (Mũi xe / Tâm trục robot) - Nét đứt màu xanh lá
-    for y in range(0, vis_h, 20):
-        cv2.line(p3, (img_center_x, y), (img_center_x, min(y + 10, vis_h)), (0, 255, 0), 2)
+    for y in range(0, vis_h, 16):
+        cv2.line(p3, (img_center_x, y), (img_center_x, min(y + 8, vis_h)), (0, 255, 0), 2)
 
     # 2. Detected Row Center (Tim luống do AI phát hiện) - Đường nét liền vàng/xanh ngọc
-    cv2.line(p3, (target_center_x, vis_h - 1), (target_center_x, y_roi), (0, 215, 255), 3)
+    cv2.line(p3, (target_center_x, vis_h - 1), (target_center_x, y_roi), (0, 215, 255), 2)
 
     # 3. Steering Target Vector (Mũi tên bẻ lái từ tâm xe đến tim luống)
     arrow_y = int(vis_h * 0.74)
-    cv2.arrowedLine(p3, (img_center_x, arrow_y), (target_center_x, arrow_y), (0, 0, 255), 3, tipLength=0.22)
+    cv2.arrowedLine(p3, (img_center_x, arrow_y), (target_center_x, arrow_y), (0, 0, 255), 2, tipLength=0.22)
 
     # 4. Dashboard Bar trên cùng Panel 3
-    dash_h = 108
+    dash_h = 96
     dash_overlay = p3[0:dash_h, :].copy()
     dash_bg = np.zeros_like(dash_overlay)
     p3[0:dash_h, :] = cv2.addWeighted(dash_overlay, 0.20, dash_bg, 0.80, 0)
 
     # Line 1: State Badge
-    cv2.putText(p3, f"STATUS: {state_name}", (12, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.52, state_color, 2, cv2.LINE_AA)
+    cv2.putText(p3, f"STATUS: {state_name}", (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.44, state_color, 1, cv2.LINE_AA)
     
     # Line 2: Vision Metrics
-    cv2.putText(p3, f"Conf: {conf*100:4.1f}% | Offset: {lane_off:+.3f} | Lai CNN: {heading_err:+.2f} deg (Max +/-{max_steer:.0f} deg)", 
-                (12, 45), cv2.FONT_HERSHEY_SIMPLEX, 0.44, (255, 255, 255), 1, cv2.LINE_AA)
+    cv2.putText(p3, f"Conf: {conf*100:4.1f}% | Offset: {lane_off:+.3f} | Lai: {heading_err:+.2f} deg (Max +/-{max_steer:.0f} deg)", 
+                (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (255, 255, 255), 1, cv2.LINE_AA)
     
     # Line 3: Kinematics & Motor RPM
     cv2.putText(p3, f"Speed: v={v_lin:.3f} m/s | w={w_ang:+.3f} rad/s | L={rpm_l:+.1f} RPM | R={rpm_r:+.1f} RPM", 
-                (12, 67), cv2.FONT_HERSHEY_SIMPLEX, 0.44, (200, 255, 200), 1, cv2.LINE_AA)
+                (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (200, 255, 200), 1, cv2.LINE_AA)
     
     # Line 4: BTS7960 PWM & ESP32 Protocol & FPS
     fps_val = 1000.0 / max(1.0, inference_ms)
-    cv2.putText(p3, f"PWM: L={duty_l:+.1f}% R={duty_r:+.1f}% | ESP32: {repr(esp_cmd).strip()} | {inference_ms:.1f}ms ({fps_val:.1f} FPS)", 
-                (12, 89), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (0, 220, 255), 1, cv2.LINE_AA)
+    cv2.putText(p3, f"PWM: L={duty_l:+.0f}% R={duty_r:+.0f}% | ESP: {repr(esp_cmd).strip()} | {inference_ms:.1f}ms ({fps_val:.1f} FPS)", 
+                (10, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.36, (0, 220, 255), 1, cv2.LINE_AA)
 
     # Add labels to top of panels
-    cv2.putText(p1, f"[1] CAMERA GOC ({w_orig}x{h_orig} -> D435)", (12, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 255), 2)
-    cv2.putText(p2, f"[2] CNN MASK 384x384 (ROI: {int(roi_ratio*100)}%)", (12, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 255), 2)
-    cv2.putText(p3, "[3] DIEU KHIEN XE THAT (REALTIME)", (12, dash_h + 24), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 255), 2)
+    cv2.putText(p1, f"[1] CAMERA GOC ({w_orig}x{h_orig} -> D435)", (10, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.48, (0, 255, 255), 1, cv2.LINE_AA)
+    cv2.putText(p2, f"[2] CNN MASK 384x384 (ROI: {int(roi_ratio*100)}%)", (10, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.48, (0, 255, 255), 1, cv2.LINE_AA)
+    cv2.putText(p3, "[3] DIEU KHIEN XE THAT (REALTIME)", (10, dash_h + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.48, (0, 255, 255), 1, cv2.LINE_AA)
 
-    # Combine 3 panels horizontally
+    # Combine 3 panels horizontally (Tổng 1260 x 360)
     combined = np.hstack((p1, p2, p3))
     return combined
 
@@ -227,6 +228,11 @@ class CnnInferenceServer(Node):
                 self.controller = None
         else:
             self.controller = None
+
+        # Cấu hình cửa sổ hiển thị HUD (1 cửa sổ duy nhất, không tạo tab dư thừa)
+        self.window_name = "AI CNN Crop Row - Laptop HUD"
+        self._window_created = False
+        self._last_gui_time = 0.0
 
         # ── Publishers ────────────────────────────────────────────────
         # Topic bắn kết quả phát hiện về Pi (gọn nhẹ ~20 bytes, truyền cực nhanh qua Wi-Fi)
@@ -330,6 +336,38 @@ class CnnInferenceServer(Node):
 
         # Hiển thị cửa sổ giao diện trực quan nếu bật show_window
         if self.show_window:
+            now_gui = time.time()
+            # Giới hạn tốc độ vẽ GUI tối đa 15-20 FPS (chu kỳ >= 50ms) để không nghẽn CPU và tránh lag màn hình
+            if now_gui - self._last_gui_time < 0.05:
+                return
+            self._last_gui_time = now_gui
+
+            # Kiểm tra xem người dùng có bấm nút [X] đóng cửa sổ không
+            if self._window_created:
+                try:
+                    prop = cv2.getWindowProperty(self.window_name, cv2.WND_PROP_VISIBLE)
+                    if prop < 1:
+                        self.get_logger().info("🛑 Người dùng đã bấm [X] đóng cửa sổ HUD. Tiếp tục chạy ngầm tối đa FPS.")
+                        self.show_window = False
+                        cv2.destroyAllWindows()
+                        return
+                except Exception:
+                    self.get_logger().info("🛑 Cửa sổ HUD đã đóng. Tiếp tục chạy ngầm tối đa FPS.")
+                    self.show_window = False
+                    cv2.destroyAllWindows()
+                    return
+
+            # Khởi tạo cửa sổ 1 LẦN DUY NHẤT (WINDOW_NORMAL giúp kéo dãn/thu nhỏ mượt mà)
+            if not self._window_created:
+                try:
+                    cv2.namedWindow(self.window_name, cv2.WINDOW_NORMAL)
+                    cv2.resizeWindow(self.window_name, 1260, 360)
+                    self._window_created = True
+                except Exception as e:
+                    self.get_logger().warn(f"Không thể mở cửa sổ GUI: {e}")
+                    self.show_window = False
+                    return
+
             # 1. Tính toán trạng thái FSM và Động học xe mô phỏng (100% khớp cnn_driver & test-img)
             if confidence < self.low_conf_thresh:
                 state_name = "LOST / EOR (MAT DAU / HET HANG)"
@@ -404,8 +442,13 @@ class CnnInferenceServer(Node):
                 max_steer=self.max_steering_angle_deg
             )
 
-            cv2.imshow("Mô Phỏng Tự Hành AI CNN Bám Luống Thùng Carton - robot_ws", hud_canvas)
-            cv2.waitKey(1)
+            cv2.imshow(self.window_name, hud_canvas)
+            key = cv2.waitKey(1) & 0xFF
+            if key in (ord('q'), ord('Q'), 27):  # 'q' hoặc ESC -> Đóng vĩnh viễn cửa sổ
+                self.get_logger().info("🛑 Người dùng nhấn phím 'q' / ESC. Đóng cửa sổ HUD và chuyển sang chạy ngầm.")
+                self.show_window = False
+                cv2.destroyAllWindows()
+                return
 
             # Gửi ảnh debug nén nếu có subscriber ngoài ROS 2
             if self.debug_img_pub.get_subscription_count() > 0:
@@ -439,6 +482,10 @@ def main(args=None):
         pass
     finally:
         node.destroy_node()
+        try:
+            cv2.destroyAllWindows()
+        except Exception:
+            pass
         try:
             if rclpy.ok():
                 rclpy.shutdown()
