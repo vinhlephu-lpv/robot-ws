@@ -120,6 +120,18 @@ build_all_func() {
 }
 alias build-all="build_all_func"
 
+# Lệnh xóa sạch build/install cũ và biên dịch lại (Sửa triệt để lỗi Exec format error)
+rebuild_func() {
+    cd "$WS_DIR"
+    echo "🧹 Đang xóa sạch thư mục build, install, log cũ (chống lỗi Exec format error do lệch chip x86/ARM)..."
+    rm -rf "$WS_DIR/build" "$WS_DIR/install" "$WS_DIR/log"
+    echo "🔨 Đang biên dịch sạch lại toàn bộ Workspace trên máy này..."
+    build_all_func "$@"
+}
+alias rebuild="rebuild_func"
+alias clean-build="rebuild_func"
+alias lam-sach="rebuild_func"
+
 # Lệnh 1-Click đồng bộ nhanh từ GitHub về máy
 git_sync_func() {
     cd "$WS_DIR"

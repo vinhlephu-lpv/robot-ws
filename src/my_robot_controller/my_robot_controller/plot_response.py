@@ -82,12 +82,17 @@ def plot_telemetry_csv(csv_path: str, save_path: str = None, show_plot: bool = T
     # 1. 2D Path Trajectory
     ax1 = plt.subplot(2, 2, 1)
     if len(data['Pos_X_m']) > 0 and len(data['Pos_Y_m']) > 0:
-        ax1.plot(data['Pos_X_m'], data['Pos_Y_m'], 'b-', lw=1.8, label='Quỹ đạo thực tế Robot')
-        ax1.plot(data['Pos_X_m'][0], data['Pos_Y_m'][0], 'go', markersize=8, label='Start')
-        ax1.plot(data['Pos_X_m'][-1], data['Pos_Y_m'][-1], 'rs', markersize=8, label='End')
+        # Quy ước hiển thị: (+) = Phải, (-) = Trái
+        # Trong hệ ROS chuẩn: +Y = Trái, -Y = Phải.
+        # Đổi dấu để trục Y hiển thị (+) = Phải, (-) = Trái trực quan theo góc nhìn từ trên xuống:
+        y_display = -data['Pos_Y_m']
+        ax1.plot(data['Pos_X_m'], y_display, 'b-', lw=1.8, label='Quỹ đạo thực tế Robot')
+        ax1.plot(data['Pos_X_m'][0], y_display[0], 'go', markersize=8, label='Bắt đầu (Start)')
+        ax1.plot(data['Pos_X_m'][-1], y_display[-1], 'rs', markersize=8, label='Kết thúc (End)')
+        ax1.axhline(0, color='black', linestyle=':', alpha=0.5, label='Tim hàng tham chiếu (0m)')
         ax1.set_title("Quỹ đạo thực tế $X-Y$ (Odometry/GPS)", fontweight='bold')
-        ax1.set_xlabel("X (m)")
-        ax1.set_ylabel("Y (m)")
+        ax1.set_xlabel("X (m) [Tiến dọc luống]")
+        ax1.set_ylabel("Y (m) [+ Phải / - Trái]")
         ax1.grid(True, linestyle='--', alpha=0.6)
         ax1.axis('equal')
         ax1.legend(fontsize=8)
@@ -95,9 +100,9 @@ def plot_telemetry_csv(csv_path: str, save_path: str = None, show_plot: bool = T
     # 2. Steering Angle & Error
     ax2 = plt.subplot(2, 2, 2)
     if len(data['Steer_Angle_deg']) > 0:
-        # Quy ước hiển thị: (+) = Rẽ phải / Qua phải, (-) = Rẽ trái / Qua trái
-        steer_display = -data['Steer_Angle_deg']
-        ax2.plot(time_col, steer_display, 'm-', lw=1.5, label='Góc lệch phát hiện (CNN Error)')
+        # Quy ước hiển thị: (+) = Lệch Phải (cần rẽ Phải), (-) = Lệch Trái (cần rẽ Trái)
+        steer_display = data['Steer_Angle_deg']
+        ax2.plot(time_col, steer_display, 'm-', lw=1.8, label='Góc lệch phát hiện (CNN Error)')
         ax2.axhline(0, color='black', linestyle='--', alpha=0.6)
         ax2.set_title("Đáp ứng góc lệch qua thời gian", fontweight='bold')
         ax2.set_xlabel("Thời gian (giây)")
@@ -111,6 +116,7 @@ def plot_telemetry_csv(csv_path: str, save_path: str = None, show_plot: bool = T
         ax3.plot(time_col, data['Linear_Vel_mps'], 'g-', lw=1.5, label='Vận tốc dài $v(t)$ (m/s)')
     if len(data['Angular_Vel_radps']) > 0:
         # Quy ước hiển thị: (+) = Quay phải, (-) = Quay trái
+        # Trong ROS chuẩn: quay phải là -wz, nên -data['Angular_Vel_radps'] để (+) là Quay phải
         omega_display = -data['Angular_Vel_radps']
         ax3.plot(time_col, omega_display, 'r-', lw=1.5, label='Vận tốc góc $\\omega(t)$ (rad/s) [+ Phải / - Trái]')
     ax3.set_title("Vận tốc điều khiển ngõ ra", fontweight='bold')
@@ -129,8 +135,11 @@ def plot_telemetry_csv(csv_path: str, save_path: str = None, show_plot: bool = T
         ax4.plot(time_col, yaw_display, 'c-', lw=1.8, label='Góc hướng thực tế Yaw (Odometry)')
         has_heading = True
     if len(data['IMU_Yaw_rad']) > 0 and np.any(np.abs(data['IMU_Yaw_rad']) > 1e-4):
-        imu_yaw_display = -np.rad2deg(np.unwrap(data['IMU_Yaw_rad']))
-        ax4.plot(time_col, imu_yaw_display, 'm--', lw=1.5, label='Góc hướng IMU (Sensor)')
+        # Đồng quy góc IMU về cùng mốc ban đầu 0 độ như Odometry:
+        imu_yaw_unwrapped = np.unwrap(data['IMU_Yaw_rad'])
+        imu_yaw_zeroed = imu_yaw_unwrapped - imu_yaw_unwrapped[0]
+        imu_yaw_display = -np.rad2deg(imu_yaw_zeroed)
+        ax4.plot(time_col, imu_yaw_display, 'm--', lw=1.5, label='Góc hướng IMU (Sensor - đã zeroed)')
         has_heading = True
     ax4.axhline(0, color='black', linestyle='--', alpha=0.5)
     ax4.set_title("Góc quay hướng Robot thực tế", fontweight='bold')
