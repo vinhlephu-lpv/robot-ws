@@ -16,6 +16,7 @@ Sử dụng trên Laptop:
 import os
 import sys
 import time
+import math
 import cv2
 import numpy as np
 
@@ -28,9 +29,118 @@ from std_msgs.msg import Float32MultiArray
 from .inference_handler import InferenceHandler
 
 try:
+    from .controllers import TrackingControllerSMC
+except ImportError:
+    try:
+        from my_robot_controller.controllers import TrackingControllerSMC
+    except ImportError:
+        TrackingControllerSMC = None
+
+try:
     from cv_bridge import CvBridge
 except ImportError:
     CvBridge = None
+
+
+def vel_to_duty(velocity_ms: float, max_linear_speed: float = 0.18, min_duty_cycle: float = 22.0) -> float:
+    """Chuyển vận tốc (m/s) -> duty cycle có dấu (-100 .. +100) theo chuẩn driver BTS7960."""
+    clamped = max(-max_linear_speed, min(max_linear_speed, velocity_ms))
+    raw_duty = clamped / max_linear_speed * 100.0
+    if abs(raw_duty) > 0.5 and abs(raw_duty) < min_duty_cycle:
+        raw_duty = min_duty_cycle if raw_duty > 0 else -min_duty_cycle
+    return raw_duty
+
+
+def draw_hud_3panel(bgr_orig, mask_prob, lane_center, conf, heading_err, lane_off, 
+                    v_lin, w_ang, rpm_l, rpm_r, duty_l, duty_r, esp_cmd, inference_ms,
+                    state_name, state_color, roi_ratio=0.80, mask_thresh=0.35, max_steer=14.0):
+    """
+    Renders exact 3-panel vehicle HUD matching test-img:
+    [Camera Gốc Thực Tế] | [Mặt Nạ CNN 384x384 (ROI 80%)] | [Dashboard Điều Khiển Xe Thật 100%]
+    """
+    h_orig, w_orig = bgr_orig.shape[:2]
+    vis_h, vis_w = 480, 560
+
+    # Panel 1: Original resized to match HUD aspect
+    p1 = cv2.resize(bgr_orig, (vis_w, vis_h))
+
+    # Panel 2: Colored Segmentation Mask (384x384 -> vis_w x vis_h)
+    mask_vis = cv2.resize(mask_prob, (vis_w, vis_h))
+    bin_mask = (mask_vis >= mask_thresh).astype(np.uint8)
+    
+    p2 = np.zeros((vis_h, vis_w, 3), dtype=np.uint8)
+    p2[:] = [25, 45, 25] # Nền cỏ xanh đậm thực tế
+    p2[bin_mask > 0] = [230, 180, 0] # Hàng thùng carton / luống màu vàng đậm
+    
+    # Boundary contour overlay
+    contours, _ = cv2.findContours(bin_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    cv2.drawContours(p2, contours, -1, (255, 255, 255), 2)
+
+    # Vạch giới hạn ROI 80% trên Panel 2
+    y_roi = int(round(vis_h * (1.0 - roi_ratio)))
+    p2_top_shade = p2[0:y_roi, :].copy()
+    p2[0:y_roi, :] = cv2.addWeighted(p2_top_shade, 0.4, np.zeros_like(p2_top_shade), 0.6, 0)
+    for x in range(0, vis_w, 16):
+        cv2.line(p2, (x, y_roi), (min(x + 8, vis_w), y_roi), (0, 180, 255), 2)
+    cv2.putText(p2, f"CUT TOP {int((1.0-roi_ratio)*100)}% (BO QUA HAU CANH)", (15, max(y_roi - 8, 20)), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (160, 160, 255), 1, cv2.LINE_AA)
+    cv2.putText(p2, f"VUNG ROI {int(roi_ratio*100)}% DUNG SUY LUAN", (15, y_roi + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 200), 1, cv2.LINE_AA)
+
+    # Panel 3: Live Vehicle HUD (100% Robot Driving Simulation)
+    p3 = p1.copy()
+    overlay = p1.copy()
+    overlay[bin_mask > 0] = [255, 200, 0] # Phủ màu hàng thùng
+    p3 = cv2.addWeighted(p1, 0.65, overlay, 0.35, 0)
+
+    # Vạch ROI trên Panel 3
+    for x in range(0, vis_w, 16):
+        cv2.line(p3, (x, y_roi), (min(x + 8, vis_w), y_roi), (0, 215, 255), 1)
+
+    # Guide Lines
+    img_center_x = int((vis_w - 1) * 0.5)
+    w_mask = mask_prob.shape[1]
+    target_center_x = int(np.clip(lane_center * (vis_w / float(w_mask)), 0, vis_w - 1))
+
+    # 1. Image Center (Mũi xe / Tâm trục robot) - Nét đứt màu xanh lá
+    for y in range(0, vis_h, 20):
+        cv2.line(p3, (img_center_x, y), (img_center_x, min(y + 10, vis_h)), (0, 255, 0), 2)
+
+    # 2. Detected Row Center (Tim luống do AI phát hiện) - Đường nét liền vàng/xanh ngọc
+    cv2.line(p3, (target_center_x, vis_h - 1), (target_center_x, y_roi), (0, 215, 255), 3)
+
+    # 3. Steering Target Vector (Mũi tên bẻ lái từ tâm xe đến tim luống)
+    arrow_y = int(vis_h * 0.74)
+    cv2.arrowedLine(p3, (img_center_x, arrow_y), (target_center_x, arrow_y), (0, 0, 255), 3, tipLength=0.22)
+
+    # 4. Dashboard Bar trên cùng Panel 3
+    dash_h = 108
+    dash_overlay = p3[0:dash_h, :].copy()
+    dash_bg = np.zeros_like(dash_overlay)
+    p3[0:dash_h, :] = cv2.addWeighted(dash_overlay, 0.20, dash_bg, 0.80, 0)
+
+    # Line 1: State Badge
+    cv2.putText(p3, f"STATUS: {state_name}", (12, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.52, state_color, 2, cv2.LINE_AA)
+    
+    # Line 2: Vision Metrics
+    cv2.putText(p3, f"Conf: {conf*100:4.1f}% | Offset: {lane_off:+.3f} | Lai CNN: {heading_err:+.2f} deg (Max +/-{max_steer:.0f} deg)", 
+                (12, 45), cv2.FONT_HERSHEY_SIMPLEX, 0.44, (255, 255, 255), 1, cv2.LINE_AA)
+    
+    # Line 3: Kinematics & Motor RPM
+    cv2.putText(p3, f"Speed: v={v_lin:.3f} m/s | w={w_ang:+.3f} rad/s | L={rpm_l:+.1f} RPM | R={rpm_r:+.1f} RPM", 
+                (12, 67), cv2.FONT_HERSHEY_SIMPLEX, 0.44, (200, 255, 200), 1, cv2.LINE_AA)
+    
+    # Line 4: BTS7960 PWM & ESP32 Protocol & FPS
+    fps_val = 1000.0 / max(1.0, inference_ms)
+    cv2.putText(p3, f"PWM: L={duty_l:+.1f}% R={duty_r:+.1f}% | ESP32: {repr(esp_cmd).strip()} | {inference_ms:.1f}ms ({fps_val:.1f} FPS)", 
+                (12, 89), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (0, 220, 255), 1, cv2.LINE_AA)
+
+    # Add labels to top of panels
+    cv2.putText(p1, f"[1] CAMERA GOC ({w_orig}x{h_orig} -> D435)", (12, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 255), 2)
+    cv2.putText(p2, f"[2] CNN MASK 384x384 (ROI: {int(roi_ratio*100)}%)", (12, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 255), 2)
+    cv2.putText(p3, "[3] DIEU KHIEN XE THAT (REALTIME)", (12, dash_h + 24), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 255), 2)
+
+    # Combine 3 panels horizontally
+    combined = np.hstack((p1, p2, p3))
+    return combined
 
 
 class CnnInferenceServer(Node):
@@ -90,6 +200,33 @@ class CnnInferenceServer(Node):
         )
 
         self.bridge = CvBridge() if CvBridge is not None else None
+
+        # Thông số mô phỏng điều khiển & động học xe thật (differential drive)
+        self.linear_speed = 0.08
+        self.turn_angular_speed = 0.25
+        self.turn_in_place_thresh = 8.0
+        self.low_conf_thresh = 0.35
+        self.wheel_base = 0.40
+        self.wheel_d = 0.20
+        self.wheel_circ = math.pi * self.wheel_d
+        self.max_linear_speed = 0.18
+        self.min_duty_cycle = 22.0
+
+        if TrackingControllerSMC is not None:
+            try:
+                self.controller = TrackingControllerSMC()
+                self.controller.initialize(
+                    lambda_smc=2.5,
+                    k_smc=4.2,
+                    eta_smc=0.8,
+                    phi_smc=0.4,
+                    linear_speed=self.linear_speed,
+                    turn_angular_speed=self.turn_angular_speed
+                )
+            except Exception:
+                self.controller = None
+        else:
+            self.controller = None
 
         # ── Publishers ────────────────────────────────────────────────
         # Topic bắn kết quả phát hiện về Pi (gọn nhẹ ~20 bytes, truyền cực nhanh qua Wi-Fi)
@@ -191,74 +328,97 @@ class CnnInferenceServer(Node):
         self.detection_pub.publish(out_msg)
         self._frame_count += 1
 
-        # Hiển thị cửa sổ debug nếu bật show_window
+        # Hiển thị cửa sổ giao diện trực quan nếu bật show_window
         if self.show_window:
-            h, w = bgr_img.shape[:2]
-            hud = bgr_img.copy()
+            # 1. Tính toán trạng thái FSM và Động học xe mô phỏng (100% khớp cnn_driver & test-img)
+            if confidence < self.low_conf_thresh:
+                state_name = "LOST / EOR (MAT DAU / HET HANG)"
+                state_color = (0, 0, 255)  # Đỏ
+                v_lin = 0.0
+                w_ang = 0.0
+            elif abs(heading_error) > self.turn_in_place_thresh:
+                state_name = f"DUNG TIEN - XOAY TAI CHO (|goc|={abs(heading_error):.1f}° > {self.turn_in_place_thresh:.1f}°)"
+                state_color = (0, 215, 255)  # Vàng cam
+                v_lin = 0.0
+                turn_dir = -1.0 if heading_error > 0 else 1.0
+                w_ang = turn_dir * self.turn_angular_speed
+            else:
+                state_name = f"TIEN BAM LUONG SMC (|goc|={abs(heading_error):.1f}° <= {self.turn_in_place_thresh:.1f}°)"
+                state_color = (0, 255, 0)  # Xanh lá
+                v_lin = self.linear_speed
+                if self.controller is not None:
+                    try:
+                        self.controller.reset()
+                        cmd = self.controller.compute_command(heading_error, dt_actual=0.067)
+                        w_ang = float(cmd.get("angular_velocity", 0.0))
+                    except Exception:
+                        w_ang = float(np.clip(-0.045 * heading_error, -0.6, 0.6))
+                else:
+                    w_ang = float(np.clip(-0.045 * heading_error, -0.6, 0.6))
 
-            # 1. Overlay Mask bám luống (màu xanh lá cây / ngọc bích trên luống bắp)
-            if hasattr(self.inference, 'latest_mask') and self.inference.latest_mask is not None:
+            # 2. Differential Drive Kinematics (Vận tốc bánh & RPM)
+            v_left = v_lin - (w_ang * self.wheel_base / 2.0)
+            v_right = v_lin + (w_ang * self.wheel_base / 2.0)
+            rpm_left = (v_left / self.wheel_circ) * 60.0
+            rpm_right = (v_right / self.wheel_circ) * 60.0
+            esp_cmd = f"V {rpm_left:.1f} {rpm_right:.1f}\n"
+
+            # 3. BTS7960 Motor PWM Duty Cycle
+            v_l_bts = v_left
+            v_r_bts = v_right
+            if v_lin > 0.03:
+                min_fwd = 0.035
+                min_v = min(v_l_bts, v_r_bts)
+                if min_v < min_fwd:
+                    shift = min_fwd - min_v
+                    v_l_bts += shift
+                    v_r_bts += shift
+            duty_l = vel_to_duty(v_l_bts, self.max_linear_speed, self.min_duty_cycle)
+            duty_r = vel_to_duty(v_r_bts, self.max_linear_speed, self.min_duty_cycle)
+
+            # 4. Lấy mặt nạ CNN từ inference handler
+            mask_prob = getattr(self.inference, 'latest_mask', None)
+            if mask_prob is None:
+                mask_prob = np.zeros((self.input_height, self.input_width), dtype=np.float32)
+
+            # 5. Vẽ HUD 3 Panel (Camera gốc | CNN Mask | Dashboard xe thật)
+            hud_canvas = draw_hud_3panel(
+                bgr_orig=bgr_img,
+                mask_prob=mask_prob,
+                lane_center=lane_center,
+                conf=confidence,
+                heading_err=heading_error,
+                lane_off=lane_offset,
+                v_lin=v_lin,
+                w_ang=w_ang,
+                rpm_l=rpm_left,
+                rpm_r=rpm_right,
+                duty_l=duty_l,
+                duty_r=duty_r,
+                esp_cmd=esp_cmd,
+                inference_ms=latency_ms,
+                state_name=state_name,
+                state_color=state_color,
+                roi_ratio=self.roi_ratio,
+                mask_thresh=self.mask_threshold,
+                max_steer=self.max_steering_angle_deg
+            )
+
+            cv2.imshow("Mô Phỏng Tự Hành AI CNN Bám Luống Thùng Carton - robot_ws", hud_canvas)
+            cv2.waitKey(1)
+
+            # Gửi ảnh debug nén nếu có subscriber ngoài ROS 2
+            if self.debug_img_pub.get_subscription_count() > 0:
                 try:
-                    mask = self.inference.latest_mask
-                    if mask.shape[:2] != (h, w):
-                        mask = cv2.resize(mask, (w, h), interpolation=cv2.INTER_LINEAR)
-                    bin_mask = (mask >= self.mask_threshold)
-                    overlay = hud.copy()
-                    overlay[bin_mask] = [0, 255, 120]  # Spring green
-                    hud = cv2.addWeighted(hud, 0.70, overlay, 0.30, 0)
+                    small_dbg = cv2.resize(hud_canvas, (960, 270))
+                    _, enc = cv2.imencode('.jpg', small_dbg, [int(cv2.IMWRITE_JPEG_QUALITY), 65])
+                    msg = CompressedImage()
+                    msg.header.stamp = self.get_clock().now().to_msg()
+                    msg.format = 'jpeg'
+                    msg.data = enc.tobytes()
+                    self.debug_img_pub.publish(msg)
                 except Exception:
                     pass
-
-            # 2. Vạch tim ảnh tham chiếu (Màu vàng đứt đoạn)
-            img_center_x = int((w - 1) * 0.5)
-            for y_seg in range(int(h * 0.3), h, 20):
-                cv2.line(hud, (img_center_x, y_seg), (img_center_x, min(y_seg + 10, h)), (0, 255, 255), 2)
-
-            # 3. Vạch tim luống AI bám theo (Màu cam / xanh dương đậm nét)
-            lane_x_px = int(lane_center * (w / float(self.input_width)))
-            lane_x_px = max(0, min(w - 1, lane_x_px))
-            cv2.line(hud, (lane_x_px, h - 1), (lane_x_px, int(h * 0.35)), (255, 128, 0), 3)
-
-            # 4. Thanh trạng thái trên đỉnh (Header HUD)
-            cv2.rectangle(hud, (0, 0), (w, 65), (20, 20, 20), -1)
-            cv2.line(hud, (0, 65), (w, 65), (0, 255, 0), 2)
-
-            state_color = (0, 255, 0) if confidence >= 0.35 else (0, 165, 255)
-            cv2.putText(
-                hud,
-                f"GOC LAI: {heading_error:+5.1f} deg | TIN CAY: {int(confidence*100)}% | {self._latest_fps:.0f} FPS",
-                (12, 28),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.65,
-                state_color,
-                2
-            )
-            cv2.putText(
-                hud,
-                f"Wi-Fi -> Pi [/crop_row/detection] | Do tre: {latency_ms:.1f}ms | Tam: {lane_x_px}px",
-                (12, 52),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.48,
-                (200, 200, 200),
-                1
-            )
-
-            # 5. Thước đo góc lái đồ họa (Steering Angle Gauge) ở đáy ảnh
-            gauge_w = 240
-            gauge_x0 = (w - gauge_w) // 2
-            gauge_y = h - 25
-            cv2.rectangle(hud, (gauge_x0 - 5, gauge_y - 12), (gauge_x0 + gauge_w + 5, gauge_y + 12), (30, 30, 30), -1)
-            cv2.line(hud, (gauge_x0, gauge_y), (gauge_x0 + gauge_w, gauge_y), (100, 100, 100), 2)
-            cv2.line(hud, (gauge_x0 + gauge_w // 2, gauge_y - 8), (gauge_x0 + gauge_w // 2, gauge_y + 8), (255, 255, 255), 2)
-            
-            # Con trỏ góc lái
-            indicator_x = int(gauge_x0 + (gauge_w / 2) + (heading_error / self.max_steering_angle_deg) * (gauge_w / 2))
-            indicator_x = max(gauge_x0, min(gauge_x0 + gauge_w, indicator_x))
-            cv2.circle(hud, (indicator_x, gauge_y), 6, (0, 255, 255), -1)
-            cv2.circle(hud, (indicator_x, gauge_y), 7, (0, 0, 255), 1)
-
-            cv2.imshow("🌾 AI CROP ROW CNN (LAPTOP WORKER)", hud)
-            cv2.waitKey(1)
 
     def _log_fps(self):
         fps = self._frame_count
