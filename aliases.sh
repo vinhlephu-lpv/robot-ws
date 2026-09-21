@@ -313,8 +313,9 @@ detect_camera_device() {
         fi
     done
 
-    # Mặc định: realsense (để camera_publisher tự động lặp quét kết nối khi cắm vào)
-    echo "camera_device:=realsense"
+    # Nếu không phát hiện camera vật lý nào cắm trên máy:
+    # Tự động tắt camera (enable_camera:=false) để máy đóng vai trò Slave nhận góc lái từ Laptop qua Wi-Fi
+    echo "enable_camera:=false"
     return 0
 }
 
@@ -401,7 +402,9 @@ real_robot_func() {
     if [ "$has_cam" = true ]; then
         ros2 launch my_robot_bringup real_robot.launch.py $lidar_port_arg $esp32_port_arg "$@" 2>&1 | python3 "$WS_DIR/scripts/clean_log_filter.py"
     else
-        if [[ "$cam_arg" == *"realsense"* || "$cam_arg" == *"RealSense"* || "$cam_arg" == *"D435"* ]]; then
+        if [[ "$cam_arg" == *"enable_camera:=false"* ]]; then
+            echo "💻 [KHÔNG CAMERA] Tự động kích hoạt chế độ chạy phần cứng không camera (enable_camera:=false)"
+        elif [[ "$cam_arg" == *"realsense"* || "$cam_arg" == *"RealSense"* || "$cam_arg" == *"D435"* ]]; then
             echo "📷 Phát hiện Intel RealSense D435, tự động kích hoạt: $cam_arg"
         elif [[ "$cam_arg" == *"172.20.10.1"* ]]; then
             echo "📱 Phát hiện iPhone qua cáp USB (172.20.10.1), tự động kích hoạt: $cam_arg"
@@ -486,7 +489,9 @@ real_cnn_func() {
     if [ "$has_cam" = true ]; then
         ros2 launch my_robot_bringup real_robot.launch.py enable_cnn:=true $gps_arg $lidar_arg $costmap_arg $lidar_port_arg $esp32_port_arg "$@" 2>&1 | python3 "$WS_DIR/scripts/clean_log_filter.py" | tee -a "$term_log"
     else
-        if [[ "$cam_arg" == *"realsense"* || "$cam_arg" == *"RealSense"* || "$cam_arg" == *"D435"* ]]; then
+        if [[ "$cam_arg" == *"enable_camera:=false"* ]]; then
+            echo "💻 [PI SLAVE] Không phát hiện Camera trên Pi ➔ Chờ nhận góc lái AI từ Laptop (/crop_row/detection) qua Wi-Fi!" | tee -a "$term_log"
+        elif [[ "$cam_arg" == *"realsense"* || "$cam_arg" == *"RealSense"* || "$cam_arg" == *"D435"* ]]; then
             echo "📷 [AI CNN] Tự động kết nối Camera Intel RealSense D435: $cam_arg" | tee -a "$term_log"
         elif [[ "$cam_arg" == *"172.20.10.1"* ]]; then
             echo "📱 [AI CNN] Tự động kết nối Camera iPhone qua cáp USB: $cam_arg" | tee -a "$term_log"
@@ -562,17 +567,40 @@ cnn-iphone() {
 alias cnn-iphone="cnn-iphone"
 
 # Lệnh GÁNH TẢI AI CNN TRÊN LAPTOP (Offloading: Pi giữ nguyên phần cứng & quyết định, Laptop gánh ONNX)
-# - Pi (Xe thật): Giữ nguyên camera cắm cáp vào Pi, chạy: real-cnn enable_gps:=true
-# - Laptop: Mở terminal chạy: laptop-cnn (Laptop gánh ONNX 30-60 FPS, Pi ra quyết định lái)
+# Lệnh GÁNH TẢI AI CNN TRÊN LAPTOP (Camera cắm vào Laptop, Laptop tính toán AI rồi gửi góc lái về Pi)
+# - Pi (Xe thật): Không cần cắm camera, chạy: real-cnn (hoặc pi-cnn)
+# - Laptop: Cắm camera vào Laptop, mở terminal chạy: laptop-cnn (hoặc pc-cnn)
 laptop_cnn_func() {
     load_ws
-    echo "💻 [LAPTOP AI WORKER] Khởi chạy Server tính toán AI CNN trên Laptop..."
-    echo "   📡 Nhận ảnh từ Pi (/camera/compressed) ➔ Chạy mạng ONNX (30-60 FPS) ➔ Trả kết quả về Pi (/crop_row/detection)"
-    ros2 run my_robot_controller cnn_server "$@"
+    echo "================================================================================"
+    echo "💻 [LAPTOP AI WORKER] Khởi chạy Camera & AI CNN trên Laptop"
+    echo "   📷 Đọc Camera RealSense D435 / Webcam cắm trực tiếp trên Laptop"
+    echo "   🧠 Chạy mạng AI ONNX INT8 (30-60 FPS) với cửa sổ HUD trực quan"
+    echo "   📡 Bắn góc lái (/crop_row/detection) xuống Raspberry Pi qua Wi-Fi"
+    echo "================================================================================"
+    ros2 launch my_robot_bringup laptop_cnn.launch.py view:=true "$@"
 }
 alias laptop-cnn="laptop_cnn_func"
 alias cnn-laptop="laptop_cnn_func"
 alias offload-cnn="laptop_cnn_func"
+alias pc-cnn="laptop_cnn_func"
+
+pi_cnn_func() {
+    load_ws
+    echo "================================================================================"
+    echo "🌾 [PI ROBOT SLAVE] Khởi động phần cứng xe & nhận góc lái AI từ Laptop"
+    echo "   📡 Nhận góc lái (/crop_row/detection) từ Laptop qua Wi-Fi"
+    echo "   🏎️ Điều khiển động cơ ESP32, Madgwick IMU, EKF & tránh vật cản LiDAR"
+    echo "================================================================================"
+    real_cnn_func enable_camera:=false "$@"
+}
+alias pi-cnn="pi_cnn_func"
+alias pi-robot="pi_cnn_func"
+
+# Phím tắt kiểm tra nhanh Camera cắm trên Laptop
+alias check-cam="load_ws && python3 \"$WS_DIR/scripts/test_realsense.py\""
+alias test-cam="check-cam"
+alias cam-test="check-cam"
 
 # Lệnh KIỂM TRA CHẨN ĐOÁN TOÀN DIỆN CHUỖI AI CNN
 alias check-cnn="load_ws && python3 \"$WS_DIR/scripts/verify_cnn_pipeline.py\""
@@ -1090,10 +1118,11 @@ cat << 'EOF'
   xem-ekf (xem-odom) : Xem KẾT QUẢ DUNG HỢP EKF CUỐI CÙNG (Tọa độ X/Y, Hướng Yaw, Tốc độ)
 
 💻 [TRÊN LAPTOP] (Màn hình quan sát, Lái xe & Xử lý Dataset)
+  laptop-cnn (pc-cnn): BẬT CAMERA & AI CNN TRÊN LAPTOP (Cắm cam vào Laptop, chạy 30-60 FPS, HUD trực quan, bắn góc lái xuống Pi)
+  check-cam (test-cam): Kiểm tra nhanh Camera RealSense D435 / Webcam cắm trên Laptop
+  laptop-view        : Mở RViz2 nhận luồng Camera nén từ Pi qua Wi-Fi (mượt, không lag)
   quay-rviz [tên]    : Mở RViz + Quay video Full HD 1080p 60FPS + Tách Dataset ảnh
                        (Tên khác: rviz-record, laptop-record)
-  laptop-cnn [view:=1]: BẬT MODEL AI CNN TRÊN LAPTOP (Cắm cáp sạc điện thoại vào Laptop, xử lý cực nhanh 30-60 FPS)
-  laptop-view        : Mở RViz2 nhận luồng Camera nén từ Pi qua Wi-Fi (mượt, không lag)
   teleop (lai-xe)    : Bàn phím lái xe chuẩn gốc ROS 2 (i=tiến, ,=lùi, j/l=rẽ, k=dừng)
   get-video          : Tự động tìm Pi và kéo video MP4 mới quay về máy tính
   play-video (xem)   : Xem ngay video vừa quay bằng trình duyệt Firefox
@@ -1104,8 +1133,9 @@ cat << 'EOF'
   pc-nav (nav-slam)  : Bật Nav2 trên Laptop kết hợp với SLAM trực tiếp từ Pi
   cancel             : Hủy mục tiêu dẫn đường Nav2
 
-🍓 [TRÊN RASPBERRY PI] (Khởi động phần cứng xe & Quay video)
-  real-robot         : BẬT XE THẬT (Tự động chạy Madgwick + EKF chuẩn xác)
+🍓 [TRÊN RASPBERRY PI] (Khởi động phần cứng xe & Nhận góc lái AI)
+  real-cnn (pi-cnn)  : BẬT TỰ HÀNH BÁM LUỐNG AI TRÊN PI (Không cần cam trên Pi, tự nhận góc lái từ Laptop!)
+  real-robot         : BẬT XE THẬT (Chỉ chạy phần cứng: ESP32 + IMU + EKF + LiDAR)
   real-record [tên]  : BẬT XE THẬT + QUAY VIDEO THÔ (100% Raw, lưu MP4 vào Pi)
   real-cnn           : BẬT XE THẬT TỰ HÀNH BÁM LUỐNG BẰNG AI CNN (Tự động lưu toàn bộ log & góc lái)
   xem-lai (xem-log)  : Xem báo cáo phân tích góc lái, tốc độ, độ tin cậy AI của lần chạy gần nhất

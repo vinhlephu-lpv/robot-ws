@@ -187,16 +187,70 @@ class CnnInferenceServer(Node):
         # Hiển thị cửa sổ debug nếu bật show_window
         if self.show_window:
             h, w = bgr_img.shape[:2]
+            hud = bgr_img.copy()
+
+            # 1. Overlay Mask bám luống (màu xanh lá cây / ngọc bích trên luống bắp)
+            if hasattr(self.inference, 'latest_mask') and self.inference.latest_mask is not None:
+                try:
+                    mask = self.inference.latest_mask
+                    if mask.shape[:2] != (h, w):
+                        mask = cv2.resize(mask, (w, h), interpolation=cv2.INTER_LINEAR)
+                    bin_mask = (mask >= self.mask_threshold)
+                    overlay = hud.copy()
+                    overlay[bin_mask] = [0, 255, 120]  # Spring green
+                    hud = cv2.addWeighted(hud, 0.70, overlay, 0.30, 0)
+                except Exception:
+                    pass
+
+            # 2. Vạch tim ảnh tham chiếu (Màu vàng đứt đoạn)
+            img_center_x = int((w - 1) * 0.5)
+            for y_seg in range(int(h * 0.3), h, 20):
+                cv2.line(hud, (img_center_x, y_seg), (img_center_x, min(y_seg + 10, h)), (0, 255, 255), 2)
+
+            # 3. Vạch tim luống AI bám theo (Màu cam / xanh dương đậm nét)
+            lane_x_px = int(lane_center * (w / float(self.input_width)))
+            lane_x_px = max(0, min(w - 1, lane_x_px))
+            cv2.line(hud, (lane_x_px, h - 1), (lane_x_px, int(h * 0.35)), (255, 128, 0), 3)
+
+            # 4. Thanh trạng thái trên đỉnh (Header HUD)
+            cv2.rectangle(hud, (0, 0), (w, 65), (20, 20, 20), -1)
+            cv2.line(hud, (0, 65), (w, 65), (0, 255, 0), 2)
+
+            state_color = (0, 255, 0) if confidence >= 0.35 else (0, 165, 255)
             cv2.putText(
-                bgr_img,
-                f"Angle: {heading_error:+.1f} deg | Conf: {confidence:.2f} | {latency_ms:.1f}ms",
-                (10, 30),
+                hud,
+                f"GOC LAI: {heading_error:+5.1f} deg | TIN CAY: {int(confidence*100)}% | {self._latest_fps:.0f} FPS",
+                (12, 28),
                 cv2.FONT_HERSHEY_SIMPLEX,
-                0.7,
-                (0, 255, 0),
+                0.65,
+                state_color,
                 2
             )
-            cv2.imshow("CNN Server (Laptop)", bgr_img)
+            cv2.putText(
+                hud,
+                f"Wi-Fi -> Pi [/crop_row/detection] | Do tre: {latency_ms:.1f}ms | Tam: {lane_x_px}px",
+                (12, 52),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.48,
+                (200, 200, 200),
+                1
+            )
+
+            # 5. Thước đo góc lái đồ họa (Steering Angle Gauge) ở đáy ảnh
+            gauge_w = 240
+            gauge_x0 = (w - gauge_w) // 2
+            gauge_y = h - 25
+            cv2.rectangle(hud, (gauge_x0 - 5, gauge_y - 12), (gauge_x0 + gauge_w + 5, gauge_y + 12), (30, 30, 30), -1)
+            cv2.line(hud, (gauge_x0, gauge_y), (gauge_x0 + gauge_w, gauge_y), (100, 100, 100), 2)
+            cv2.line(hud, (gauge_x0 + gauge_w // 2, gauge_y - 8), (gauge_x0 + gauge_w // 2, gauge_y + 8), (255, 255, 255), 2)
+            
+            # Con trỏ góc lái
+            indicator_x = int(gauge_x0 + (gauge_w / 2) + (heading_error / self.max_steering_angle_deg) * (gauge_w / 2))
+            indicator_x = max(gauge_x0, min(gauge_x0 + gauge_w, indicator_x))
+            cv2.circle(hud, (indicator_x, gauge_y), 6, (0, 255, 255), -1)
+            cv2.circle(hud, (indicator_x, gauge_y), 7, (0, 0, 255), 1)
+
+            cv2.imshow("🌾 AI CROP ROW CNN (LAPTOP WORKER)", hud)
             cv2.waitKey(1)
 
     def _log_fps(self):

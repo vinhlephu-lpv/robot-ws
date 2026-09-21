@@ -229,17 +229,19 @@ class CnnDriverNode(Node):
                             break
 
             if not self.model_path or not os.path.exists(self.model_path):
-                self.get_logger().error(f"ONNX model not found anywhere: {self.model_path}")
-                sys.exit(1)
-
-        self.inference = InferenceHandler(
-            model_path=self.model_path,
-            mask_threshold=self.mask_threshold,
-            input_size=(self.input_height, self.input_width),
-            use_hsv_mask=self.use_hsv_mask,
-            num_threads=self.num_threads,
-            roi_ratio=self.roi_ratio
-        )
+                self.get_logger().warn(f"⚠️ Không tìm thấy file model ONNX cục bộ ({self.model_path}). Đang chuyển sang chế độ Slave nhận góc lái từ Laptop qua Wi-Fi (/crop_row/detection).")
+                self.inference = None
+            else:
+                self.inference = InferenceHandler(
+                    model_path=self.model_path,
+                    mask_threshold=self.mask_threshold,
+                    input_size=(self.input_height, self.input_width),
+                    use_hsv_mask=self.use_hsv_mask,
+                    num_threads=self.num_threads,
+                    roi_ratio=self.roi_ratio
+                )
+        else:
+            self.inference = None
         self.lidar_processor = LidarProcessor()
         self.eor_detector = EndOfRowDetector(
             min_row_distance=self.min_row_length,
@@ -780,6 +782,15 @@ class CnnDriverNode(Node):
             }
             self._remote_cnn_time = self.get_clock().now().nanoseconds / 1e9
 
+            if getattr(self, '_waiting_camera_notified', False):
+                self.get_logger().info("✅ Đã nhận tín hiệu góc lái AI từ Laptop (/crop_row/detection)! Bắt đầu tự hành.")
+                self._waiting_camera_notified = False
+
+            # Kích hoạt chu kỳ điều khiển ngay lập tức khi nhận góc lái từ Laptop nếu không có camera cục bộ
+            now_sec = time.time()
+            if (now_sec - getattr(self, '_last_local_img_time', 0.0)) > 0.3:
+                self._step_control(bgr_image=None, external_cnn=self._remote_cnn_data)
+
     # ── Main image callback / FSM ──────────────────────────────────────
     def image_callback(self, msg: Image):
         # Prevent processing duplicate frames within 10ms
@@ -804,10 +815,20 @@ class CnnDriverNode(Node):
             self.get_logger().error(f"Image convert failed: {e}")
             return
 
-        # ── Perception Processing via PerceptionManager ───────────────
+        self._last_local_img_time = time.time()
+        self._step_control(bgr_image=bgr_image, external_cnn=None)
+
+    def _step_control(self, bgr_image=None, external_cnn=None):
+        now = self.get_clock().now()
+        now_ns = now.nanoseconds
         now_sec = now_ns / 1e9
-        is_remote_cnn = (self._remote_cnn_data is not None) and ((now_sec - self._remote_cnn_time) < 0.6)
-        external_cnn = self._remote_cnn_data if is_remote_cnn else None
+
+        # ── Perception Processing via PerceptionManager ───────────────
+        if external_cnn is None:
+            is_remote_cnn = (self._remote_cnn_data is not None) and ((now_sec - self._remote_cnn_time) < 0.6)
+            external_cnn = self._remote_cnn_data if is_remote_cnn else None
+
+        self._is_remote_perception = (external_cnn is not None)
 
         t_infer_start = time.time()
         perception = self.perception_manager.process_sensors(
@@ -820,7 +841,10 @@ class CnnDriverNode(Node):
             inside_row=self.inside_row,
             external_cnn=external_cnn
         )
-        self._last_inference_ms = (time.time() - t_infer_start) * 1000.0
+        if external_cnn is not None:
+            self._last_inference_ms = external_cnn.get('latency_ms', 0.0)
+        else:
+            self._last_inference_ms = (time.time() - t_infer_start) * 1000.0
         
         confidence = perception["confidence"]
         obstacle_detected = perception["obstacle_detected"]
@@ -843,10 +867,8 @@ class CnnDriverNode(Node):
 
         current_state = self.fsm.get_state()
 
-        now_sec = now.nanoseconds / 1e9
-
         # Save diagnostic frame every 3 seconds (sim time, if enabled)
-        if self.save_debug_imgs:
+        if self.save_debug_imgs and bgr_image is not None:
             if now_sec - self.last_img_save_time >= 3.0:
                 self.last_img_save_time = now_sec
                 try:
@@ -1400,18 +1422,19 @@ class CnnDriverNode(Node):
         now_sec = time.time()
         current_state = self.fsm.get_state()
 
-        # 1. Chưa nhận được frame camera nào từ lúc bật: chỉ thông báo 1 lần, KHÔNG spam mỗi giây
+        # 1. Chưa nhận được tín hiệu nào từ lúc bật: chỉ thông báo 1 lần, KHÔNG spam mỗi giây
         if self._last_image_time == 0.0:
             if not getattr(self, '_waiting_camera_notified', False):
-                self.get_logger().info("⏳ Đang chờ nhận hình ảnh từ Camera...")
+                self.get_logger().info("⏳ Đang chờ nhận hình ảnh từ Camera hoặc góc lái AI từ Laptop (/crop_row/detection)...")
                 self._waiting_camera_notified = True
             return
 
-        # 2. Bị mất tín hiệu camera giữa chừng quá 3 giây: cảnh báo 1 lần
+        # 2. Bị mất tín hiệu camera / laptop giữa chừng quá 3 giây: cảnh báo 1 lần
         if (now_sec - self._last_image_time) > 3.0:
             if not getattr(self, '_camera_lost_notified', False):
-                self.get_logger().warn("⚠️ Mất tín hiệu Camera quá 3 giây! Xe đang tạm dừng.")
+                self.get_logger().warn("⚠️ Mất tín hiệu Camera / Laptop quá 3 giây! Xe đang tạm dừng.")
                 self._camera_lost_notified = True
+                self.StopRobot()
             return
 
         self._camera_lost_notified = False
@@ -1424,8 +1447,9 @@ class CnnDriverNode(Node):
         gps_str = f" | GPS: {self._latest_gps_info.get('latitude', 0.0):.5f}°, {self._latest_gps_info.get('longitude', 0.0):.5f}°" if (gps_status == 'FIX' and gps_source == 'DIRECT_SENSOR') else ""
 
         display_state_str = "CHỈNH GÓC" if self.is_adjusting_heading else str(current_state)
+        source_tag = "AI LAPTOP ➔ PI" if getattr(self, '_is_remote_perception', False) else "AI LÁI XE"
         status_msg = (
-            f"🌾 [AI Lái Xe] Luống {self.current_lane_idx} (x={self.current_x:4.2f}m) | "
+            f"🌾 [{source_tag}] Luống {self.current_lane_idx} (x={self.current_x:4.2f}m) | "
             f"Góc: {self._latest_steer_deg:+5.2f}° | "
             f"Trạng thái: [{display_state_str:^10s}] | "
             f"Tin cậy: {self._latest_confidence*100:4.1f}% | "

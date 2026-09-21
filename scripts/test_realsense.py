@@ -156,7 +156,7 @@ def main():
         print("     bash scripts/setup_realsense.sh")
     else:
         print("  ❌ Camera chưa được cắm hoặc cáp USB bị lỏng.")
-        print("  👉 Khắc phục: Cắm chặt lại cáp Type-C vào cổng USB 3.0 màu xanh trên Pi.")
+        print("  👉 Khắc phục: Cắm chặt lại cáp Type-C vào cổng USB 3.0 màu xanh trên Laptop/PC.")
     print("=" * 70 + "\n")
 
 if __name__ == '__main__':
