@@ -138,7 +138,9 @@ git_sync_func() {
     echo "📥 Đang kéo mã nguồn mới nhất từ GitHub..."
     local branch
     branch=$(git branch --show-current 2>/dev/null || echo "main")
-    git pull origin "$branch" 2>/dev/null || git pull origin main 2>/dev/null || git pull || true
+    git config pull.rebase false 2>/dev/null || true
+    git fetch origin 2>/dev/null || true
+    git pull origin "$branch" --no-rebase 2>/dev/null || git pull origin "$branch" 2>/dev/null || git pull || true
     rm -rf "$WS_DIR/build/my_robot_controller/models" 2>/dev/null || true
     echo "🔨 Đang biên dịch lại Workspace & cập nhật phím tắt..."
     build_func "$@"
