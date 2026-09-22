@@ -27,8 +27,9 @@ cnn_driver_node:
     linear_speed: 0.075
     turn_linear_speed: 0.075
     turn_angular_speed: 0.60          # rad/s — Vận tốc góc xoay căn chỉnh (tăng lực mô-men xoắn xoay khỏe, không bị kẹt trên cỏ)
-    turn_in_place_threshold_deg: 1.2  # Dừng tiến xoay tại chỗ khi góc CNN lệch > 1.2°
-    turn_in_place_resume_deg: 0.8     # Ngừng xoay, tiếp tục chạy thẳng khi góc CNN <= 0.8°
+    turn_in_place_threshold_deg: 1.5  # Dừng tiến xoay tại chỗ khi góc CNN lệch > 1.5°
+    turn_in_place_resume_deg: 1.0     # Ngừng xoay, tiếp tục chạy thẳng khi góc CNN <= 1.0°
+    heading_adjust_aligned_frames: 15 # Số frame liên tiếp đạt chuẩn thẳng hàng (<= 1.0°) trước khi cho xe chạy tiếp (laptop 12-15 FPS ~1.0-1.2s)
     camera_trim_deg: 0.0              # Bù trừ góc đặt camera iPhone (nếu xe lệch phải đặt số âm như -1.5)
 
     # Bộ điều khiển trượt SMC bám luống với lực bẻ lái mạnh mẽ, dứt khoát
@@ -53,7 +54,8 @@ cnn_driver_node:
     enable_uturn: true
     uturn_mode: 'PIVOT'           # 'PIVOT' (xoay tại chỗ 4 giai đoạn trên cỏ) hoặc 'OMEGA' (ôm cua liên tục)
     drive_out_distance: 0.50      # m — Thoát khỏi miệng luống 0.5m trước khi xoay
-    low_conf_frames_threshold: 5  # 5 frame liên tiếp thấy hết cây / confidence giảm dưới 30%
+    low_conf_frames_threshold: 15 # 15 frame liên tiếp thấy hết cây / confidence giảm dưới 30% (laptop ~12-15 FPS)
+    min_turn_angle_deg: 130.0     # độ — góc xoay tối thiểu (>130 độ) trước khi trao quyền cho CNN bắt luống mới
     max_row_length: 10.0          # m — giới hạn an toàn tối đa
 
     # ── Điều Phối Nhiệm Vụ 2 Luống Thực Nghiệm (3 hàng thùng, 2 luống) ──

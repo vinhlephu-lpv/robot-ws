@@ -34,7 +34,7 @@ class EndOfRowDetector:
     Combines multi-modal perception (Camera CNN confidence + LiDAR sector clearance)
     to detect end of corn row dynamically without false triggers inside stalk gaps.
     """
-    def __init__(self, min_row_distance=2.0, low_confidence_threshold=0.30, consecutive_frames=5):
+    def __init__(self, min_row_distance=2.0, low_confidence_threshold=0.30, consecutive_frames=15):
         self.min_row_distance = min_row_distance
         self.low_confidence_threshold = low_confidence_threshold
         self.consecutive_frames = consecutive_frames
@@ -50,7 +50,7 @@ class EndOfRowDetector:
             self.lidar_clearance_counter = 0
             return False
 
-        # 1. Vision check: Camera mất dấu luống bắp liên tục 5 frame (thuần nhận thức, không set cứng cự ly)
+        # 1. Vision check: Camera mất dấu luống bắp liên tục N frame (mặc định 15 frame cho laptop 12-15 FPS)
         if confidence < self.low_confidence_threshold:
             self.low_confidence_counter += 1
         else:
@@ -58,16 +58,20 @@ class EndOfRowDetector:
         
         camera_eor = (self.low_confidence_counter >= self.consecutive_frames)
         
-        # 2. LiDAR check: Chỉ kích hoạt khi phía trước trống (> 1.2m), hai bên sườn trống (> 0.70m)
+        # 2. LiDAR check: Kích hoạt khi phía trước trống (> 1.2m), hai bên sườn trống (> 0.60m)
         # VÀ Camera cũng mất dấu luống (confidence < low_confidence_threshold).
-        if front_min_dist > 1.20 and left_side_dist > 0.70 and right_side_dist > 0.70 and (confidence < self.low_confidence_threshold):
+        if front_min_dist > 1.20 and left_side_dist > 0.60 and right_side_dist > 0.60 and (confidence < self.low_confidence_threshold):
             self.lidar_clearance_counter += 1
         else:
             self.lidar_clearance_counter = 0
 
         lidar_eor = (self.lidar_clearance_counter >= self.consecutive_frames)
         
-        if camera_eor or lidar_eor:
+        # 3. Yêu cầu an toàn thực địa: Chỉ cho phép nhận biết hết hàng khi ĐỒNG THỜI
+        # LiDAR 2 bên sườn xác nhận khoảng trống (> 0.60m), chống kích hoạt non do thưa cây/bóng râm giữa luống:
+        sides_cleared = (left_side_dist > 0.60 and right_side_dist > 0.60)
+        
+        if (camera_eor or lidar_eor) and sides_cleared:
             return True
         return False
 
