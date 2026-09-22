@@ -42,7 +42,7 @@ cnn_driver_node:
     ema_alpha: 0.35             # tăng nhẹ độ nhạy EMA phản xạ bẻ lái
 
     # Khoảng cách giữa 2 hàng luống thực tế (m)
-    row_spacing: 1.20           # Hàng cách hàng 1.20m (chuẩn 3 hàng cây bắp / 2 luống)
+    row_spacing: 0.80           # Khoảng cách giữa 2 tim luống (0.5m - 1.0m, mặc định 0.80m)
     min_row_length: 1.5         # m — cự ly tối thiểu bắt buộc chạy trong hàng trước khi cho phép nhận biết hết luống
 
     # Ngưỡng confidence — CAO hơn sim vì ảnh thật cho mask rõ ràng hơn
@@ -67,12 +67,12 @@ cnn_driver_node:
     goal_1_x: 3.0                  # m — Cuối Luống 1 (kích hoạt quay đầu)
     goal_1_y: 0.0                  # m
     goal_2_x: 3.0                  # m — Đầu Luống 2 (sau khi quay đầu 180°)
-    goal_2_y: -1.20                # m
+    goal_2_y: -0.80                # m
     goal_3_x: 0.0                  # m — Cuối Luống 2 (về đích dừng xe an toàn)
-    goal_3_y: -1.20                # m
+    goal_3_y: -0.80                # m
 
     # ── Tham số Quỹ Đạo Omega Turn (Chống trượt bánh vi sai) ────────
-    turn_side: 'RIGHT'             # Chuyển sang luống bên phải (y = -1.20m)
+    turn_side: 'RIGHT'             # Chuyển sang luống bên phải (y = -0.80m)
     omega_open_angle_deg: 35.0     # độ — Góc mở cua trái
     omega_r1: 0.65                 # m — Bán kính cung mở trái
     omega_clearance: 0.25          # m — Đoạn thẳng thoát đầu luống

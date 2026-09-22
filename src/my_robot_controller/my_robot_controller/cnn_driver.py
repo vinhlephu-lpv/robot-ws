@@ -70,7 +70,7 @@ class CnnDriverNode(Node):
         self.declare_parameter('turn_in_place_threshold_deg', 1.2)
         self.declare_parameter('turn_in_place_resume_deg', 0.8)
         self.declare_parameter('camera_trim_deg', 0.0)
-        self.declare_parameter('row_spacing', 1.20)
+        self.declare_parameter('row_spacing', 0.80)
         self.declare_parameter('ema_alpha', 0.45)
         self.declare_parameter('enable_uturn', True)
         self.declare_parameter('uturn_mode', 'PIVOT')
@@ -110,9 +110,9 @@ class CnnDriverNode(Node):
         self.declare_parameter('goal_1_x', 3.0)
         self.declare_parameter('goal_1_y', 0.0)
         self.declare_parameter('goal_2_x', 3.0)
-        self.declare_parameter('goal_2_y', -1.20)
+        self.declare_parameter('goal_2_y', -0.80)
         self.declare_parameter('goal_3_x', 0.0)
-        self.declare_parameter('goal_3_y', -1.20)
+        self.declare_parameter('goal_3_y', -0.80)
         self.declare_parameter('turn_side', 'RIGHT')
         self.declare_parameter('omega_open_angle_deg', 35.0)
         self.declare_parameter('omega_r1', 0.85)
@@ -884,7 +884,7 @@ class CnnDriverNode(Node):
             self.cmd_vel_pub.publish(twist)
 
         # =========================================================================
-        # GIAI ĐOẠN 3: CROSS_DRIVE (Chạy thẳng ngang 1.20m sang tim luống 2)
+        # GIAI ĐOẠN 3: CROSS_DRIVE (Chạy thẳng ngang 0.5m - 1.0m sang tim Luống 2)
         # =========================================================================
         elif stage == 'CROSS_DRIVE':
             dx = self.current_x - getattr(self, 'cross_start_x', self.current_x)
