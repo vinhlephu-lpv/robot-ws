@@ -41,6 +41,11 @@ from my_robot_controller.telemetry_logger import TelemetryLogger
 
 
 
+def normalize_angle(angle: float) -> float:
+    """Normalizes an angle to the range [-pi, pi]."""
+    return math.atan2(math.sin(angle), math.cos(angle))
+
+
 class CnnDriverNode(Node):
     def __init__(self):
         super().__init__('cnn_driver_node')
@@ -65,15 +70,16 @@ class CnnDriverNode(Node):
         self.declare_parameter('turn_in_place_threshold_deg', 1.2)
         self.declare_parameter('turn_in_place_resume_deg', 0.8)
         self.declare_parameter('camera_trim_deg', 0.0)
-        self.declare_parameter('row_spacing', 0.90)
+        self.declare_parameter('row_spacing', 1.20)
         self.declare_parameter('ema_alpha', 0.45)
-        self.declare_parameter('enable_uturn', False)
+        self.declare_parameter('enable_uturn', True)
+        self.declare_parameter('uturn_mode', 'PIVOT')
         self.declare_parameter('warmup_time', 1.0)
         self.declare_parameter('navigation_mode', 'auto_three_lanes')
-        self.declare_parameter('min_row_length', 5.0)
+        self.declare_parameter('min_row_length', 1.50)
         self.declare_parameter('max_row_length', 30.0)
-        self.declare_parameter('low_conf_frames_threshold', 15)
-        self.declare_parameter('drive_out_distance', 0.70)
+        self.declare_parameter('low_conf_frames_threshold', 5)
+        self.declare_parameter('drive_out_distance', 0.50)
         self.declare_parameter('min_turn_angle_deg', 140.0)
         self.declare_parameter('max_turn_angle_deg', 200.0)
         self.declare_parameter('reactive_avoid_wait_time', 3.0)  # seconds to wait before planning bypass
@@ -136,6 +142,7 @@ class CnnDriverNode(Node):
         self.row_spacing              = p('row_spacing').value
         self.ema_alpha                = p('ema_alpha').value
         self.enable_uturn             = p('enable_uturn').value
+        self.uturn_mode               = p('uturn_mode').value
         self.warmup_time              = p('warmup_time').value
         self.navigation_mode          = p('navigation_mode').value
         self.min_row_length           = p('min_row_length').value
@@ -351,6 +358,23 @@ class CnnDriverNode(Node):
         self.is_trimming_uturn_heading= False
         self.uturn_trim_start_time    = 0.0
 
+        # ── Pivot U-Turn State Variables ──────────────────────────────
+        self.pivot_stage              = 'EXIT_ROW'
+        self.pivot_start_x            = 0.0
+        self.pivot_start_y            = 0.0
+        self.pivot_start_yaw          = 0.0
+        self.pivot_turn_dir           = -1.0
+        self.pivot_target_yaw_1       = 0.0
+        self.pivot_target_yaw_2       = 0.0
+        self.pivot_stage_start_time   = 0.0
+        self.pivot_settle_until       = 0.0
+        self.cross_start_x            = 0.0
+        self.cross_start_y            = 0.0
+        self.cross_start_time         = 0.0
+
+        self._latest_left_side_dist   = float('inf')
+        self._latest_right_side_dist  = float('inf')
+
         # ── Image logging ─────────────────────────────────────────────
         self.last_img_save_time = 0.0
         self.output_dir = os.path.join(os.path.expanduser('~'), 'ros2_debug_imgs')
@@ -361,6 +385,7 @@ class CnnDriverNode(Node):
         self.plan_pub    = self.create_publisher(RosPath, '/plan', 10)
         self.plan_timer  = self.create_timer(1.0, self.publish_mission_path)
         self.heading_adjust_timer = self.create_timer(0.05, self._heading_adjust_timer_callback)
+        self.pivot_uturn_timer = self.create_timer(0.05, self._pivot_uturn_timer_callback)
 
         self.image_sub = self.create_subscription(
             Image, self.image_topic, self.image_callback, 10)
@@ -748,6 +773,206 @@ class CnnDriverNode(Node):
         self._latest_twist = twist
         self.cmd_vel_pub.publish(twist)
 
+    def _pivot_uturn_timer_callback(self):
+        """
+        Timer 20Hz điều phối chu trình quay đầu chữ U xoay tại chỗ (Pivot U-Turn 4 giai đoạn)
+        trên xe vi sai ngoài đồng cỏ, độc lập hoàn toàn với tốc độ khung hình camera.
+        Sử dụng triệt để góc Yaw sau lọc EKF (self.current_yaw) chống trượt lết.
+        """
+        if self.fsm.get_state() != FSMState.UTURN_EXECUTION or getattr(self, 'uturn_mode', 'PIVOT').upper() != 'PIVOT':
+            return
+
+        now = self.get_clock().now()
+        now_sec = now.nanoseconds / 1e9
+
+        # Nếu đang trong thời gian ổn định (settle time) giữa các giai đoạn:
+        if now_sec < getattr(self, 'pivot_settle_until', 0.0):
+            twist = Twist()
+            twist.linear.x = 0.0
+            twist.angular.z = 0.0
+            self._latest_twist = twist
+            self.cmd_vel_pub.publish(twist)
+            return
+
+        stage = getattr(self, 'pivot_stage', 'EXIT_ROW')
+        elapsed_stage = now_sec - getattr(self, 'pivot_stage_start_time', now_sec)
+
+        # =========================================================================
+        # GIAI ĐOẠN 1: EXIT_ROW (Chạy thẳng thoát khỏi miệng luống 0.50m)
+        # =========================================================================
+        if stage == 'EXIT_ROW':
+            dx = self.current_x - self.pivot_start_x
+            dy = self.current_y - self.pivot_start_y
+            dist_exit = math.hypot(dx, dy)
+
+            # Cảm biến đa tầng: Kiểm tra khoảng hở 2 bên sườn qua LiDAR
+            left_side_dist = getattr(self, '_latest_left_side_dist', float('inf'))
+            right_side_dist = getattr(self, '_latest_right_side_dist', float('inf'))
+            sides_cleared = (left_side_dist > 0.70 and right_side_dist > 0.70)
+
+            # Điều kiện thoát luống an toàn:
+            # - Hoặc LiDAR xác nhận 2 bên sườn đã trống VÀ xe đã tiến ít nhất 0.38m (chống trượt bánh đếm thiếu)
+            # - Hoặc Odom đo đủ cự ly cài đặt 0.50m
+            # - Hoặc quá thời gian an toàn (8.0s)
+            exit_target = getattr(self, 'drive_out_distance', 0.50)
+            is_cleared = (sides_cleared and dist_exit >= 0.38) or (dist_exit >= exit_target) or (elapsed_stage >= 8.0)
+
+            if is_cleared:
+                self.StopRobot()
+                self.pivot_settle_until = now_sec + 0.35  # Dừng hẳn 0.35s triệt tiêu quán tính
+                self.pivot_stage = 'PIVOT_1'
+                self.pivot_stage_start_time = now_sec + 0.35
+                self.get_logger().info(
+                    f"🛑 [PIVOT U-TURN - GIAI ĐOẠN 1 HOÀN TẤT] Xe đã thoát miệng luống {dist_exit:.2f}m "
+                    f"(LiDAR sườn: L={left_side_dist:.2f}m, R={right_side_dist:.2f}m). Dừng hẳn -> Bắt đầu PIVOT 1 xoay 90°..."
+                )
+                if self.enable_file_logging and self.telemetry_logger:
+                    self.telemetry_logger.log_event("PIVOT_STAGE_EXIT_ROW_DONE", f"Thoát luống dist={dist_exit:.2f}m")
+                return
+
+            # Tiếp tục chạy thẳng chậm ra khỏi miệng luống với khóa hướng xuất phát
+            yaw_err = normalize_angle(self.pivot_start_yaw - self.current_yaw)
+            twist = Twist()
+            twist.linear.x = min(self.linear_speed, getattr(self, 'turn_linear_speed', 0.075))
+            twist.angular.z = float(np.clip(1.2 * yaw_err, -0.25, 0.25))
+            self._latest_twist = twist
+            self.cmd_vel_pub.publish(twist)
+
+        # =========================================================================
+        # GIAI ĐOẠN 2: PIVOT_1 (Đứng yên tại chỗ, xoay 90° sang luống kế bên)
+        # =========================================================================
+        elif stage == 'PIVOT_1':
+            target_yaw = self.pivot_target_yaw_1
+            yaw_err = normalize_angle(target_yaw - self.current_yaw)
+            yaw_err_deg = math.degrees(yaw_err)
+
+            # Ngưỡng hội tụ: Lệch <= 2.0° hoặc timeout 10.0s
+            if abs(yaw_err_deg) <= 2.0 or elapsed_stage >= 10.0:
+                self.StopRobot()
+                self.pivot_settle_until = now_sec + 0.35
+                self.pivot_stage = 'CROSS_DRIVE'
+                self.pivot_stage_start_time = now_sec + 0.35
+                self.cross_start_x = self.current_x
+                self.cross_start_y = self.current_y
+                self.get_logger().info(
+                    f"🛑 [PIVOT U-TURN - GIAI ĐOẠN 2 HOÀN TẤT] Đã xoay chuẩn 90° sang luống kế! "
+                    f"(EKF Yaw={math.degrees(self.current_yaw):+.1f}°, Lệch={yaw_err_deg:+.2f}°). "
+                    f"Dừng hẳn -> Bắt đầu CROSS_DRIVE chạy ngang {self.row_spacing:.2f}m..."
+                )
+                if self.enable_file_logging and self.telemetry_logger:
+                    self.telemetry_logger.log_event(
+                        "PIVOT_STAGE_PIVOT_1_DONE",
+                        f"Xoay 90° xong: Yaw={math.degrees(self.current_yaw):.1f}°, err={yaw_err_deg:.2f}°"
+                    )
+                return
+
+            # Xoay tại chỗ (linear.x = 0.0):
+            ramp = min(1.0, 0.85 + 0.15 * (elapsed_stage / 0.20))
+            base_w = getattr(self, 'turn_angular_speed', 0.60)
+            if abs(yaw_err_deg) > 15.0:
+                w_mag = base_w
+            elif abs(yaw_err_deg) > 6.0:
+                w_mag = min(0.42, base_w)
+            else:
+                w_mag = min(0.28, base_w)
+
+            turn_dir = 1.0 if yaw_err > 0 else -1.0
+            twist = Twist()
+            twist.linear.x = 0.0
+            twist.angular.z = turn_dir * w_mag * ramp
+            self._latest_twist = twist
+            self.cmd_vel_pub.publish(twist)
+
+        # =========================================================================
+        # GIAI ĐOẠN 3: CROSS_DRIVE (Chạy thẳng ngang 1.20m sang tim luống 2)
+        # =========================================================================
+        elif stage == 'CROSS_DRIVE':
+            dx = self.current_x - getattr(self, 'cross_start_x', self.current_x)
+            dy = self.current_y - getattr(self, 'cross_start_y', self.current_y)
+            dist_cross = math.hypot(dx, dy)
+            target_spacing = abs(self.row_spacing)
+
+            v_cross = getattr(self, 'turn_linear_speed', 0.075)
+            max_cross_time = (target_spacing / max(0.04, v_cross)) + 5.0
+
+            if dist_cross >= target_spacing or elapsed_stage >= max_cross_time:
+                self.StopRobot()
+                self.pivot_settle_until = now_sec + 0.35
+                self.pivot_stage = 'PIVOT_2'
+                self.pivot_stage_start_time = now_sec + 0.35
+                self.get_logger().info(
+                    f"🛑 [PIVOT U-TURN - GIAI ĐOẠN 3 HOÀN TẤT] Đã chạy ngang {dist_cross:.2f}m/{target_spacing:.2f}m "
+                    f"tới vị trí đầu Luống 2! Dừng hẳn -> Bắt đầu PIVOT 2 xoay 90° khóa thẳng vào luống..."
+                )
+                if self.enable_file_logging and self.telemetry_logger:
+                    self.telemetry_logger.log_event("PIVOT_STAGE_CROSS_DONE", f"Chạy ngang dist={dist_cross:.2f}m")
+                return
+
+            # Khóa hướng (Heading-Hold) trên trục target_yaw_1 trong khi tiến
+            yaw_err = normalize_angle(self.pivot_target_yaw_1 - self.current_yaw)
+            twist = Twist()
+            remaining = target_spacing - dist_cross
+            lin_v = v_cross if remaining > 0.15 else max(0.04, v_cross * 0.70)
+            twist.linear.x = lin_v
+            twist.angular.z = float(np.clip(1.5 * yaw_err, -0.30, 0.30))
+            self._latest_twist = twist
+            self.cmd_vel_pub.publish(twist)
+
+        # =========================================================================
+        # GIAI ĐOẠN 4: PIVOT_2 (Xoay 90° tiếp - tổng 180° - khóa thẳng vào tim Luống 2)
+        # =========================================================================
+        elif stage == 'PIVOT_2':
+            target_yaw = self.pivot_target_yaw_2
+            yaw_err = normalize_angle(target_yaw - self.current_yaw)
+            yaw_err_deg = math.degrees(yaw_err)
+
+            conf = getattr(self, '_latest_confidence', 0.0)
+            early_acquire = (conf >= 0.60 and abs(yaw_err_deg) <= 12.0 and elapsed_stage >= 2.0)
+            target_aligned = (abs(yaw_err_deg) <= 2.0)
+
+            if target_aligned or early_acquire or elapsed_stage >= 10.0:
+                self.StopRobot()
+                self.current_lane_idx = 2
+                self.current_lane_y = -abs(self.row_spacing) if self.turn_side.upper() == 'RIGHT' else abs(self.row_spacing)
+                self.inside_row = True
+                self.has_seen_row = True
+                self.eor_detected = False
+                self.low_confidence_counter = 0
+                self.smoothed_angle_deg = 0.0
+                self.distance_traveled = 0.0
+                self.accumulated_turn_angle = 0.0
+                self.is_adjusting_heading = False
+                self.pure_pursuit_controller.reset()
+                self.smc_controller.reset()
+
+                self.transition_to_state(FSMState.TRACKING, now)
+                log_msg = (
+                    f"🌾 [PIVOT U-TURN HOÀN THÀNH XUẤT SẮC] Khóa thẳng vào tim Luống 2! "
+                    f"(EKF Yaw={math.degrees(self.current_yaw):+.1f}°, Lệch trục={yaw_err_deg:+.2f}°, Conf={conf*100:.1f}%). "
+                    f"Bàn giao quyền điều khiển cho AI CNN bám tiếp Luống 2!"
+                )
+                self.get_logger().info(log_msg)
+                if self.enable_file_logging and self.telemetry_logger:
+                    self.telemetry_logger.log_event("PIVOT_UTURN_COMPLETE", log_msg)
+                return
+
+            # Xoay tại chỗ (linear.x = 0.0):
+            ramp = min(1.0, 0.85 + 0.15 * (elapsed_stage / 0.20))
+            base_w = getattr(self, 'turn_angular_speed', 0.60)
+            if abs(yaw_err_deg) > 15.0:
+                w_mag = base_w
+            elif abs(yaw_err_deg) > 6.0:
+                w_mag = min(0.42, base_w)
+            else:
+                w_mag = min(0.28, base_w)
+
+            turn_dir = 1.0 if yaw_err > 0 else -1.0
+            twist = Twist()
+            twist.linear.x = 0.0
+            twist.angular.z = turn_dir * w_mag * ramp
+            self._latest_twist = twist
+            self.cmd_vel_pub.publish(twist)
+
     # ── Image conversion ───────────────────────────────────────────────
     def convert_image(self, msg: Image) -> np.ndarray:
         if self.bridge is not None:
@@ -866,6 +1091,8 @@ class CnnDriverNode(Node):
         lane_offset = perception["lane_offset"]
         left_side_dist = perception.get("left_side_dist", float('inf'))
         right_side_dist = perception.get("right_side_dist", float('inf'))
+        self._latest_left_side_dist = left_side_dist
+        self._latest_right_side_dist = right_side_dist
 
         # ── FSM ───────────────────────────────────────────────────────
         twist        = Twist()
@@ -967,6 +1194,11 @@ class CnnDriverNode(Node):
                     self.eor_detected = False
                     self.StopRobot()
                     self.transition_to_state(FSMState.IDLE, now)
+                    return
+                if getattr(self, 'uturn_mode', 'PIVOT').upper() == 'PIVOT':
+                    self.eor_detected = False
+                    self.StopRobot()
+                    self.transition_to_state(FSMState.UTURN_PLANNING, now)
                     return
                 dx = self.current_x - self.eor_trigger_x
                 if abs(dx) >= self.drive_out_distance:
@@ -1228,6 +1460,36 @@ class CnnDriverNode(Node):
 
         # ── UTURN_PLANNING ────────────────────────────────────────────
         elif current_state == FSMState.UTURN_PLANNING:
+            if getattr(self, 'uturn_mode', 'PIVOT').upper() == 'PIVOT':
+                self.pivot_stage = 'EXIT_ROW'
+                self.pivot_stage_start_time = now_sec
+                self.pivot_settle_until = 0.0
+                self.pivot_start_x = self.current_x
+                self.pivot_start_y = self.current_y
+                self.pivot_start_yaw = float(self.current_yaw)
+                self.pivot_turn_dir = -1.0 if self.turn_side.upper() == 'RIGHT' else 1.0
+
+                # Target 1: xoay 90 độ sang luống kế bên (vuông góc hàng)
+                self.pivot_target_yaw_1 = normalize_angle(self.pivot_start_yaw + self.pivot_turn_dir * (math.pi / 2.0))
+                # Target 2: xoay tiếp 90 độ (tổng 180 độ so với Luống 1) để khóa vào Luống 2
+                self.pivot_target_yaw_2 = normalize_angle(self.pivot_start_yaw + math.pi)
+
+                self.get_logger().info(
+                    f"🔄 [PIVOT U-TURN] Kích hoạt quay đầu chữ U xoay tại chỗ (4 giai đoạn):\n"
+                    f"   📍 Xuất phát: x={self.pivot_start_x:.2f}m, y={self.pivot_start_y:.2f}m, EKF Yaw={math.degrees(self.pivot_start_yaw):+.1f}°\n"
+                    f"   🎯 Hướng ngang Target 1 (90°): {math.degrees(self.pivot_target_yaw_1):+.1f}° (quay {self.turn_side})\n"
+                    f"   🎯 Hướng Luống 2 Target 2 (180°): {math.degrees(self.pivot_target_yaw_2):+.1f}°\n"
+                    f"   📏 Thoát miệng luống: {self.drive_out_distance:.2f}m | Khoảng cách luống: {self.row_spacing:.2f}m"
+                )
+                if self.enable_file_logging and self.telemetry_logger:
+                    self.telemetry_logger.log_event(
+                        "PIVOT_UTURN_START",
+                        f"Bắt đầu Pivot U-Turn: EKF Yaw={math.degrees(self.pivot_start_yaw):.1f}°, Target1={math.degrees(self.pivot_target_yaw_1):.1f}°, Target2={math.degrees(self.pivot_target_yaw_2):.1f}°"
+                    )
+                self.StopRobot()
+                self.transition_to_state(FSMState.UTURN_EXECUTION, now)
+                return
+
             # Xác định chiều chuyển luống và tọa độ luống đích
             target_y = -abs(self.row_spacing) if self.turn_side.upper() == 'RIGHT' else abs(self.row_spacing)
             self.current_lane_y = target_y
@@ -1356,6 +1618,10 @@ class CnnDriverNode(Node):
 
         # ── UTURN_EXECUTION ───────────────────────────────────────────
         elif current_state == FSMState.UTURN_EXECUTION:
+            if getattr(self, 'uturn_mode', 'PIVOT').upper() == 'PIVOT':
+                # Pivot U-Turn 4 giai đoạn được điều phối liên tục và mượt mà bởi self._pivot_uturn_timer_callback (20Hz)
+                return
+
             # Pivot/rotate continuously in place until CNN detects the new row
             # Use forward velocity so it traces a smooth wider arc into the row
             twist.linear.x  = self.turn_linear_speed
@@ -1387,8 +1653,9 @@ class CnnDriverNode(Node):
         elif current_state == FSMState.EMERGENCY_STOP:
             self.StopRobot()
 
-        # Khi đang trong chu kỳ căn chỉnh góc mềm, cmd_vel do timer 20Hz (_heading_adjust_timer_callback) kiểm soát
-        if not self.is_adjusting_heading:
+        # Khi đang trong chu kỳ căn chỉnh góc mềm hoặc Pivot U-Turn, cmd_vel do timer 20Hz kiểm soát
+        is_pivot_active = (current_state == FSMState.UTURN_EXECUTION and getattr(self, 'uturn_mode', 'PIVOT').upper() == 'PIVOT')
+        if not self.is_adjusting_heading and not is_pivot_active:
             self.cmd_vel_pub.publish(twist)
 
         # ── State cache update for 10Hz Telemetry Logger & 1Hz Terminal Status ──
@@ -1428,6 +1695,10 @@ class CnnDriverNode(Node):
             display_state = "HEADING_ADJUST"
             cmd_lin = 0.0
             cmd_ang = getattr(self, '_current_heading_adjust_w', 0.0)
+        elif current_state == FSMState.UTURN_EXECUTION and getattr(self, 'uturn_mode', 'PIVOT').upper() == 'PIVOT':
+            display_state = f"UTURN_{getattr(self, 'pivot_stage', 'EXEC')}"
+            cmd_lin = getattr(self, '_latest_twist', Twist()).linear.x
+            cmd_ang = getattr(self, '_latest_twist', Twist()).angular.z
         else:
             display_state = str(current_state)
             cmd_lin = getattr(self, '_latest_twist', Twist()).linear.x
@@ -1494,7 +1765,12 @@ class CnnDriverNode(Node):
         gps_source = self._latest_gps_info.get('source', '')
         gps_str = f" | GPS: {self._latest_gps_info.get('latitude', 0.0):.5f}°, {self._latest_gps_info.get('longitude', 0.0):.5f}°" if (gps_status == 'FIX' and gps_source == 'DIRECT_SENSOR') else ""
 
-        display_state_str = "CHỈNH GÓC" if self.is_adjusting_heading else str(current_state)
+        if self.is_adjusting_heading:
+            display_state_str = "CHỈNH GÓC"
+        elif current_state == FSMState.UTURN_EXECUTION and getattr(self, 'uturn_mode', 'PIVOT').upper() == 'PIVOT':
+            display_state_str = f"U-TURN {getattr(self, 'pivot_stage', '')}"
+        else:
+            display_state_str = str(current_state)
         source_tag = "AI LAPTOP ➔ PI" if getattr(self, '_is_remote_perception', False) else "AI LÁI XE"
         status_msg = (
             f"🌾 [{source_tag}] Luống {self.current_lane_idx} (x={self.current_x:4.2f}m) | "
@@ -1512,6 +1788,9 @@ class CnnDriverNode(Node):
     # ── Laser Scan Callback ──────────────────────────────────────────
     def scan_callback(self, msg: LaserScan):
         self.lidar_processor.update_scan(msg)
+        if hasattr(self.lidar_processor, 'get_min_range_in_sector'):
+            self._latest_left_side_dist = self.lidar_processor.get_min_range_in_sector(20.0, 85.0)
+            self._latest_right_side_dist = self.lidar_processor.get_min_range_in_sector(-85.0, -20.0)
 
     # ── Fallback U-turn path generator ──────────────────────────────
     def generate_backup_uturn_path(self, goal_x, goal_y):

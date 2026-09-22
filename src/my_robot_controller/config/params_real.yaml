@@ -49,8 +49,10 @@ cnn_driver_node:
     low_confidence_threshold: 0.30
     high_confidence_threshold: 0.55
 
-    # Tự động nhận biết hết hàng (End of Row) & Quay đầu Omega Turn:
+    # Tự động nhận biết hết hàng (End of Row) & Quay đầu:
     enable_uturn: true
+    uturn_mode: 'PIVOT'           # 'PIVOT' (xoay tại chỗ 4 giai đoạn trên cỏ) hoặc 'OMEGA' (ôm cua liên tục)
+    drive_out_distance: 0.50      # m — Thoát khỏi miệng luống 0.5m trước khi xoay
     low_conf_frames_threshold: 5  # 5 frame liên tiếp thấy hết cây / confidence giảm dưới 30%
     max_row_length: 10.0          # m — giới hạn an toàn tối đa
 

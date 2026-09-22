@@ -47,6 +47,10 @@ def add_fsm_shading(ax, time_col, fsm_states):
     color_map = {
         'TRACKING': ('#4caf50', 0.08, 'Bám luống (TRACKING)'),
         'HEADING_ADJUST': ('#ff9800', 0.20, 'Căn chỉnh hướng (HEADING_ADJUST)'),
+        'UTURN_EXIT_ROW': ('#00bcd4', 0.16, 'Thoát luống (EXIT_ROW)'),
+        'UTURN_PIVOT_1': ('#2196f3', 0.20, 'Xoay 90° Luống 2 (PIVOT_1)'),
+        'UTURN_CROSS_DRIVE': ('#3f51b5', 0.18, 'Chạy ngang luống (CROSS_DRIVE)'),
+        'UTURN_PIVOT_2': ('#9c27b0', 0.20, 'Khóa thẳng Luống 2 (PIVOT_2)'),
         'UTURN_PLANNING': ('#2196f3', 0.15, 'Quay đầu (UTURN)'),
         'UTURN_EXECUTION': ('#2196f3', 0.15, None),
         'PATH_FOLLOWING': ('#9c27b0', 0.15, 'Chạy theo quỹ đạo (PATH)'),

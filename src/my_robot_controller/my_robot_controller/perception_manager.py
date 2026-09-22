@@ -58,9 +58,9 @@ class EndOfRowDetector:
         
         camera_eor = (self.low_confidence_counter >= self.consecutive_frames)
         
-        # 2. LiDAR check: Chỉ kích hoạt khi phía trước trống (> 2.0m), hai bên sườn trống (> 0.85m)
+        # 2. LiDAR check: Chỉ kích hoạt khi phía trước trống (> 1.2m), hai bên sườn trống (> 0.70m)
         # VÀ Camera cũng mất dấu luống (confidence < low_confidence_threshold).
-        if front_min_dist > 2.00 and left_side_dist > 0.85 and right_side_dist > 0.85 and (confidence < self.low_confidence_threshold):
+        if front_min_dist > 1.20 and left_side_dist > 0.70 and right_side_dist > 0.70 and (confidence < self.low_confidence_threshold):
             self.lidar_clearance_counter += 1
         else:
             self.lidar_clearance_counter = 0
