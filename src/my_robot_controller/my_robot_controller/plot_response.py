@@ -40,26 +40,30 @@ from my_robot_controller.controller_analyzer import (
 def add_fsm_shading(ax, time_col, fsm_states):
     """
     Tô màu nền biểu đồ tương ứng từng trạng thái hoạt động của FSM Robot.
+    Trả về danh sách patches để hiển thị legend ở dưới cùng biểu đồ, tránh làm chật chội đồ thị.
     """
     if len(time_col) == 0 or len(fsm_states) == 0 or len(time_col) != len(fsm_states):
-        return
+        return []
     
+    import matplotlib.patches as mpatches
+
     color_map = {
         'TRACKING': ('#4caf50', 0.08, 'Bám luống (TRACKING)'),
-        'HEADING_ADJUST': ('#ff9800', 0.20, 'Căn chỉnh hướng (HEADING_ADJUST)'),
-        'UTURN_EXIT_ROW': ('#00bcd4', 0.16, 'Thoát luống (EXIT_ROW)'),
-        'UTURN_PIVOT_1': ('#2196f3', 0.20, 'Xoay 90° Luống 2 (PIVOT_1)'),
-        'UTURN_CROSS_DRIVE': ('#3f51b5', 0.18, 'Chạy ngang luống (CROSS_DRIVE)'),
-        'UTURN_PIVOT_2': ('#9c27b0', 0.20, 'Khóa thẳng Luống 2 (PIVOT_2)'),
-        'UTURN_PLANNING': ('#2196f3', 0.15, 'Quay đầu (UTURN)'),
-        'UTURN_EXECUTION': ('#2196f3', 0.15, None),
-        'PATH_FOLLOWING': ('#9c27b0', 0.15, 'Chạy theo quỹ đạo (PATH)'),
+        'HEADING_ADJUST': ('#ff9800', 0.18, 'Căn chỉnh hướng (HEADING_ADJUST)'),
+        'UTURN_EXIT_ROW': ('#00bcd4', 0.14, 'Thoát luống (EXIT_ROW)'),
+        'UTURN_PIVOT_1': ('#2196f3', 0.16, 'Xoay 90° sang Luống 2 (PIVOT_1)'),
+        'UTURN_CROSS_DRIVE': ('#3f51b5', 0.14, 'Chạy ngang luống (CROSS_DRIVE)'),
+        'UTURN_PIVOT_2': ('#9c27b0', 0.16, 'Khóa thẳng Luống 2 (PIVOT_2)'),
+        'UTURN_PLANNING': ('#2196f3', 0.14, 'Quay đầu (UTURN)'),
+        'UTURN_EXECUTION': ('#2196f3', 0.14, None),
+        'PATH_FOLLOWING': ('#9c27b0', 0.14, 'Chạy theo quỹ đạo (PATH)'),
         'RECOVERY': ('#f44336', 0.18, 'Phục hồi lỗi (RECOVERY)'),
         'EMERGENCY_STOP': ('#f44336', 0.25, 'Dừng khẩn cấp')
     }
 
     n = len(fsm_states)
     start_idx = 0
+    fsm_patches = []
     added_labels = set()
 
     for i in range(1, n + 1):
@@ -75,11 +79,14 @@ def add_fsm_shading(ax, time_col, fsm_states):
                         break
                 if cfg:
                     c, alpha, lbl = cfg
-                    label_to_use = lbl if (lbl and lbl not in added_labels) else None
-                    ax.axvspan(t_start, t_end, color=c, alpha=alpha, label=label_to_use, zorder=0)
-                    if lbl:
+                    # Tô màu nền nhẹ nhàng, KHÔNG gán label vào ax để không làm chật legend vận tốc
+                    ax.axvspan(t_start, t_end, color=c, alpha=alpha, zorder=0)
+                    if lbl and lbl not in added_labels:
+                        fsm_patches.append(mpatches.Patch(color=c, alpha=0.45, label=lbl))
                         added_labels.add(lbl)
             start_idx = i
+
+    return fsm_patches
 
 
 def plot_telemetry_csv(csv_path: str, save_path: str = None, show_plot: bool = True):
@@ -154,20 +161,20 @@ def plot_telemetry_csv(csv_path: str, save_path: str = None, show_plot: bool = T
         ax1.axis('equal')
         ax1.legend(fontsize=8)
 
-    # 2. Steering Angle & Error
+    # 2. Steering Angle & Error - Ghi rõ góc thị giác Camera AI CNN, không phải IMU
     ax2 = plt.subplot(2, 2, 2)
     if len(data['Steer_Angle_deg']) > 0:
         # Quy ước hiển thị: (+) = Lệch Phải (cần rẽ Phải), (-) = Lệch Trái (cần rẽ Trái)
         steer_display = data['Steer_Angle_deg']
-        ax2.plot(time_col, steer_display, 'm-', lw=1.8, label='Góc bẻ lái điều khiển (Smoothed Steer)')
+        ax2.plot(time_col, steer_display, 'm-', lw=1.8, label='Góc bẻ lái sau lọc EMA (Smoothed Steer)')
         if len(data['Raw_Steer_deg']) > 0 and np.any(np.abs(data['Raw_Steer_deg']) > 1e-4):
-            ax2.plot(time_col, data['Raw_Steer_deg'], color='#ff7f0e', linestyle=':', lw=1.3, alpha=0.75, label='Góc CNN thô (Raw Steer)')
+            ax2.plot(time_col, data['Raw_Steer_deg'], color='#ff7f0e', linestyle=':', lw=1.3, alpha=0.75, label='Góc tim luống Camera CNN thô (Raw Steer)')
         ax2.axhline(0, color='black', linestyle='--', alpha=0.6)
-        ax2.set_title("Đáp ứng góc lệch qua thời gian", fontweight='bold')
+        ax2.set_title("Đáp ứng góc lệch tim luống từ Camera AI (Vision CNN, không phải IMU)", fontweight='bold', fontsize=10.5)
         ax2.set_xlabel("Thời gian (giây)")
-        ax2.set_ylabel("Góc lệch (độ) [+ Phải / - Trái]")
+        ax2.set_ylabel("Góc lệch Camera CNN (độ) [+ Phải / - Trái]", color='#9c27b0', fontweight='bold')
         ax2.grid(True, linestyle='--', alpha=0.6)
-        ax2.legend(fontsize=8)
+        ax2.legend(fontsize=8, loc='upper right')
 
     # 3. Đáp ứng vận tốc dài v(t) và vận tốc góc ω(t) thực tế
     ax3 = plt.subplot(2, 2, 3)
@@ -180,36 +187,37 @@ def plot_telemetry_csv(csv_path: str, save_path: str = None, show_plot: bool = T
     w_imu = data['IMU_Angular_Vel_z'] if len(data['IMU_Angular_Vel_z']) == len(time_col) else None
 
     # Shading background theo từng trạng thái FSM (Bám luống, Căn chỉnh hướng, U-Turn...)
+    fsm_patches = []
     if len(data['FSM_State']) == len(time_col):
-        add_fsm_shading(ax3, time_col, data['FSM_State'])
+        fsm_patches = add_fsm_shading(ax3, time_col, data['FSM_State'])
 
     # Trục Trái: Vận tốc dài v(t) (m/s)
-    ax3.plot(time_col, v_cmd, color='#2ca02c', lw=2.0, label=r'Vận tốc dài đặt $v_{cmd}(t)$')
+    ax3.plot(time_col, v_cmd, color='#2ca02c', lw=2.0, label=r'Vận tốc dài đặt $v_{\mathrm{cmd}}(t)$')
     if v_act is not None and np.any(np.abs(v_act) > 1e-4):
-        ax3.plot(time_col, v_act, color='#008080', linestyle='--', lw=1.6, alpha=0.9, label=r'Vận tốc dài đo $v_{act}(t)$ (Encoder)')
+        ax3.plot(time_col, v_act, color='#008080', linestyle='--', lw=1.6, alpha=0.9, label=r'Vận tốc dài đo $v_{\mathrm{act}}(t)$ (Encoder)')
 
     # Trục Phải: Vận tốc góc ω(t) (rad/s)
-    ax3_w.plot(time_col, w_cmd, color='#d62728', lw=2.0, label=r'Vận tốc góc đặt $\omega_{cmd}(t)$')
-    if w_imu is not None and np.any(np.abs(w_imu) > 1e-4):
-        ax3_w.plot(time_col, w_imu, color='#ff7f0e', linestyle='-.', lw=1.5, alpha=0.85, label=r'Vận tốc góc IMU $\omega_{IMU}(t)$')
-    if w_act is not None and np.any(np.abs(w_act) > 1e-4):
-        ax3_w.plot(time_col, w_act, color='#9467bd', linestyle=':', lw=1.4, alpha=0.85, label=r'Vận tốc góc Encoder $\omega_{act}(t)$')
+    # Bỏ các đại lượng thừa: Chỉ giữ 2 đường: Đáp ứng thực tế (nét liền) và Đặt (nét đứt)
+    w_resp = w_act if (w_act is not None and np.any(np.abs(w_act) > 1e-4)) else w_imu
+    if w_resp is not None and np.any(np.abs(w_resp) > 1e-4):
+        ax3_w.plot(time_col, w_resp, color='#d62728', linestyle='-', lw=1.8, label=r'Vận tốc góc đáp ứng $\omega_{\mathrm{act}}(t)$ (nét liền)')
+    ax3_w.plot(time_col, w_cmd, color='#ff7f0e', linestyle='--', lw=1.8, label=r'Vận tốc góc đặt $\omega_{\mathrm{cmd}}(t)$ (nét đứt)')
 
     ax3_w.axhline(0, color='gray', linestyle=':', alpha=0.4)
 
-    # Đặt giới hạn trục hiển thị đẹp mắt, không bị ép bẹt đường cong
+    # Đặt giới hạn trục hiển thị thoáng đãng, không bị ép đè lên đường cong
     max_v_data = np.max(v_cmd) if len(v_cmd) > 0 else 0.10
     if v_act is not None and len(v_act) > 0:
         max_v_data = max(max_v_data, np.max(v_act))
-    top_v = max(0.12, max_v_data * 1.3)
+    top_v = max(0.125, max_v_data * 1.45)
     ax3.set_ylim(-0.015, top_v)
 
     max_w_data = 0.60
     if len(w_cmd) > 0:
-        max_w_data = max(max_w_data, np.max(np.abs(w_cmd)) * 1.25)
-    if w_imu is not None and len(w_imu) > 0:
-        max_w_data = max(max_w_data, np.max(np.abs(w_imu)) * 1.2)
-    ax3_w.set_ylim(-max_w_data, max_w_data)
+        max_w_data = max(max_w_data, np.max(np.abs(w_cmd)) * 1.3)
+    if w_resp is not None and len(w_resp) > 0:
+        max_w_data = max(max_w_data, np.max(np.abs(w_resp)) * 1.3)
+    ax3_w.set_ylim(-max_w_data, max_w_data * 1.35)
 
     ax3.set_title(r"Đáp ứng vận tốc dài $v(t)$ và vận tốc góc $\omega(t)$ thực tế", fontweight='bold', fontsize=10.5)
     ax3.set_xlabel("Thời gian (giây)")
@@ -220,9 +228,9 @@ def plot_telemetry_csv(csv_path: str, save_path: str = None, show_plot: bool = T
     ax3_w.set_ylabel(r"Vận tốc góc $\omega$ (rad/s)", color='#b2182b', fontweight='bold')
     ax3_w.tick_params(axis='y', labelcolor='#b2182b')
 
-    # Tách legend trái và phải gọn gàng, độc lập
-    ax3.legend(loc='upper left', fontsize=7.5, framealpha=0.85)
-    ax3_w.legend(loc='upper right', fontsize=7.5, framealpha=0.85)
+    # Tách 2 legend trái và phải gọn gàng, độc lập ở 2 góc trên (chỉ 2 mục mỗi bên, không bị chen chúc)
+    ax3.legend(loc='upper left', fontsize=8, framealpha=0.9)
+    ax3_w.legend(loc='upper right', fontsize=8, framealpha=0.9)
 
     # 4. Heading Orientation Yaw (Odometry & IMU)
     ax4 = plt.subplot(2, 2, 4)
@@ -241,23 +249,33 @@ def plot_telemetry_csv(csv_path: str, save_path: str = None, show_plot: bool = T
         ax4.plot(time_col, imu_yaw_display, 'm--', lw=1.5, label='Góc hướng IMU (Sensor - đã zeroed)')
         has_heading = True
     ax4.axhline(0, color='black', linestyle='--', alpha=0.5)
-    ax4.set_title("Góc quay hướng Robot thực tế", fontweight='bold')
+    ax4.set_title("Góc quay hướng Robot thực tế trong sân (IMU / Odometry)", fontweight='bold', fontsize=10.5)
     ax4.set_xlabel("Thời gian (giây)")
     ax4.set_ylabel("Góc Yaw (độ) [+ Phải / - Trái]")
     ax4.grid(True, linestyle='--', alpha=0.6)
     if has_heading:
         ax4.legend(fontsize=8)
 
-    plt.tight_layout()
+    # Chú thích các chu trình trạng thái FSM dời hẳn xuống dưới cùng của biểu đồ
+    if fsm_patches:
+        fig.legend(handles=fsm_patches, loc='lower center', ncol=len(fsm_patches),
+                   fontsize=8, framealpha=0.95, facecolor='#fafafa', edgecolor='#cccccc',
+                   title='Chu trình trạng thái hoạt động FSM (Giai đoạn chuyển luống và tự hành)')
+        plt.subplots_adjust(top=0.93, bottom=0.10, left=0.08, right=0.93, hspace=0.36, wspace=0.28)
+    else:
+        plt.tight_layout()
+
     if save_path:
         plt.savefig(save_path, dpi=300)
         print(f"[INFO] Saved telemetry analysis to: {save_path}")
         try:
-            log_dir = os.path.dirname(os.path.abspath(save_path))
+            real_save_path = os.path.realpath(save_path)
+            log_dir = os.path.dirname(real_save_path)
             latest_symlink = os.path.join(log_dir, 'latest_telemetry_plot.png')
-            if os.path.lexists(latest_symlink):
-                os.remove(latest_symlink)
-            os.symlink(os.path.basename(save_path), latest_symlink)
+            if os.path.basename(real_save_path) != 'latest_telemetry_plot.png':
+                if os.path.lexists(latest_symlink):
+                    os.remove(latest_symlink)
+                os.symlink(os.path.basename(real_save_path), latest_symlink)
         except Exception:
             pass
     if show_plot:
@@ -503,7 +521,8 @@ def main():
                 return
 
         if not save_path:
-            save_path = csv_file.replace('.csv', '_plot.png')
+            real_csv = os.path.realpath(csv_file)
+            save_path = real_csv.replace('.csv', '_plot.png')
         plot_telemetry_csv(csv_file, save_path=save_path, show_plot=show_plot)
 
 
