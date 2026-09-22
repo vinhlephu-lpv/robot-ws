@@ -228,6 +228,8 @@ rviz_only_func() {
 }
 alias rviz-only="rviz_only_func"
 alias plot="load_ws && ros2 run my_robot_controller plot_response --mode telemetry"
+alias plot-log="load_ws && ros2 run my_robot_controller plot_response --mode telemetry"
+alias plot-telemetry="plot-log"
 alias plot-pp="load_ws && ros2 run my_robot_controller plot_response --mode pure_pursuit"
 alias plot-smc="load_ws && ros2 run my_robot_controller plot_response --mode smc"
 alias plot-gui="load_ws && ros2 run my_robot_controller plot_response --gui"
@@ -1169,7 +1171,7 @@ cat << 'EOF'
   ai                 : Bật thuật toán AI CNN bám luống trong mô phỏng
   slam               : Bật SLAM vẽ bản đồ ảo
   nav                : Bật Nav2 dẫn đường trong mô phỏng
-  plot               : Vẽ biểu đồ quỹ đạo & cảm biến Telemetry
+  plot (plot-log)    : Vẽ biểu đồ quỹ đạo & cảm biến Telemetry
   plot-pp            : Vẽ phân tích đáp ứng Pure Pursuit
   plot-smc           : Vẽ phân tích bộ điều khiển trượt SMC
   plot-gui           : Mở giao diện thanh trượt tinh chỉnh Live Tuning
