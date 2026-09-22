@@ -37,6 +37,47 @@ from my_robot_controller.controller_analyzer import (
 )
 
 
+def add_fsm_shading(ax, time_col, fsm_states):
+    """
+    Tô màu nền biểu đồ tương ứng từng trạng thái hoạt động của FSM Robot.
+    """
+    if len(time_col) == 0 or len(fsm_states) == 0 or len(time_col) != len(fsm_states):
+        return
+    
+    color_map = {
+        'TRACKING': ('#4caf50', 0.08, 'Bám luống (TRACKING)'),
+        'HEADING_ADJUST': ('#ff9800', 0.20, 'Căn chỉnh hướng (HEADING_ADJUST)'),
+        'UTURN_PLANNING': ('#2196f3', 0.15, 'Quay đầu (UTURN)'),
+        'UTURN_EXECUTION': ('#2196f3', 0.15, None),
+        'PATH_FOLLOWING': ('#9c27b0', 0.15, 'Chạy theo quỹ đạo (PATH)'),
+        'RECOVERY': ('#f44336', 0.18, 'Phục hồi lỗi (RECOVERY)'),
+        'EMERGENCY_STOP': ('#f44336', 0.25, 'Dừng khẩn cấp')
+    }
+
+    n = len(fsm_states)
+    start_idx = 0
+    added_labels = set()
+
+    for i in range(1, n + 1):
+        if i == n or fsm_states[i] != fsm_states[start_idx]:
+            state = fsm_states[start_idx]
+            t_start = time_col[start_idx]
+            t_end = time_col[min(i, n - 1)]
+            if t_end > t_start:
+                cfg = None
+                for key in color_map:
+                    if key in state:
+                        cfg = color_map[key]
+                        break
+                if cfg:
+                    c, alpha, lbl = cfg
+                    label_to_use = lbl if (lbl and lbl not in added_labels) else None
+                    ax.axvspan(t_start, t_end, color=c, alpha=alpha, label=label_to_use, zorder=0)
+                    if lbl:
+                        added_labels.add(lbl)
+            start_idx = i
+
+
 def plot_telemetry_csv(csv_path: str, save_path: str = None, show_plot: bool = True):
     """
     Plots real-world telemetry logs collected during robot runs.
@@ -47,15 +88,21 @@ def plot_telemetry_csv(csv_path: str, save_path: str = None, show_plot: bool = T
 
     data = {
         'Unix_Timestamp': [],
+        'FSM_State': [],
         'Pos_X_m': [],
         'Pos_Y_m': [],
         'Yaw_rad': [],
         'Steer_Angle_deg': [],
+        'Raw_Steer_deg': [],
+        'Lane_Offset_m': [],
         'Linear_Vel_mps': [],
         'Angular_Vel_radps': [],
+        'Act_Linear_Vel_mps': [],
+        'Act_Angular_Vel_radps': [],
         'IMU_Yaw_rad': [],
         'Dist_Traveled_m': [],
-        'IMU_Angular_Vel_z': []
+        'IMU_Angular_Vel_z': [],
+        'Confidence': []
     }
 
     with open(csv_path, 'r', newline='') as f:
@@ -63,13 +110,17 @@ def plot_telemetry_csv(csv_path: str, save_path: str = None, show_plot: bool = T
         for row in reader:
             for k in data.keys():
                 if k in row:
-                    try:
-                        data[k].append(float(row[k]))
-                    except (ValueError, TypeError):
-                        pass
+                    if k == 'FSM_State':
+                        data[k].append(str(row[k]))
+                    else:
+                        try:
+                            data[k].append(float(row[k]))
+                        except (ValueError, TypeError):
+                            pass
 
     for k in data.keys():
-        data[k] = np.array(data[k])
+        if k != 'FSM_State':
+            data[k] = np.array(data[k])
 
     if len(data['Unix_Timestamp']) == 0:
         print(f"[ERROR] No valid numerical data parsed from {csv_path}")
@@ -104,7 +155,9 @@ def plot_telemetry_csv(csv_path: str, save_path: str = None, show_plot: bool = T
     if len(data['Steer_Angle_deg']) > 0:
         # Quy ước hiển thị: (+) = Lệch Phải (cần rẽ Phải), (-) = Lệch Trái (cần rẽ Trái)
         steer_display = data['Steer_Angle_deg']
-        ax2.plot(time_col, steer_display, 'm-', lw=1.8, label='Góc lệch phát hiện (CNN Error)')
+        ax2.plot(time_col, steer_display, 'm-', lw=1.8, label='Góc bẻ lái điều khiển (Smoothed Steer)')
+        if len(data['Raw_Steer_deg']) > 0 and np.any(np.abs(data['Raw_Steer_deg']) > 1e-4):
+            ax2.plot(time_col, data['Raw_Steer_deg'], color='#ff7f0e', linestyle=':', lw=1.3, alpha=0.75, label='Góc CNN thô (Raw Steer)')
         ax2.axhline(0, color='black', linestyle='--', alpha=0.6)
         ax2.set_title("Đáp ứng góc lệch qua thời gian", fontweight='bold')
         ax2.set_xlabel("Thời gian (giây)")
@@ -112,92 +165,60 @@ def plot_telemetry_csv(csv_path: str, save_path: str = None, show_plot: bool = T
         ax2.grid(True, linestyle='--', alpha=0.6)
         ax2.legend(fontsize=8)
 
-    # 3. Đáp ứng vận tốc điều khiển thực tế (Chu kỳ Bám luống & Xoay căn chỉnh)
+    # 3. Đáp ứng vận tốc dài v(t) và vận tốc góc ω(t) thực tế
     ax3 = plt.subplot(2, 2, 3)
-    t_end = time_col[-1] if len(time_col) > 0 else 25.0
-    t_ideal = np.linspace(0, t_end, 2000)
-    v_ideal = np.zeros_like(t_ideal)
-    w_ideal = np.zeros_like(t_ideal)
+    ax3_w = ax3.twinx()
 
-    np.random.seed(123)
+    v_cmd = data['Linear_Vel_mps'] if len(data['Linear_Vel_mps']) == len(time_col) else np.zeros_like(time_col)
+    w_cmd = data['Angular_Vel_radps'] if len(data['Angular_Vel_radps']) == len(time_col) else np.zeros_like(time_col)
+    v_act = data['Act_Linear_Vel_mps'] if len(data['Act_Linear_Vel_mps']) == len(time_col) else None
+    w_act = data['Act_Angular_Vel_radps'] if len(data['Act_Angular_Vel_radps']) == len(time_col) else None
+    w_imu = data['IMU_Angular_Vel_z'] if len(data['IMU_Angular_Vel_z']) == len(time_col) else None
 
-    def s_curve(t, t0, t1):
-        tau = np.clip((t - t0) / (t1 - t0), 0.0, 1.0)
-        return 10 * tau**3 - 15 * tau**4 + 6 * tau**5
+    # Shading background theo từng trạng thái FSM (Bám luống, Căn chỉnh hướng, U-Turn...)
+    if len(data['FSM_State']) == len(time_col):
+        add_fsm_shading(ax3, time_col, data['FSM_State'])
 
-    # 1. Chỉnh góc 1 (0.3s - 3.6s): Vận tốc góc mục tiêu ~0.49 - 0.51 rad/s
-    m_w1 = (t_ideal >= 0.3) & (t_ideal <= 3.6)
-    t_rel = t_ideal[m_w1] - 0.3
-    ramp_w1 = s_curve(t_ideal[m_w1], 0.3, 0.9) - s_curve(t_ideal[m_w1], 3.0, 3.6)
-    dyn_w1 = 0.49 * ramp_w1
-    dyn_w1 += 0.024 * np.sin(np.pi * np.clip((t_ideal[m_w1] - 0.3)/0.8, 0, 1)) * np.exp(-1.4 * (t_ideal[m_w1] - 0.9).clip(min=0))
-    dyn_w1 += 0.012 * np.sin(2 * np.pi * 0.85 * t_rel) * (t_ideal[m_w1] > 0.9) * (t_ideal[m_w1] < 3.0)
-    dyn_w1 += np.random.normal(0, 0.004, len(t_rel)) * ramp_w1
-    w_ideal[m_w1] = np.clip(dyn_w1, 0.0, 0.53)
+    # Trục Trái: Vận tốc dài v(t) (m/s)
+    ax3.plot(time_col, v_cmd, color='#2ca02c', lw=2.0, label=r'Vận tốc dài đặt $v_{cmd}(t)$')
+    if v_act is not None and np.any(np.abs(v_act) > 1e-4):
+        ax3.plot(time_col, v_act, color='#008080', linestyle='--', lw=1.6, alpha=0.9, label=r'Vận tốc dài đo $v_{act}(t)$ (Encoder)')
 
-    # 2. Chạy thẳng bám luống 1 (3.8s - 9.4s): Vận tốc dài mục tiêu ~0.098 - 0.103 m/s
-    m_v1 = (t_ideal >= 3.8) & (t_ideal <= 9.4)
-    t_rel = t_ideal[m_v1] - 3.8
-    ramp_v1 = s_curve(t_ideal[m_v1], 3.8, 4.4) - s_curve(t_ideal[m_v1], 8.8, 9.4)
-    dyn_v1 = 0.098 * ramp_v1
-    dyn_v1 += 0.007 * np.sin(np.pi * np.clip((t_ideal[m_v1] - 3.8)/0.7, 0, 1)) * np.exp(-1.6 * (t_ideal[m_v1] - 4.4).clip(min=0))
-    dyn_v1 += 0.0035 * np.sin(2 * np.pi * 0.65 * t_rel) * (t_ideal[m_v1] > 4.4) * (t_ideal[m_v1] < 8.8)
-    dyn_v1 -= 0.005 * np.exp(-((t_ideal[m_v1] - 6.8)/0.6)**2)
-    dyn_v1 += np.random.normal(0, 0.0014, len(t_rel)) * ramp_v1
-    v_ideal[m_v1] = np.clip(dyn_v1, 0.0, 0.11)
+    # Trục Phải: Vận tốc góc ω(t) (rad/s)
+    ax3_w.plot(time_col, w_cmd, color='#d62728', lw=2.0, label=r'Vận tốc góc đặt $\omega_{cmd}(t)$')
+    if w_imu is not None and np.any(np.abs(w_imu) > 1e-4):
+        ax3_w.plot(time_col, w_imu, color='#ff7f0e', linestyle='-.', lw=1.5, alpha=0.85, label=r'Vận tốc góc IMU $\omega_{IMU}(t)$')
+    if w_act is not None and np.any(np.abs(w_act) > 1e-4):
+        ax3_w.plot(time_col, w_act, color='#9467bd', linestyle=':', lw=1.4, alpha=0.85, label=r'Vận tốc góc Encoder $\omega_{act}(t)$')
 
-    # 3. Dừng tiến xoay căn chỉnh 2 (9.6s - 13.0s): Vận tốc góc mục tiêu ~0.505 rad/s
-    m_w2 = (t_ideal >= 9.6) & (t_ideal <= 13.0)
-    t_rel = t_ideal[m_w2] - 9.6
-    ramp_w2 = s_curve(t_ideal[m_w2], 9.6, 10.2) - s_curve(t_ideal[m_w2], 12.4, 13.0)
-    dyn_w2 = 0.505 * ramp_w2
-    dyn_w2 += 0.022 * np.sin(np.pi * np.clip((t_ideal[m_w2] - 9.6)/0.7, 0, 1)) * np.exp(-1.5 * (t_ideal[m_w2] - 10.2).clip(min=0))
-    dyn_w2 += 0.010 * np.sin(2 * np.pi * 1.15 * t_rel) * (t_ideal[m_w2] > 10.2) * (t_ideal[m_w2] < 12.4)
-    dyn_w2 += np.random.normal(0, 0.004, len(t_rel)) * ramp_w2
-    w_ideal[m_w2] = np.clip(dyn_w2, 0.0, 0.54)
+    ax3_w.axhline(0, color='gray', linestyle=':', alpha=0.4)
 
-    # 4. Chạy thẳng bám luống 2 (13.2s - 17.6s): Vận tốc dài mục tiêu ~0.102 m/s
-    m_v2 = (t_ideal >= 13.2) & (t_ideal <= 17.6)
-    t_rel = t_ideal[m_v2] - 13.2
-    ramp_v2 = s_curve(t_ideal[m_v2], 13.2, 13.8) - s_curve(t_ideal[m_v2], 17.0, 17.6)
-    dyn_v2 = 0.102 * ramp_v2
-    dyn_v2 += 0.006 * np.sin(np.pi * np.clip((t_ideal[m_v2] - 13.2)/0.7, 0, 1)) * np.exp(-1.8 * (t_ideal[m_v2] - 13.8).clip(min=0))
-    dyn_v2 += 0.003 * np.cos(2 * np.pi * 0.8 * t_rel) * (t_ideal[m_v2] > 13.8) * (t_ideal[m_v2] < 17.0)
-    dyn_v2 += np.random.normal(0, 0.0014, len(t_rel)) * ramp_v2
-    v_ideal[m_v2] = np.clip(dyn_v2, 0.0, 0.112)
+    # Đặt giới hạn trục hiển thị đẹp mắt, không bị ép bẹt đường cong
+    max_v_data = np.max(v_cmd) if len(v_cmd) > 0 else 0.10
+    if v_act is not None and len(v_act) > 0:
+        max_v_data = max(max_v_data, np.max(v_act))
+    top_v = max(0.12, max_v_data * 1.3)
+    ax3.set_ylim(-0.015, top_v)
 
-    # 5. Dừng tiến xoay căn chỉnh 3 (17.8s - 21.1s): Vận tốc góc mục tiêu ~0.495 rad/s
-    m_w3 = (t_ideal >= 17.8) & (t_ideal <= 21.1)
-    t_rel = t_ideal[m_w3] - 17.8
-    ramp_w3 = s_curve(t_ideal[m_w3], 17.8, 18.4) - s_curve(t_ideal[m_w3], 20.5, 21.1)
-    dyn_w3 = 0.495 * ramp_w3
-    dyn_w3 += 0.019 * np.sin(np.pi * np.clip((t_ideal[m_w3] - 17.8)/0.7, 0, 1)) * np.exp(-1.5 * (t_ideal[m_w3] - 18.4).clip(min=0))
-    dyn_w3 += 0.011 * np.sin(2 * np.pi * 1.05 * t_rel) * (t_ideal[m_w3] > 18.4) * (t_ideal[m_w3] < 20.5)
-    dyn_w3 += np.random.normal(0, 0.004, len(t_rel)) * ramp_w3
-    w_ideal[m_w3] = np.clip(dyn_w3, 0.0, 0.53)
+    max_w_data = 0.60
+    if len(w_cmd) > 0:
+        max_w_data = max(max_w_data, np.max(np.abs(w_cmd)) * 1.25)
+    if w_imu is not None and len(w_imu) > 0:
+        max_w_data = max(max_w_data, np.max(np.abs(w_imu)) * 1.2)
+    ax3_w.set_ylim(-max_w_data, max_w_data)
 
-    # 6. Chạy thẳng về đích cuối luống (21.3s - 25.0s): Vận tốc dài mục tiêu ~0.099 m/s
-    m_v3 = (t_ideal >= 21.3) & (t_ideal <= 25.0)
-    t_rel = t_ideal[m_v3] - 21.3
-    ramp_v3 = s_curve(t_ideal[m_v3], 21.3, 21.9)
-    dyn_v3 = 0.099 * ramp_v3
-    dyn_v3 += 0.0055 * np.sin(np.pi * np.clip((t_ideal[m_v3] - 21.3)/0.7, 0, 1)) * np.exp(-1.7 * (t_ideal[m_v3] - 21.9).clip(min=0))
-    dyn_v3 += 0.0028 * np.sin(2 * np.pi * 0.9 * t_rel) * (t_ideal[m_v3] > 21.9)
-    dyn_v3 += np.random.normal(0, 0.0014, len(t_rel)) * ramp_v3
-    v_ideal[m_v3] = np.clip(dyn_v3, 0.0, 0.11)
-
-    ax3.plot(t_ideal, v_ideal, color='#2ca02c', lw=2.0, label='Vận tốc dài đáp ứng v(t) (m/s)')
-    ax3.plot(t_ideal, w_ideal, color='#d62728', lw=2.0, label=r'Vận tốc góc đáp ứng $\omega(t)$ (rad/s)')
-    ax3.axhline(0.10, color='green', linestyle='--', alpha=0.7, lw=1.5, label='Tốc độ đặt chạy thẳng (0.10 m/s)')
-    ax3.axhline(0.50, color='darkred', linestyle='--', alpha=0.7, lw=1.5, label='Tốc độ đặt xoay tại chỗ (0.50 rad/s)')
-
-    ax3.set_title("Đáp ứng vận tốc điều khiển (Chạy thẳng & Xoay tại chỗ)", fontweight='bold')
+    ax3.set_title(r"Đáp ứng vận tốc dài $v(t)$ và vận tốc góc $\omega(t)$ thực tế", fontweight='bold', fontsize=10.5)
     ax3.set_xlabel("Thời gian (giây)")
-    ax3.set_ylabel("Vận tốc (m/s, rad/s)")
-    ax3.set_xlim(-0.5, t_end + 0.5)
-    ax3.set_ylim(-0.02, 0.58)
-    ax3.grid(True, linestyle='--', alpha=0.6)
-    ax3.legend(loc='upper right', fontsize=7.5)
+    ax3.set_ylabel("Vận tốc dài v (m/s)", color='#1b7837', fontweight='bold')
+    ax3.tick_params(axis='y', labelcolor='#1b7837')
+    ax3.grid(True, linestyle='--', alpha=0.5)
+
+    ax3_w.set_ylabel(r"Vận tốc góc $\omega$ (rad/s)", color='#b2182b', fontweight='bold')
+    ax3_w.tick_params(axis='y', labelcolor='#b2182b')
+
+    # Tách legend trái và phải gọn gàng, độc lập
+    ax3.legend(loc='upper left', fontsize=7.5, framealpha=0.85)
+    ax3_w.legend(loc='upper right', fontsize=7.5, framealpha=0.85)
 
     # 4. Heading Orientation Yaw (Odometry & IMU)
     ax4 = plt.subplot(2, 2, 4)

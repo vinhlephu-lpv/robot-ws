@@ -410,7 +410,11 @@ class CnnDriverNode(Node):
         self._latest_twist = Twist()
         self._latest_gps_info = {}
         self._latest_inf_ms = 0.0
+        self._latest_raw_angle = 0.0
+        self._latest_lane_offset = 0.0
+        self._current_heading_adjust_w = 0.0
         self.status_timer = self.create_timer(1.0, self.status_timer_callback)
+        self.telemetry_timer = self.create_timer(0.10, self._telemetry_timer_callback)
 
     # ── Compatibility Properties ─────────────────────────────────────
     @property
@@ -493,6 +497,8 @@ class CnnDriverNode(Node):
             self.controller_manager.controllers[self.controller_manager.active_name].stop()
         self.controller_manager.active_name = None
         twist = Twist()
+        self._latest_twist = twist
+        self._current_heading_adjust_w = 0.0
         self.cmd_vel_pub.publish(twist)
         return twist
 
@@ -701,11 +707,13 @@ class CnnDriverNode(Node):
         # Watchdog an toàn: quá 6s tự động thoát
         if elapsed > 6.0:
             self.is_adjusting_heading = False
+            self._current_heading_adjust_w = 0.0
             self.heading_adjust_cooldown_until = now_sec + 1.0
             self._aligned_frame_count = 0
             twist = Twist()
             twist.linear.x = self.linear_speed
             twist.angular.z = 0.0
+            self._latest_twist = twist
             self.cmd_vel_pub.publish(twist)
             cur_yaw = float(self.localization_manager.imu_yaw)
             start_yaw = getattr(self, 'heading_adjust_start_imu_yaw', cur_yaw)
@@ -732,10 +740,12 @@ class CnnDriverNode(Node):
             target_w = base_w
 
         current_w = self.heading_adjust_dir * target_w * ramp
+        self._current_heading_adjust_w = current_w
 
         twist = Twist()
         twist.linear.x = 0.0
         twist.angular.z = current_w
+        self._latest_twist = twist
         self.cmd_vel_pub.publish(twist)
 
     # ── Image conversion ───────────────────────────────────────────────
@@ -754,6 +764,7 @@ class CnnDriverNode(Node):
         if self.fsm.set_state(new_state):
             self.state_start_time = now
             self.is_adjusting_heading = False
+            self._current_heading_adjust_w = 0.0
             self._aligned_frame_count = 0
             if new_state == FSMState.TRACKING:
                 self.tracking_controller.reset()
@@ -981,6 +992,7 @@ class CnnDriverNode(Node):
                     lat_correction = -1.5 * (self.current_y - lane_center) * dir_x
                     twist.linear.x = self.linear_speed
                     twist.angular.z = float(np.clip(lat_correction + 0.8 * yaw_err, -0.30, 0.30))
+                    self._latest_twist = twist
                     self.cmd_vel_pub.publish(twist)
                     return
 
@@ -1044,6 +1056,7 @@ class CnnDriverNode(Node):
                 # Kiểm tra đã thẳng hàng chưa (<= resume_threshold)
                 if abs(self.smoothed_angle_deg) <= resume_threshold:
                     self.is_adjusting_heading = False
+                    self._current_heading_adjust_w = 0.0
                     self._aligned_frame_count = 0
                     self.heading_adjust_cooldown_until = now_sec + 1.2
                     self.forward_resume_start_time = now_sec
@@ -1052,6 +1065,7 @@ class CnnDriverNode(Node):
                     twist = Twist()
                     twist.linear.x = 0.0
                     twist.angular.z = 0.0
+                    self._latest_twist = twist
                     self.cmd_vel_pub.publish(twist)
 
                     cur_yaw = float(self.localization_manager.imu_yaw)
@@ -1082,6 +1096,7 @@ class CnnDriverNode(Node):
                     self.is_adjusting_heading = True
                     self.heading_adjust_start_time = now_sec
                     self.heading_adjust_dir = -1.0 if self.smoothed_angle_deg > 0 else 1.0
+                    self._current_heading_adjust_w = self.heading_adjust_dir * getattr(self, 'turn_angular_speed', 0.60) * 0.80
                     self._aligned_frame_count = 0
                     self.heading_adjust_start_imu_yaw = float(self.localization_manager.imu_yaw)
                     self.get_logger().info(
@@ -1096,7 +1111,7 @@ class CnnDriverNode(Node):
 
             if self.is_adjusting_heading:
                 lin_speed = 0.0
-                ang_vel = 0.0  # Vận tốc góc xoay từ từ do timer 20Hz kiểm soát độc lập
+                ang_vel = getattr(self, '_current_heading_adjust_w', 0.0)
             else:
                 # Tăng tốc tiến mềm (0.35s ramp-up) sau khi căn chỉnh xong để chống giật/trượt bánh:
                 time_since_resume = now_sec - getattr(self, 'forward_resume_start_time', 0.0)
@@ -1107,6 +1122,7 @@ class CnnDriverNode(Node):
 
             twist.linear.x = lin_speed
             twist.angular.z = ang_vel
+            self._latest_twist = twist
 
             # ── Pure Perception & Mission Goals End-Of-Row Check ─────────────────────
             # 1. Điều kiện nhận biết hết hàng qua camera: 5 frame liên tiếp confidence < 30%
@@ -1375,48 +1391,79 @@ class CnnDriverNode(Node):
         if not self.is_adjusting_heading:
             self.cmd_vel_pub.publish(twist)
 
-        # ── Telemetry File Logging & Standardized Terminal Status Output ──
+        # ── State cache update for 10Hz Telemetry Logger & 1Hz Terminal Status ──
         pose_info = self.localization_manager.get_pose()
         gps_info = pose_info.get('gps', {})
-        imu_info = pose_info.get('imu', {})
-        inf_ms = getattr(self, '_last_inference_ms', 0.0)
-        fps_val = (1000.0 / inf_ms) if inf_ms > 0 else 0.0
-
-        if self.enable_file_logging and self.telemetry_logger:
-            self.telemetry_logger.log_telemetry({
-                'fsm_state': current_state,
-                'x': self.current_x,
-                'y': self.current_y,
-                'yaw': self.current_yaw,
-                'steering_angle_deg': self.smoothed_angle_deg,
-                'raw_steer_deg': raw_angle,
-                'lane_offset': lane_offset,
-                'linear_velocity': twist.linear.x,
-                'angular_velocity': twist.angular.z,
-                'imu_yaw': imu_info.get('yaw', 0.0),
-                'imu_angular_vel_z': imu_info.get('angular_vel_z', 0.0),
-                'imu_accel_x': imu_info.get('linear_accel_x', 0.0),
-                'confidence': confidence,
-                'inference_ms': inf_ms,
-                'fps': fps_val,
-                'distance_traveled': self.distance_traveled,
-                'gps_latitude': gps_info.get('latitude', 0.0),
-                'gps_longitude': gps_info.get('longitude', 0.0),
-                'gps_altitude': gps_info.get('altitude', 0.0),
-                'gps_dms': gps_info.get('dms', ''),
-                'gps_status': gps_info.get('status', 'NO_FIX')
-            })
-
-        # Update state cache for the 1Hz terminal status logger
         display_steer_deg = self.smoothed_angle_deg
         if current_state != FSMState.TRACKING and abs(twist.linear.x) > 0.01:
             display_steer_deg = math.degrees(math.atan2(twist.angular.z * 0.58, twist.linear.x))
+
         self._last_image_time = time.time()
         self._latest_confidence = confidence
         self._latest_steer_deg = display_steer_deg
         self._latest_twist = twist
         self._latest_gps_info = gps_info
         self._latest_inf_ms = getattr(self, '_last_inference_ms', 0.0)
+        self._latest_raw_angle = raw_angle
+        self._latest_lane_offset = lane_offset
+
+    def _telemetry_timer_callback(self):
+        """
+        Ghi nhận dữ liệu telemetry định kỳ 10Hz (100ms) ra file CSV.
+        Đảm bảo biểu đồ tốc độ (Linear & Angular Velocity) và quỹ đạo luôn dày đặc, liên tục,
+        ngay cả khi xoay tại chỗ (Heading Adjust), quay đầu (U-Turn) hoặc khi camera trả frame thưa.
+        """
+        if not self.enable_file_logging or not self.telemetry_logger:
+            return
+
+        # Chỉ bắt đầu ghi sau khi xe đã nhận tín hiệu đầu tiên
+        if self._last_image_time == 0.0:
+            return
+
+        current_state = self.fsm.get_state()
+        if current_state == FSMState.IDLE and self.distance_traveled == 0.0:
+            return
+
+        if self.is_adjusting_heading:
+            display_state = "HEADING_ADJUST"
+            cmd_lin = 0.0
+            cmd_ang = getattr(self, '_current_heading_adjust_w', 0.0)
+        else:
+            display_state = str(current_state)
+            cmd_lin = getattr(self, '_latest_twist', Twist()).linear.x
+            cmd_ang = getattr(self, '_latest_twist', Twist()).angular.z
+
+        pose_info = self.localization_manager.get_pose()
+        gps_info = pose_info.get('gps', {})
+        imu_info = pose_info.get('imu', {})
+        inf_ms = getattr(self, '_last_inference_ms', 0.0)
+        fps_val = (1000.0 / inf_ms) if inf_ms > 0 else 0.0
+
+        self.telemetry_logger.log_telemetry({
+            'fsm_state': display_state,
+            'x': self.current_x,
+            'y': self.current_y,
+            'yaw': self.current_yaw,
+            'steering_angle_deg': self.smoothed_angle_deg,
+            'raw_steer_deg': getattr(self, '_latest_raw_angle', 0.0),
+            'lane_offset': getattr(self, '_latest_lane_offset', 0.0),
+            'linear_velocity': cmd_lin,
+            'angular_velocity': cmd_ang,
+            'act_linear_velocity': pose_info.get('linear_velocity', 0.0),
+            'act_angular_velocity': pose_info.get('angular_velocity', 0.0),
+            'imu_yaw': imu_info.get('yaw', 0.0),
+            'imu_angular_vel_z': imu_info.get('angular_vel_z', 0.0),
+            'imu_accel_x': imu_info.get('linear_accel_x', 0.0),
+            'confidence': getattr(self, '_latest_confidence', 0.0),
+            'inference_ms': inf_ms,
+            'fps': fps_val,
+            'distance_traveled': self.distance_traveled,
+            'gps_latitude': gps_info.get('latitude', 0.0),
+            'gps_longitude': gps_info.get('longitude', 0.0),
+            'gps_altitude': gps_info.get('altitude', 0.0),
+            'gps_dms': gps_info.get('dms', ''),
+            'gps_status': gps_info.get('status', 'NO_FIX')
+        })
 
     def status_timer_callback(self):
         """Định kỳ in trạng thái trực quan chuẩn 1 Hz ra terminal khi đang tự hành."""
