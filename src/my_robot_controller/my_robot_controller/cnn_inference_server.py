@@ -241,7 +241,14 @@ class CnnInferenceServer(Node):
         )
         self.detection_pub = self.create_publisher(Float32MultiArray, '/crop_row/detection', qos_det)
         self.debug_img_pub = self.create_publisher(CompressedImage, '/crop_row/debug_mask/compressed', qos_det)
-        self.hud_img_pub = self.create_publisher(Image, '/crop_row/hud_image', qos_det)
+        # Topic phát hình HUD cho RViz trên Laptop (dùng RELIABLE depth 1 để tương thích tuyệt đối với RViz)
+        qos_rviz = QoSProfile(
+            reliability=ReliabilityPolicy.RELIABLE,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,
+            durability=DurabilityPolicy.VOLATILE
+        )
+        self.hud_img_pub = self.create_publisher(Image, '/crop_row/hud_image', qos_rviz)
 
         # ── Subscribers ───────────────────────────────────────────────
         # 1. Nhận ảnh nén JPEG từ Pi (Ưu tiên: siêu nhẹ trên Wi-Fi ~20KB/frame)
@@ -355,8 +362,10 @@ class CnnInferenceServer(Node):
 
         if need_hud:
             now_gui = time.time()
-            # Giới hạn tốc độ vẽ GUI/HUD tối đa 15-20 FPS (chu kỳ >= 60ms) để không nghẽn CPU và giữ FPS ổn định
-            if now_gui - self._last_gui_time < 0.06:
+            # Nếu chỉ gửi cho RViz: điều tiết 10-12 FPS (chu kỳ >= 85ms) để AI chạy tối đa FPS mà RViz vẫn mượt
+            # Nếu hiển thị cửa sổ riêng OpenCV: điều tiết 15-20 FPS (chu kỳ >= 50ms)
+            throttle_interval = 0.085 if has_rviz_subs else 0.05
+            if now_gui - self._last_gui_time < throttle_interval:
                 return
             self._last_gui_time = now_gui
 
@@ -473,18 +482,19 @@ class CnnInferenceServer(Node):
                     cv2.destroyAllWindows()
                     self._window_created = False
 
-            # Gửi raw Image cho RViz (/crop_row/hud_image)
+            # Gửi Image nhẹ cho RViz (/crop_row/hud_image)
             if self.hud_img_pub.get_subscription_count() > 0:
                 try:
+                    rviz_hud = cv2.resize(hud_canvas, (840, 240), interpolation=cv2.INTER_LINEAR)
                     msg_img = Image()
                     msg_img.header.stamp = self.get_clock().now().to_msg()
                     msg_img.header.frame_id = 'camera_link'
-                    msg_img.height = hud_canvas.shape[0]
-                    msg_img.width = hud_canvas.shape[1]
+                    msg_img.height = 240
+                    msg_img.width = 840
                     msg_img.encoding = 'bgr8'
                     msg_img.is_bigendian = False
-                    msg_img.step = hud_canvas.shape[1] * 3
-                    msg_img.data = hud_canvas.tobytes()
+                    msg_img.step = 840 * 3
+                    msg_img.data = rviz_hud.tobytes()
                     self.hud_img_pub.publish(msg_img)
                 except Exception:
                     pass
