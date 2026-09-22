@@ -9,17 +9,8 @@ Panels:
         - /RobotModel1
         - /TF1
         - /LaserScan1
-        - /Camera1
-        - /Map1
       split_ratio: 0.5
     Tree Height: 550
-  - Class: rviz_common/Views
-    Expanded:
-      - /Current View1
-    Name: Views
-    Split Ratio: 0.5
-  - Class: nav2_rviz_plugins/Navigation 2
-    Name: Navigation 2
 Visualization Manager:
   Class: ""
   Displays:
@@ -94,49 +85,6 @@ Visualization Manager:
         Reliability Policy: Best Effort
         Value: /scan
       Value: true
-
-    - Class: rviz_default_plugins/Image
-      Enabled: true
-      Max Value: 1
-      Median window: 1
-      Min Value: 0
-      Name: AI Navigation HUD
-      Normalize Range: false
-      Topic:
-        Depth: 1
-        Durability Policy: Volatile
-        History Policy: Keep Last
-        Reliability Policy: Reliable
-        Value: /crop_row/hud_image
-      Value: true
-    - Class: rviz_default_plugins/Image
-      Enabled: false
-      Max Value: 1
-      Median window: 1
-      Min Value: 0
-      Name: Camera View (Local)
-      Normalize Range: false
-      Topic:
-        Depth: 1
-        Durability Policy: Volatile
-        History Policy: Keep Last
-        Reliability Policy: Best Effort
-        Value: /camera/local/image_raw
-      Value: false
-    - Class: rviz_default_plugins/Image
-      Enabled: false
-      Max Value: 1
-      Median window: 1
-      Min Value: 0
-      Name: Camera View (WiFi Stream)
-      Normalize Range: false
-      Topic:
-        Depth: 5
-        Durability Policy: Volatile
-        History Policy: Keep Last
-        Reliability Policy: Reliable
-        Value: /camera/wifi_image
-      Value: false
     - Angle Tolerance: 0.1
       Class: rviz_default_plugins/Odometry
       Color: 0; 255; 0
@@ -373,8 +321,6 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /initialpose
-    - Class: nav2_rviz_plugins/GoalTool
-      Hide During Create: false
     - Class: rviz_default_plugins/SetGoal
       Hide During Create: false
       Topic:
@@ -411,15 +357,13 @@ Window Geometry:
     collapsed: false
   Height: 800
   Hide Left Dock: false
-  Hide Right Dock: false
+  Hide Right Dock: true
   Selection:
-    collapsed: false
+    collapsed: true
   Time:
-    collapsed: false
+    collapsed: true
   Tool Properties:
-    collapsed: false
-  Views:
-    collapsed: false
+    collapsed: true
   Width: 1200
   X: 50
   Y: 50

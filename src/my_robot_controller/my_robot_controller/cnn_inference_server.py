@@ -240,15 +240,6 @@ class CnnInferenceServer(Node):
             durability=DurabilityPolicy.VOLATILE
         )
         self.detection_pub = self.create_publisher(Float32MultiArray, '/crop_row/detection', qos_det)
-        self.debug_img_pub = self.create_publisher(CompressedImage, '/crop_row/debug_mask/compressed', qos_det)
-        # Topic phát hình HUD cho RViz trên Laptop (dùng RELIABLE depth 1 để tương thích tuyệt đối với RViz)
-        qos_rviz = QoSProfile(
-            reliability=ReliabilityPolicy.RELIABLE,
-            history=HistoryPolicy.KEEP_LAST,
-            depth=1,
-            durability=DurabilityPolicy.VOLATILE
-        )
-        self.hud_img_pub = self.create_publisher(Image, '/crop_row/hud_image', qos_rviz)
 
         # ── Subscribers ───────────────────────────────────────────────
         # 1. Nhận ảnh nén JPEG từ Pi (Ưu tiên: siêu nhẹ trên Wi-Fi ~20KB/frame)
@@ -339,141 +330,114 @@ class CnnInferenceServer(Node):
         self.detection_pub.publish(out_msg)
         self._frame_count += 1
 
-        # Hiển thị cửa sổ GUI hoặc gửi ảnh qua topic cho RViz (/crop_row/hud_image)
-        has_rviz_subs = (self.hud_img_pub.get_subscription_count() > 0 or self.debug_img_pub.get_subscription_count() > 0)
-        
-        # TỰ ĐỘNG CHUYỂN ĐỔI CHẾ ĐỘ HIỂN THỊ THEO YÊU CẦU:
-        # - Nếu RViz (laptop-view) đang mở: Ẩn/tắt cửa sổ ảnh riêng OpenCV, nhường toàn bộ hiển thị cho RViz.
-        # - Nếu RViz KHÔNG mở và bật view: Hiện cửa sổ 3 ảnh OpenCV riêng.
-        should_show_opencv = self.show_window and not has_rviz_subs
-        need_hud = should_show_opencv or has_rviz_subs
-
-        # Tự động đóng cửa sổ OpenCV nếu RViz vừa mở lên
-        if has_rviz_subs and self._window_created:
-            try:
-                cv2.destroyAllWindows()
-            except Exception:
-                pass
-            self._window_created = False
-            self.get_logger().info(
-                "👁️ [AUTO-VIEW] Phát hiện RViz đang mở! Đã tự động tắt cửa sổ ảnh riêng để hiển thị trên RViz và tối ưu FPS.",
-                throttle_duration_sec=5.0
-            )
-
-        if need_hud:
+        # Hiển thị cửa sổ HUD trực quan 3 khung hình OpenCV trên Laptop
+        if self.show_window:
             now_gui = time.time()
-            # Nếu chỉ gửi cho RViz: điều tiết 10-12 FPS (chu kỳ >= 85ms) để AI chạy tối đa FPS mà RViz vẫn mượt
-            # Nếu hiển thị cửa sổ riêng OpenCV: điều tiết 15-20 FPS (chu kỳ >= 50ms)
-            throttle_interval = 0.085 if has_rviz_subs else 0.05
-            if now_gui - self._last_gui_time < throttle_interval:
+            if now_gui - self._last_gui_time < 0.033:  # Điều tiết render ~30 FPS để tối ưu tài nguyên máy
                 return
             self._last_gui_time = now_gui
 
-            if should_show_opencv:
-                # Kiểm tra xem người dùng có bấm nút [X] đóng cửa sổ không
-                if self._window_created:
-                    try:
-                        prop = cv2.getWindowProperty(self.window_name, cv2.WND_PROP_VISIBLE)
-                        if prop < 1:
-                            self.get_logger().info("🛑 Người dùng đã bấm [X] đóng cửa sổ HUD. Tiếp tục chạy ngầm tối đa FPS.")
-                            self.show_window = False
-                            cv2.destroyAllWindows()
-                            self._window_created = False
-                    except Exception:
-                        self.get_logger().info("🛑 Cửa sổ HUD đã đóng. Tiếp tục chạy ngầm tối đa FPS.")
+            # Kiểm tra xem người dùng có bấm nút [X] đóng cửa sổ không
+            if self._window_created:
+                try:
+                    prop = cv2.getWindowProperty(self.window_name, cv2.WND_PROP_VISIBLE)
+                    if prop < 1:
+                        self.get_logger().info("🛑 Người dùng đã bấm [X] đóng cửa sổ HUD. Tiếp tục chạy ngầm tối đa FPS.")
                         self.show_window = False
                         cv2.destroyAllWindows()
                         self._window_created = False
+                except Exception:
+                    self.get_logger().info("🛑 Cửa sổ HUD đã đóng. Tiếp tục chạy ngầm tối đa FPS.")
+                    self.show_window = False
+                    cv2.destroyAllWindows()
+                    self._window_created = False
 
-                # Khởi tạo cửa sổ 1 LẦN DUY NHẤT khi RViz không mở
-                if self.show_window and not self._window_created:
-                    try:
-                        cv2.namedWindow(self.window_name, cv2.WINDOW_NORMAL)
-                        cv2.resizeWindow(self.window_name, 1260, 360)
-                        self._window_created = True
-                        self.get_logger().info(
-                            "🌾 [AUTO-VIEW] Chế độ xem độc lập (không mở RViz): Kích hoạt cửa sổ HUD 3 khung hình OpenCV.",
-                            throttle_duration_sec=5.0
-                        )
-                    except Exception as e:
-                        self.get_logger().warn(f"Không thể mở cửa sổ GUI: {e}")
-                        self.show_window = False
+            # Khởi tạo cửa sổ 1 LẦN DUY NHẤT
+            if self.show_window and not self._window_created:
+                try:
+                    cv2.namedWindow(self.window_name, cv2.WINDOW_NORMAL)
+                    cv2.resizeWindow(self.window_name, 1260, 360)
+                    self._window_created = True
+                    self.get_logger().info("🌾 [CNN Server] Kích hoạt cửa sổ HUD 3 khung hình OpenCV trực quan.")
+                except Exception as e:
+                    self.get_logger().warn(f"Không thể mở cửa sổ GUI: {e}")
+                    self.show_window = False
 
-            # 1. Tính toán trạng thái FSM và Động học xe mô phỏng (100% khớp cnn_driver & test-img)
-            if confidence < self.low_conf_thresh:
-                state_name = "LOST / EOR (MAT DAU / HET HANG)"
-                state_color = (0, 0, 255)  # Đỏ
-                v_lin = 0.0
-                w_ang = 0.0
-            elif abs(heading_error) > self.turn_in_place_thresh:
-                state_name = f"DUNG TIEN - XOAY TAI CHO (|goc|={abs(heading_error):.1f}° > {self.turn_in_place_thresh:.1f}°)"
-                state_color = (0, 215, 255)  # Vàng cam
-                v_lin = 0.0
-                turn_dir = -1.0 if heading_error > 0 else 1.0
-                w_ang = turn_dir * self.turn_angular_speed
-            else:
-                state_name = f"TIEN BAM LUONG SMC (|goc|={abs(heading_error):.1f}° <= {self.turn_in_place_thresh:.1f}°)"
-                state_color = (0, 255, 0)  # Xanh lá
-                v_lin = self.linear_speed
-                if self.controller is not None:
-                    try:
-                        self.controller.reset()
-                        cmd = self.controller.compute_command(heading_error, dt_actual=0.067)
-                        w_ang = float(cmd.get("angular_velocity", 0.0))
-                    except Exception:
-                        w_ang = float(np.clip(-0.045 * heading_error, -0.6, 0.6))
+            if self.show_window and self._window_created:
+                # 1. Tính toán trạng thái FSM và Động học xe mô phỏng (100% khớp cnn_driver & test-img)
+                if confidence < self.low_conf_thresh:
+                    state_name = "LOST / EOR (MAT DAU / HET HANG)"
+                    state_color = (0, 0, 255)  # Đỏ
+                    v_lin = 0.0
+                    w_ang = 0.0
+                elif abs(heading_error) > self.turn_in_place_thresh:
+                    state_name = f"DUNG TIEN - XOAY TAI CHO (|goc|={abs(heading_error):.1f}° > {self.turn_in_place_thresh:.1f}°)"
+                    state_color = (0, 215, 255)  # Vàng cam
+                    v_lin = 0.0
+                    turn_dir = -1.0 if heading_error > 0 else 1.0
+                    w_ang = turn_dir * self.turn_angular_speed
                 else:
-                    w_ang = float(np.clip(-0.045 * heading_error, -0.6, 0.6))
+                    state_name = f"TIEN BAM LUONG SMC (|goc|={abs(heading_error):.1f}° <= {self.turn_in_place_thresh:.1f}°)"
+                    state_color = (0, 255, 0)  # Xanh lá
+                    v_lin = self.linear_speed
+                    if self.controller is not None:
+                        try:
+                            self.controller.reset()
+                            cmd = self.controller.compute_command(heading_error, dt_actual=0.067)
+                            w_ang = float(cmd.get("angular_velocity", 0.0))
+                        except Exception:
+                            w_ang = float(np.clip(-0.045 * heading_error, -0.6, 0.6))
+                    else:
+                        w_ang = float(np.clip(-0.045 * heading_error, -0.6, 0.6))
 
-            # 2. Differential Drive Kinematics (Vận tốc bánh & RPM)
-            v_left = v_lin - (w_ang * self.wheel_base / 2.0)
-            v_right = v_lin + (w_ang * self.wheel_base / 2.0)
-            rpm_left = (v_left / self.wheel_circ) * 60.0
-            rpm_right = (v_right / self.wheel_circ) * 60.0
-            esp_cmd = f"V {rpm_left:.1f} {rpm_right:.1f}\n"
+                # 2. Differential Drive Kinematics (Vận tốc bánh & RPM)
+                v_left = v_lin - (w_ang * self.wheel_base / 2.0)
+                v_right = v_lin + (w_ang * self.wheel_base / 2.0)
+                rpm_left = (v_left / self.wheel_circ) * 60.0
+                rpm_right = (v_right / self.wheel_circ) * 60.0
+                esp_cmd = f"V {rpm_left:.1f} {rpm_right:.1f}\n"
 
-            # 3. BTS7960 Motor PWM Duty Cycle
-            v_l_bts = v_left
-            v_r_bts = v_right
-            if v_lin > 0.03:
-                min_fwd = 0.035
-                min_v = min(v_l_bts, v_r_bts)
-                if min_v < min_fwd:
-                    shift = min_fwd - min_v
-                    v_l_bts += shift
-                    v_r_bts += shift
-            duty_l = vel_to_duty(v_l_bts, self.max_linear_speed, self.min_duty_cycle)
-            duty_r = vel_to_duty(v_r_bts, self.max_linear_speed, self.min_duty_cycle)
+                # 3. BTS7960 Motor PWM Duty Cycle
+                v_l_bts = v_left
+                v_r_bts = v_right
+                if v_lin > 0.03:
+                    min_fwd = 0.035
+                    min_v = min(v_l_bts, v_r_bts)
+                    if min_v < min_fwd:
+                        shift = min_fwd - min_v
+                        v_l_bts += shift
+                        v_r_bts += shift
+                duty_l = vel_to_duty(v_l_bts, self.max_linear_speed, self.min_duty_cycle)
+                duty_r = vel_to_duty(v_r_bts, self.max_linear_speed, self.min_duty_cycle)
 
-            # 4. Lấy mặt nạ CNN từ inference handler
-            mask_prob = getattr(self.inference, 'latest_mask', None)
-            if mask_prob is None:
-                mask_prob = np.zeros((self.input_height, self.input_width), dtype=np.float32)
+                # 4. Lấy mặt nạ CNN từ inference handler
+                mask_prob = getattr(self.inference, 'latest_mask', None)
+                if mask_prob is None:
+                    mask_prob = np.zeros((self.input_height, self.input_width), dtype=np.float32)
 
-            # 5. Vẽ HUD 3 Panel (Camera gốc | CNN Mask | Dashboard xe thật)
-            hud_canvas = draw_hud_3panel(
-                bgr_orig=bgr_img,
-                mask_prob=mask_prob,
-                lane_center=lane_center,
-                conf=confidence,
-                heading_err=heading_error,
-                lane_off=lane_offset,
-                v_lin=v_lin,
-                w_ang=w_ang,
-                rpm_l=rpm_left,
-                rpm_r=rpm_right,
-                duty_l=duty_l,
-                duty_r=duty_r,
-                esp_cmd=esp_cmd,
-                inference_ms=latency_ms,
-                state_name=state_name,
-                state_color=state_color,
-                roi_ratio=self.roi_ratio,
-                mask_thresh=self.mask_threshold,
-                max_steer=self.max_steering_angle_deg
-            )
+                # 5. Vẽ HUD 3 Panel (Camera gốc | CNN Mask | Dashboard xe thật)
+                hud_canvas = draw_hud_3panel(
+                    bgr_orig=bgr_img,
+                    mask_prob=mask_prob,
+                    lane_center=lane_center,
+                    conf=confidence,
+                    heading_err=heading_error,
+                    lane_off=lane_offset,
+                    v_lin=v_lin,
+                    w_ang=w_ang,
+                    rpm_l=rpm_left,
+                    rpm_r=rpm_right,
+                    duty_l=duty_l,
+                    duty_r=duty_r,
+                    esp_cmd=esp_cmd,
+                    inference_ms=latency_ms,
+                    state_name=state_name,
+                    state_color=state_color,
+                    roi_ratio=self.roi_ratio,
+                    mask_thresh=self.mask_threshold,
+                    max_steer=self.max_steering_angle_deg
+                )
 
-            if should_show_opencv:
                 cv2.imshow(self.window_name, hud_canvas)
                 key = cv2.waitKey(1) & 0xFF
                 if key in (ord('q'), ord('Q'), 27):  # 'q' hoặc ESC -> Đóng vĩnh viễn cửa sổ
@@ -481,36 +445,6 @@ class CnnInferenceServer(Node):
                     self.show_window = False
                     cv2.destroyAllWindows()
                     self._window_created = False
-
-            # Gửi Image nhẹ cho RViz (/crop_row/hud_image)
-            if self.hud_img_pub.get_subscription_count() > 0:
-                try:
-                    rviz_hud = cv2.resize(hud_canvas, (840, 240), interpolation=cv2.INTER_LINEAR)
-                    msg_img = Image()
-                    msg_img.header.stamp = self.get_clock().now().to_msg()
-                    msg_img.header.frame_id = 'camera_link'
-                    msg_img.height = 240
-                    msg_img.width = 840
-                    msg_img.encoding = 'bgr8'
-                    msg_img.is_bigendian = False
-                    msg_img.step = 840 * 3
-                    msg_img.data = rviz_hud.tobytes()
-                    self.hud_img_pub.publish(msg_img)
-                except Exception:
-                    pass
-
-            # Gửi ảnh debug nén nếu có subscriber ngoài ROS 2
-            if self.debug_img_pub.get_subscription_count() > 0:
-                try:
-                    small_dbg = cv2.resize(hud_canvas, (960, 270))
-                    _, enc = cv2.imencode('.jpg', small_dbg, [int(cv2.IMWRITE_JPEG_QUALITY), 65])
-                    msg = CompressedImage()
-                    msg.header.stamp = self.get_clock().now().to_msg()
-                    msg.format = 'jpeg'
-                    msg.data = enc.tobytes()
-                    self.debug_img_pub.publish(msg)
-                except Exception:
-                    pass
 
     def _log_fps(self):
         fps = self._frame_count

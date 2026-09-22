@@ -178,17 +178,12 @@ alias rviz-cam="rviz_record_func"
 rviz_view_func() {
     load_ws
     mkdir -p "$WS_DIR/logs"
-    pkill -f "my_robot_bringup.*wifi_cam_receiver" 2>/dev/null || true
-    sleep 0.2
     echo "================================================================================"
-    echo "👁️ [LAPTOP-VIEW] Khởi động giao diện RViz2 Trực quan hóa Xe & AI Tự hành"
+    echo "👁️ [LAPTOP-VIEW] Khởi động giao diện RViz2 Trực quan hóa Xe & LiDAR C1"
     echo "   🤖 Mô hình 3D Robot & Khung toạ độ TF (/robot_description, /tf)"
     echo "   📡 Quét vật cản LiDAR C1 (/scan) & Bộ lọc định vị EKF (/odometry/filtered)"
-    echo "   🌾 Màn hình AI bám luống (/crop_row/hud_image) & Camera (/camera/local/image_raw)"
+    echo "   🧠 Màn hình AI HUD 3 ảnh chạy độc lập qua cửa sổ OpenCV siêu mượt (pc-cnn)"
     echo "================================================================================"
-    ros2 run my_robot_bringup wifi_cam_receiver > "$WS_DIR/logs/wifi_cam_receiver.log" 2>&1 &
-    local receiver_pid=$!
-    sleep 0.6
 
     local rviz_file=""
     for cand in \
@@ -207,8 +202,6 @@ rviz_view_func() {
     else
         rviz2 "$@"
     fi
-    kill -9 $receiver_pid 2>/dev/null || true
-    pkill -f "my_robot_bringup.*wifi_cam_receiver" 2>/dev/null || true
 }
 alias rviz="rviz_view_func"
 alias laptop-view="rviz_view_func"
@@ -1129,7 +1122,7 @@ cat << 'EOF'
 💻 [TRÊN LAPTOP] (Màn hình quan sát, Lái xe & Xử lý Dataset)
   laptop-cnn (pc-cnn): BẬT CAMERA & AI CNN TRÊN LAPTOP (Cắm cam vào Laptop, chạy 30-60 FPS, HUD trực quan, bắn góc lái xuống Pi)
   check-cam (test-cam): Kiểm tra nhanh Camera RealSense D435 / Webcam cắm trên Laptop
-  laptop-view        : Mở RViz2 nhận luồng Camera nén từ Pi qua Wi-Fi (mượt, không lag)
+  laptop-view        : Mở RViz2 trực quan hoá Robot 3D, LiDAR C1 và Bộ lọc EKF (nhẹ, mượt, không giật lag)
   quay-rviz [tên]    : Mở RViz + Quay video Full HD 1080p 60FPS + Tách Dataset ảnh
                        (Tên khác: rviz-record, laptop-record)
   teleop (lai-xe)    : Bàn phím lái xe chuẩn gốc ROS 2 (i=tiến, ,=lùi, j/l=rẽ, k=dừng)
