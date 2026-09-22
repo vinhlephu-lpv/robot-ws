@@ -244,6 +244,7 @@ class CnnInferenceServer(Node):
         )
         self.detection_pub = self.create_publisher(Float32MultiArray, '/crop_row/detection', qos_det)
         self.debug_img_pub = self.create_publisher(CompressedImage, '/crop_row/debug_mask/compressed', qos_det)
+        self.hud_img_pub = self.create_publisher(Image, '/crop_row/hud_image', qos_det)
 
         # ── Subscribers ───────────────────────────────────────────────
         # 1. Nhận ảnh nén JPEG từ Pi (Ưu tiên: siêu nhẹ trên Wi-Fi ~20KB/frame)
@@ -334,39 +335,40 @@ class CnnInferenceServer(Node):
         self.detection_pub.publish(out_msg)
         self._frame_count += 1
 
-        # Hiển thị cửa sổ giao diện trực quan nếu bật show_window
-        if self.show_window:
+        # Hiển thị cửa sổ GUI hoặc gửi ảnh qua topic cho RViz (/crop_row/hud_image)
+        has_rviz_subs = (self.hud_img_pub.get_subscription_count() > 0 or self.debug_img_pub.get_subscription_count() > 0)
+        need_hud = self.show_window or has_rviz_subs
+
+        if need_hud:
             now_gui = time.time()
-            # Giới hạn tốc độ vẽ GUI tối đa 15-20 FPS (chu kỳ >= 50ms) để không nghẽn CPU và tránh lag màn hình
+            # Giới hạn tốc độ vẽ GUI/HUD tối đa 20 FPS (chu kỳ >= 50ms) để không nghẽn CPU
             if now_gui - self._last_gui_time < 0.05:
                 return
             self._last_gui_time = now_gui
 
-            # Kiểm tra xem người dùng có bấm nút [X] đóng cửa sổ không
-            if self._window_created:
-                try:
-                    prop = cv2.getWindowProperty(self.window_name, cv2.WND_PROP_VISIBLE)
-                    if prop < 1:
-                        self.get_logger().info("🛑 Người dùng đã bấm [X] đóng cửa sổ HUD. Tiếp tục chạy ngầm tối đa FPS.")
+            if self.show_window:
+                # Kiểm tra xem người dùng có bấm nút [X] đóng cửa sổ không
+                if self._window_created:
+                    try:
+                        prop = cv2.getWindowProperty(self.window_name, cv2.WND_PROP_VISIBLE)
+                        if prop < 1:
+                            self.get_logger().info("🛑 Người dùng đã bấm [X] đóng cửa sổ HUD. Tiếp tục chạy ngầm tối đa FPS.")
+                            self.show_window = False
+                            cv2.destroyAllWindows()
+                    except Exception:
+                        self.get_logger().info("🛑 Cửa sổ HUD đã đóng. Tiếp tục chạy ngầm tối đa FPS.")
                         self.show_window = False
                         cv2.destroyAllWindows()
-                        return
-                except Exception:
-                    self.get_logger().info("🛑 Cửa sổ HUD đã đóng. Tiếp tục chạy ngầm tối đa FPS.")
-                    self.show_window = False
-                    cv2.destroyAllWindows()
-                    return
 
-            # Khởi tạo cửa sổ 1 LẦN DUY NHẤT (WINDOW_NORMAL giúp kéo dãn/thu nhỏ mượt mà)
-            if not self._window_created:
-                try:
-                    cv2.namedWindow(self.window_name, cv2.WINDOW_NORMAL)
-                    cv2.resizeWindow(self.window_name, 1260, 360)
-                    self._window_created = True
-                except Exception as e:
-                    self.get_logger().warn(f"Không thể mở cửa sổ GUI: {e}")
-                    self.show_window = False
-                    return
+                # Khởi tạo cửa sổ 1 LẦN DUY NHẤT (WINDOW_NORMAL giúp kéo dãn/thu nhỏ mượt mà)
+                if self.show_window and not self._window_created:
+                    try:
+                        cv2.namedWindow(self.window_name, cv2.WINDOW_NORMAL)
+                        cv2.resizeWindow(self.window_name, 1260, 360)
+                        self._window_created = True
+                    except Exception as e:
+                        self.get_logger().warn(f"Không thể mở cửa sổ GUI: {e}")
+                        self.show_window = False
 
             # 1. Tính toán trạng thái FSM và Động học xe mô phỏng (100% khớp cnn_driver & test-img)
             if confidence < self.low_conf_thresh:
@@ -442,13 +444,29 @@ class CnnInferenceServer(Node):
                 max_steer=self.max_steering_angle_deg
             )
 
-            cv2.imshow(self.window_name, hud_canvas)
-            key = cv2.waitKey(1) & 0xFF
-            if key in (ord('q'), ord('Q'), 27):  # 'q' hoặc ESC -> Đóng vĩnh viễn cửa sổ
-                self.get_logger().info("🛑 Người dùng nhấn phím 'q' / ESC. Đóng cửa sổ HUD và chuyển sang chạy ngầm.")
-                self.show_window = False
-                cv2.destroyAllWindows()
-                return
+            if self.show_window:
+                cv2.imshow(self.window_name, hud_canvas)
+                key = cv2.waitKey(1) & 0xFF
+                if key in (ord('q'), ord('Q'), 27):  # 'q' hoặc ESC -> Đóng vĩnh viễn cửa sổ
+                    self.get_logger().info("🛑 Người dùng nhấn phím 'q' / ESC. Đóng cửa sổ HUD và chuyển sang chạy ngầm.")
+                    self.show_window = False
+                    cv2.destroyAllWindows()
+
+            # Gửi raw Image cho RViz (/crop_row/hud_image)
+            if self.hud_img_pub.get_subscription_count() > 0:
+                try:
+                    msg_img = Image()
+                    msg_img.header.stamp = self.get_clock().now().to_msg()
+                    msg_img.header.frame_id = 'camera_link'
+                    msg_img.height = hud_canvas.shape[0]
+                    msg_img.width = hud_canvas.shape[1]
+                    msg_img.encoding = 'bgr8'
+                    msg_img.is_bigendian = False
+                    msg_img.step = hud_canvas.shape[1] * 3
+                    msg_img.data = hud_canvas.tobytes()
+                    self.hud_img_pub.publish(msg_img)
+                except Exception:
+                    pass
 
             # Gửi ảnh debug nén nếu có subscriber ngoài ROS 2
             if self.debug_img_pub.get_subscription_count() > 0:

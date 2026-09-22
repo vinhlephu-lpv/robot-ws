@@ -180,10 +180,15 @@ rviz_view_func() {
     mkdir -p "$WS_DIR/logs"
     pkill -f "my_robot_bringup.*wifi_cam_receiver" 2>/dev/null || true
     sleep 0.2
-    echo "📷 [LAPTOP-VIEW] Đang khởi động bộ thu & giải mã Camera Wi-Fi từ Pi..."
+    echo "================================================================================"
+    echo "👁️ [LAPTOP-VIEW] Khởi động giao diện RViz2 Trực quan hóa Xe & AI Tự hành"
+    echo "   🤖 Mô hình 3D Robot & Khung toạ độ TF (/robot_description, /tf)"
+    echo "   📡 Quét vật cản LiDAR C1 (/scan) & Bộ lọc định vị EKF (/odometry/filtered)"
+    echo "   🌾 Màn hình AI bám luống (/crop_row/hud_image) & Camera (/camera/local/image_raw)"
+    echo "================================================================================"
     ros2 run my_robot_bringup wifi_cam_receiver > "$WS_DIR/logs/wifi_cam_receiver.log" 2>&1 &
     local receiver_pid=$!
-    sleep 0.8
+    sleep 0.6
 
     local rviz_file=""
     for cand in \
