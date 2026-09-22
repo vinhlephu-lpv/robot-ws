@@ -79,8 +79,7 @@ def draw_hud_3panel(bgr_orig, mask_prob, lane_center, conf, heading_err, lane_of
 
     # Vạch giới hạn ROI 80% trên Panel 2
     y_roi = int(round(vis_h * (1.0 - roi_ratio)))
-    p2_top_shade = p2[0:y_roi, :].copy()
-    p2[0:y_roi, :] = cv2.addWeighted(p2_top_shade, 0.4, np.zeros_like(p2_top_shade), 0.6, 0)
+    p2[0:y_roi, :] = (p2[0:y_roi, :].astype(np.uint16) * 4 // 10).astype(np.uint8)
     for x in range(0, vis_w, 16):
         cv2.line(p2, (x, y_roi), (min(x + 8, vis_w), y_roi), (0, 180, 255), 1)
     cv2.putText(p2, f"CUT TOP {int((1.0-roi_ratio)*100)}% (BO QUA HAU CANH)", (10, max(y_roi - 6, 18)), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (160, 160, 255), 1, cv2.LINE_AA)
@@ -88,9 +87,9 @@ def draw_hud_3panel(bgr_orig, mask_prob, lane_center, conf, heading_err, lane_of
 
     # Panel 3: Live Vehicle HUD (100% Robot Driving Simulation)
     p3 = p1.copy()
-    overlay = p1.copy()
-    overlay[bin_mask > 0] = [255, 200, 0] # Phủ màu hàng thùng
-    p3 = cv2.addWeighted(p1, 0.65, overlay, 0.35, 0)
+    mask_idx = bin_mask > 0
+    if np.any(mask_idx):
+        p3[mask_idx] = ((p3[mask_idx].astype(np.uint16) * 65 + np.uint16([255, 200, 0]) * 35) // 100).astype(np.uint8)
 
     # Vạch ROI trên Panel 3
     for x in range(0, vis_w, 16):
@@ -114,9 +113,7 @@ def draw_hud_3panel(bgr_orig, mask_prob, lane_center, conf, heading_err, lane_of
 
     # 4. Dashboard Bar trên cùng Panel 3
     dash_h = 96
-    dash_overlay = p3[0:dash_h, :].copy()
-    dash_bg = np.zeros_like(dash_overlay)
-    p3[0:dash_h, :] = cv2.addWeighted(dash_overlay, 0.20, dash_bg, 0.80, 0)
+    p3[0:dash_h, :] = (p3[0:dash_h, :].astype(np.uint16) * 2 // 10).astype(np.uint8)
 
     # Line 1: State Badge
     cv2.putText(p3, f"STATUS: {state_name}", (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.44, state_color, 1, cv2.LINE_AA)
@@ -337,16 +334,33 @@ class CnnInferenceServer(Node):
 
         # Hiển thị cửa sổ GUI hoặc gửi ảnh qua topic cho RViz (/crop_row/hud_image)
         has_rviz_subs = (self.hud_img_pub.get_subscription_count() > 0 or self.debug_img_pub.get_subscription_count() > 0)
-        need_hud = self.show_window or has_rviz_subs
+        
+        # TỰ ĐỘNG CHUYỂN ĐỔI CHẾ ĐỘ HIỂN THỊ THEO YÊU CẦU:
+        # - Nếu RViz (laptop-view) đang mở: Ẩn/tắt cửa sổ ảnh riêng OpenCV, nhường toàn bộ hiển thị cho RViz.
+        # - Nếu RViz KHÔNG mở và bật view: Hiện cửa sổ 3 ảnh OpenCV riêng.
+        should_show_opencv = self.show_window and not has_rviz_subs
+        need_hud = should_show_opencv or has_rviz_subs
+
+        # Tự động đóng cửa sổ OpenCV nếu RViz vừa mở lên
+        if has_rviz_subs and self._window_created:
+            try:
+                cv2.destroyAllWindows()
+            except Exception:
+                pass
+            self._window_created = False
+            self.get_logger().info(
+                "👁️ [AUTO-VIEW] Phát hiện RViz đang mở! Đã tự động tắt cửa sổ ảnh riêng để hiển thị trên RViz và tối ưu FPS.",
+                throttle_duration_sec=5.0
+            )
 
         if need_hud:
             now_gui = time.time()
-            # Giới hạn tốc độ vẽ GUI/HUD tối đa 20 FPS (chu kỳ >= 50ms) để không nghẽn CPU
-            if now_gui - self._last_gui_time < 0.05:
+            # Giới hạn tốc độ vẽ GUI/HUD tối đa 15-20 FPS (chu kỳ >= 60ms) để không nghẽn CPU và giữ FPS ổn định
+            if now_gui - self._last_gui_time < 0.06:
                 return
             self._last_gui_time = now_gui
 
-            if self.show_window:
+            if should_show_opencv:
                 # Kiểm tra xem người dùng có bấm nút [X] đóng cửa sổ không
                 if self._window_created:
                     try:
@@ -355,17 +369,23 @@ class CnnInferenceServer(Node):
                             self.get_logger().info("🛑 Người dùng đã bấm [X] đóng cửa sổ HUD. Tiếp tục chạy ngầm tối đa FPS.")
                             self.show_window = False
                             cv2.destroyAllWindows()
+                            self._window_created = False
                     except Exception:
                         self.get_logger().info("🛑 Cửa sổ HUD đã đóng. Tiếp tục chạy ngầm tối đa FPS.")
                         self.show_window = False
                         cv2.destroyAllWindows()
+                        self._window_created = False
 
-                # Khởi tạo cửa sổ 1 LẦN DUY NHẤT (WINDOW_NORMAL giúp kéo dãn/thu nhỏ mượt mà)
+                # Khởi tạo cửa sổ 1 LẦN DUY NHẤT khi RViz không mở
                 if self.show_window and not self._window_created:
                     try:
                         cv2.namedWindow(self.window_name, cv2.WINDOW_NORMAL)
                         cv2.resizeWindow(self.window_name, 1260, 360)
                         self._window_created = True
+                        self.get_logger().info(
+                            "🌾 [AUTO-VIEW] Chế độ xem độc lập (không mở RViz): Kích hoạt cửa sổ HUD 3 khung hình OpenCV.",
+                            throttle_duration_sec=5.0
+                        )
                     except Exception as e:
                         self.get_logger().warn(f"Không thể mở cửa sổ GUI: {e}")
                         self.show_window = False
@@ -444,13 +464,14 @@ class CnnInferenceServer(Node):
                 max_steer=self.max_steering_angle_deg
             )
 
-            if self.show_window:
+            if should_show_opencv:
                 cv2.imshow(self.window_name, hud_canvas)
                 key = cv2.waitKey(1) & 0xFF
                 if key in (ord('q'), ord('Q'), 27):  # 'q' hoặc ESC -> Đóng vĩnh viễn cửa sổ
                     self.get_logger().info("🛑 Người dùng nhấn phím 'q' / ESC. Đóng cửa sổ HUD và chuyển sang chạy ngầm.")
                     self.show_window = False
                     cv2.destroyAllWindows()
+                    self._window_created = False
 
             # Gửi raw Image cho RViz (/crop_row/hud_image)
             if self.hud_img_pub.get_subscription_count() > 0:
