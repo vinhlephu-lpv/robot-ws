@@ -110,9 +110,9 @@ class CnnDriverNode(Node):
         self.declare_parameter('goal_1_x', 3.0)
         self.declare_parameter('goal_1_y', 0.0)
         self.declare_parameter('goal_2_x', 3.0)
-        self.declare_parameter('goal_2_y', -0.80)
+        self.declare_parameter('goal_2_y', 0.80)
         self.declare_parameter('goal_3_x', 0.0)
-        self.declare_parameter('goal_3_y', -0.80)
+        self.declare_parameter('goal_3_y', 0.80)
         self.declare_parameter('turn_side', 'RIGHT')
         self.declare_parameter('omega_open_angle_deg', 35.0)
         self.declare_parameter('omega_r1', 0.85)
@@ -185,6 +185,15 @@ class CnnDriverNode(Node):
         self.omega_clearance          = p('omega_clearance').value
         self.omega_lead_in            = p('omega_lead_in').value
         self.current_lane_idx         = 1
+
+        # Tự động đồng bộ tọa độ Y: Quy ước người dùng ((+) = Bên Phải, (-) = Bên Trái)
+        # với hệ tọa độ ROS REP-103 nội bộ ((+) = Trái, (-) = Phải):
+        if self.turn_side.upper() == 'RIGHT':
+            self.goal_2_y_ros = -abs(self.goal_2_y)
+            self.goal_3_y_ros = -abs(self.goal_3_y)
+        else:
+            self.goal_2_y_ros = abs(self.goal_2_y)
+            self.goal_3_y_ros = abs(self.goal_3_y)
 
         if self.enable_file_logging:
             self.telemetry_logger = TelemetryLogger(log_dir=self.log_output_dir)
@@ -1393,7 +1402,8 @@ class CnnDriverNode(Node):
 
                 elif self.current_lane_idx == 2:
                     # Đang chạy Luống 2: chạy ngược chiều từ x = field_length về Goal 3 (x = 0)
-                    dist_to_g3 = math.hypot(self.current_x - self.goal_3_x, self.current_y - self.goal_3_y)
+                    target_g3_y = getattr(self, 'goal_3_y_ros', getattr(self, 'current_lane_y', -abs(self.row_spacing)))
+                    dist_to_g3 = math.hypot(self.current_x - self.goal_3_x, self.current_y - target_g3_y)
                     reached_g3 = (dist_to_g3 <= self.goal_tolerance) or (self.current_x <= (self.goal_3_x + 0.15))
 
                     if (reached_g3 and self.distance_traveled >= self.min_row_length) or (trigger_confidence and self.distance_traveled >= self.min_row_length):

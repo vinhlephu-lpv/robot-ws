@@ -63,16 +63,17 @@ cnn_driver_node:
     headland_area_length: 4.0      # m — Khoảng không gian quay đầu 4.0m
     goal_tolerance: 0.40           # m — Bán kính dung sai chạm mốc
 
-    # Tọa độ các điểm mốc (hệ tọa độ odom xuất phát từ đầu Luống 1)
+    # ── Tọa độ 4 điểm mốc nhiệm vụ (Mission Goals) ─────────────────
+    # Quy ước dấu hệ thống: (+) = Rẽ Phải / Bên Phải, (-) = Rẽ Trái / Bên Trái
     goal_1_x: 3.0                  # m — Cuối Luống 1 (kích hoạt quay đầu)
     goal_1_y: 0.0                  # m
-    goal_2_x: 3.0                  # m — Đầu Luống 2 (sau khi quay đầu 180°)
-    goal_2_y: -0.80                # m
-    goal_3_x: 0.0                  # m — Cuối Luống 2 (về đích dừng xe an toàn)
-    goal_3_y: -0.80                # m
+    goal_2_x: 3.0                  # m — Đầu Luống 2 bên Phải (sau khi quay đầu 180°)
+    goal_2_y: 0.80                 # m — Tim Luống 2 bên Phải (Quy ước: (+) = Phải, (-) = Trái)
+    goal_3_x: 0.0                  # m — Cuối Luống 2 bên Phải (về đích dừng xe an toàn)
+    goal_3_y: 0.80                 # m
 
-    # ── Tham số Quỹ Đạo Omega Turn (Chống trượt bánh vi sai) ────────
-    turn_side: 'RIGHT'             # Chuyển sang luống bên phải (y = -0.80m)
+    # ── Tham số Quỹ Đạo Omega / Pivot Turn ────────────────────────
+    turn_side: 'RIGHT'             # Chuyển sang luống bên phải (y = +0.80m)
     omega_open_angle_deg: 35.0     # độ — Góc mở cua trái
     omega_r1: 0.65                 # m — Bán kính cung mở trái
     omega_clearance: 0.25          # m — Đoạn thẳng thoát đầu luống
