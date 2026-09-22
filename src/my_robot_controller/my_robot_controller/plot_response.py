@@ -252,6 +252,14 @@ def plot_telemetry_csv(csv_path: str, save_path: str = None, show_plot: bool = T
     if save_path:
         plt.savefig(save_path, dpi=300)
         print(f"[INFO] Saved telemetry analysis to: {save_path}")
+        try:
+            log_dir = os.path.dirname(os.path.abspath(save_path))
+            latest_symlink = os.path.join(log_dir, 'latest_telemetry_plot.png')
+            if os.path.lexists(latest_symlink):
+                os.remove(latest_symlink)
+            os.symlink(os.path.basename(save_path), latest_symlink)
+        except Exception:
+            pass
     if show_plot:
         plt.show()
 
@@ -494,6 +502,8 @@ def main():
                 print("[ERROR] No CSV file found in logs/ or ~/ros2_telemetry_logs.")
                 return
 
+        if not save_path:
+            save_path = csv_file.replace('.csv', '_plot.png')
         plot_telemetry_csv(csv_file, save_path=save_path, show_plot=show_plot)
 
 
