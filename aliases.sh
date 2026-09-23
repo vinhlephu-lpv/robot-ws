@@ -150,6 +150,27 @@ alias dongbo="git_sync_func"
 alias sync-code="git_sync_func"
 alias sync="git_sync_func"
 
+# Lệnh 1-Click đẩy code đồng thời lên CẢ 2 REPO GITHUB (robot-ws và robot-ws2)
+push_all_func() {
+    cd "$WS_DIR"
+    local msg="$*"
+    if [ -z "$msg" ]; then
+        msg="Update $(date '+%d/%m/%Y %H:%M')"
+    fi
+    echo "📦 Đang gom toàn bộ thay đổi (git add)..."
+    git add .
+    echo "📝 Đang tạo commit: \"$msg\"..."
+    git commit -m "$msg" 2>/dev/null || true
+    echo "🚀 [1/2] Đang đẩy lên Repo 1 (robot-ws)..."
+    git push origin main
+    echo "🚀 [2/2] Đang đẩy lên Repo 2 (robot-ws2)..."
+    git push origin2 main
+    echo "✅ [THÀNH CÔNG] Toàn bộ code đã được cập nhật lên CẢ 2 REPO GitHub!"
+}
+alias push-all="push_all_func"
+alias day-code="push_all_func"
+alias git-push-all="push_all_func"
+
 # 2. Các lệnh chạy Mô phỏng (PC)
 alias sim="load_ws && ros2 launch my_robot_simulation sim.launch.py"
 alias gazebo="load_ws && ros2 launch my_robot_simulation sim.launch.py use_rviz:=false"
