@@ -644,8 +644,12 @@ real_cnn_continuous_func() {
     echo "   🛑 Không dừng xoay tại chỗ trong hàng bắp | U-Turn & né cản giữ nguyên 100%" | tee -a "$term_log"
     echo "================================================================================" | tee -a "$term_log"
 
+    # Giải phóng tiến trình camera, serial, lidar hoặc node AI kẹt từ lần chạy trước
+    fuser -k /dev/video* /dev/ttyUSB* /dev/rplidar /dev/esp32 2>/dev/null || true
+    killall -q -9 camera_publisher wifi_cam_bridge cnn_driver sllidar_node rplidar_node costmap_node esp32_bridge imu_driver realsense2_camera_node 2>/dev/null || true
+
     local cam_arg
-    cam_arg=$(detect_camera_arg "$@")
+    cam_arg=$(detect_camera_device "$@")
     local has_cam=false
     for a in "$@"; do [[ "$a" == camera_device* ]] && has_cam=true; done
 
@@ -676,13 +680,16 @@ real_cnn_continuous_func() {
     export RCUTILS_LOGGING_BUFFERED_STREAM=0
     export RCUTILS_COLORIZED_OUTPUT=1
 
+    local extra_cam_args=()
+    [ -n "$cam_arg" ] && extra_cam_args+=("$cam_arg")
+
     if [ "$has_cam" = true ]; then
         ros2 launch my_robot_bringup real_robot_continuous.launch.py enable_cnn:=true $gps_arg $lidar_arg $costmap_arg $lidar_port_arg $esp32_port_arg "$@" 2>&1 | python3 "$WS_DIR/scripts/clean_log_filter.py" | tee -a "$term_log"
     else
         if [[ "$cam_arg" == *"enable_camera:=false"* ]]; then
             echo "💻 [PI SLAVE] Chế độ nhận góc lái AI từ Laptop (/crop_row/detection) qua Wi-Fi!" | tee -a "$term_log"
         fi
-        ros2 launch my_robot_bringup real_robot_continuous.launch.py enable_cnn:=true $gps_arg $lidar_arg $costmap_arg $lidar_port_arg $esp32_port_arg "$cam_arg" "$@" 2>&1 | python3 "$WS_DIR/scripts/clean_log_filter.py" | tee -a "$term_log"
+        ros2 launch my_robot_bringup real_robot_continuous.launch.py enable_cnn:=true $gps_arg $lidar_arg $costmap_arg $lidar_port_arg $esp32_port_arg "${extra_cam_args[@]}" "$@" 2>&1 | python3 "$WS_DIR/scripts/clean_log_filter.py" | tee -a "$term_log"
     fi
 
     ln -sf "$term_log" "$latest_term" 2>/dev/null || cp -f "$term_log" "$latest_term" 2>/dev/null || true
