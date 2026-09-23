@@ -49,6 +49,10 @@ def generate_launch_description():
         'view', default_value='true',
         description='Mở cửa sổ HUD trực tiếp trên Laptop để quan sát Camera + Mask AI + Thước đo góc lái (view:=true)')
 
+    steer_mode_arg = DeclareLaunchArgument(
+        'steer_mode', default_value='pivot',
+        description='Chế độ đánh lái trong luống: pivot (dừng xoay cũ) hoặc continuous (vừa chạy vừa đánh lái mới)')
+
     rviz_arg = DeclareLaunchArgument(
         'rviz', default_value='false',
         description='Mở RViz2 trực tiếp trên Laptop để quan sát mô hình xe và cảm biến (rviz:=true)')
@@ -86,6 +90,13 @@ def generate_launch_description():
             'mask_threshold': 0.35,
             'max_steering_angle_deg': 14.0,
             'show_window': LaunchConfiguration('view'),
+            'tracking_steer_mode': PythonExpression(["'CONTINUOUS_STEER' if '", LaunchConfiguration('steer_mode'), "' == 'continuous' else 'PIVOT_STOP'"]),
+            'steer_trigger_deg': 1.5,
+            'steer_resume_deg': 1.0,
+            'steer_boost_speed': 1.00,
+            'steer_brake_speed': 0.00,
+            'linear_speed': PythonExpression(["0.75 if '", LaunchConfiguration('steer_mode'), "' == 'continuous' else 0.08"]),
+            'wheel_base': 0.58,
         }],
         remappings=[
             ('/camera/color/image_raw', '/camera/local/image_raw'),
@@ -100,7 +111,7 @@ def generate_launch_description():
         name='cnn_driver_node',
         output='screen',
         parameters=[
-            params_real,
+            PythonExpression(["'", os.path.join(pkg_ctrl, 'config', 'params_real_continuous.yaml'), "' if '", LaunchConfiguration('steer_mode'), "' == 'continuous' else '", params_real, "'"]),
             {
                 'image_topic': '/camera/local/image_raw',
                 'odom_topic': '/odometry/filtered',
@@ -130,6 +141,7 @@ def generate_launch_description():
         enable_camera_arg,
         mode_arg,
         view_arg,
+        steer_mode_arg,
         rviz_arg,
         camera_publisher_node,
         cnn_server_node,

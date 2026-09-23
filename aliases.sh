@@ -601,6 +601,99 @@ pi_cnn_func() {
 alias pi-cnn="pi_cnn_func"
 alias pi-robot="pi_cnn_func"
 
+# ── BỘ LỆNH ĐÁNH LÁI LIÊN TỤC (CONTINUOUS DYNAMIC STEER - KHÔNG DỪNG XE) ───────
+laptop_cnn_continuous_func() {
+    load_ws
+    echo "================================================================================"
+    echo "💻 [LAPTOP AI WORKER - CONTINUOUS STEER] Camera & AI CNN Đánh Lái Liên Tục"
+    echo "   📷 Đọc Camera RealSense D435 / Webcam cắm trên Laptop (14-15+ FPS)"
+    echo "   🧠 Chế độ: CONTINUOUS STEER — 2 bánh dừng mềm, 2 bánh tăng tốc mềm"
+    echo "   🖥️ Cửa sổ HUD 3 ảnh: Ảnh gốc | CNN Mask | Dashboard xe thật"
+    echo "   📡 Bắn góc lái (/crop_row/detection) xuống Raspberry Pi qua Wi-Fi"
+    echo "================================================================================"
+    ros2 launch my_robot_bringup laptop_cnn.launch.py view:=true steer_mode:=continuous "$@"
+}
+alias laptop-cnn-continuous="laptop_cnn_continuous_func"
+alias pc-cnn-continuous="laptop_cnn_continuous_func"
+alias laptop-cnn-steer="laptop_cnn_continuous_func"
+alias pc-cnn-steer="laptop_cnn_continuous_func"
+
+pi_cnn_continuous_func() {
+    load_ws
+    echo "================================================================================"
+    echo "🌾 [PI ROBOT SLAVE - CONTINUOUS STEER] Đánh Lái Liên Tục Trong Luống"
+    echo "   🏎️ 4 bánh chạy đều 0.75 m/s | Bẻ lái: 2 bánh dừng 0 m/s, 2 bánh vọt 1.0 m/s"
+    echo "   🛑 Không dừng xoay tại chỗ trong hàng bắp | Giữ nguyên U-Turn & né cản"
+    echo "   📡 Nhận góc lái (/crop_row/detection) từ Laptop qua Wi-Fi"
+    echo "================================================================================"
+    real_cnn_continuous_func enable_camera:=false enable_costmap:=false "$@"
+}
+alias pi-cnn-continuous="pi_cnn_continuous_func"
+alias pi-cnn-steer="pi_cnn_continuous_func"
+
+real_cnn_continuous_func() {
+    load_ws
+    mkdir -p "$WS_DIR/logs"
+    local term_log="$WS_DIR/logs/terminal_real_cnn_$(date +%Y%m%d_%H%M%S).log"
+    local latest_term="$WS_DIR/logs/terminal_real_cnn_latest.log"
+
+    echo "================================================================================" | tee "$term_log"
+    echo "🌾 [REAL ROBOT - CONTINUOUS STEER] Bắt đầu tự hành ĐÁNH LÁI LIÊN TỤC TRONG LUỐNG" | tee -a "$term_log"
+    echo "   🏎️ Tốc độ danh định: 0.75 m/s | Đánh lái: 2 bánh trong 0.0 m/s, 2 bánh ngoài 1.0 m/s" | tee -a "$term_log"
+    echo "   ⚡ Ngưỡng bẻ lái: 1.5° | Hồi thẳng: < 1.0° trong 10 frame | Ramp: 0.25s" | tee -a "$term_log"
+    echo "   🛑 Không dừng xoay tại chỗ trong hàng bắp | U-Turn & né cản giữ nguyên 100%" | tee -a "$term_log"
+    echo "================================================================================" | tee -a "$term_log"
+
+    local cam_arg
+    cam_arg=$(detect_camera_arg "$@")
+    local has_cam=false
+    for a in "$@"; do [[ "$a" == camera_device* ]] && has_cam=true; done
+
+    local gps_arg="enable_gps:=true"
+    for a in "$@"; do [[ "$a" == enable_gps* ]] && gps_arg=""; done
+
+    local lidar_arg="enable_lidar:=true"
+    for a in "$@"; do [[ "$a" == enable_lidar* ]] && lidar_arg=""; done
+
+    local costmap_arg="enable_costmap:=true"
+    for a in "$@"; do [[ "$a" == enable_costmap* ]] && costmap_arg=""; done
+
+    local lidar_port_arg
+    lidar_port_arg=$(detect_lidar_port "$@")
+    local has_lidar_port=false
+    for a in "$@"; do [[ "$a" == serial_port* ]] && has_lidar_port=true; done
+    [ "$has_lidar_port" = true ] && lidar_port_arg=""
+
+    local esp32_port_arg
+    esp32_port_arg=$(detect_esp32_port "$@")
+    local has_esp32_port=false
+    for a in "$@"; do [[ "$a" == esp32_port* ]] && has_esp32_port=true; done
+    [ "$has_esp32_port" = true ] && esp32_port_arg=""
+
+    echo "📡 [CẢM BIẾN] Đã bật LiDAR C1 ($lidar_port_arg), Costmap ($costmap_arg), ESP32 ($esp32_port_arg)" | tee -a "$term_log"
+
+    export PYTHONUNBUFFERED=1
+    export RCUTILS_LOGGING_BUFFERED_STREAM=0
+    export RCUTILS_COLORIZED_OUTPUT=1
+
+    if [ "$has_cam" = true ]; then
+        ros2 launch my_robot_bringup real_robot_continuous.launch.py enable_cnn:=true $gps_arg $lidar_arg $costmap_arg $lidar_port_arg $esp32_port_arg "$@" 2>&1 | python3 "$WS_DIR/scripts/clean_log_filter.py" | tee -a "$term_log"
+    else
+        if [[ "$cam_arg" == *"enable_camera:=false"* ]]; then
+            echo "💻 [PI SLAVE] Chế độ nhận góc lái AI từ Laptop (/crop_row/detection) qua Wi-Fi!" | tee -a "$term_log"
+        fi
+        ros2 launch my_robot_bringup real_robot_continuous.launch.py enable_cnn:=true $gps_arg $lidar_arg $costmap_arg $lidar_port_arg $esp32_port_arg "$cam_arg" "$@" 2>&1 | python3 "$WS_DIR/scripts/clean_log_filter.py" | tee -a "$term_log"
+    fi
+
+    ln -sf "$term_log" "$latest_term" 2>/dev/null || cp -f "$term_log" "$latest_term" 2>/dev/null || true
+    echo ""
+    echo "================================================================================"
+    echo "✅ [REAL-CNN-CONTINUOUS] Đã dừng xe an toàn."
+    echo "================================================================================"
+}
+alias real-cnn-continuous="real_cnn_continuous_func"
+alias real-cnn-steer="real_cnn_continuous_func"
+
 # Phím tắt kiểm tra nhanh Camera cắm trên Laptop
 alias check-cam="load_ws && python3 \"$WS_DIR/scripts/test_realsense.py\""
 alias test-cam="check-cam"
@@ -1122,7 +1215,8 @@ cat << 'EOF'
   xem-ekf (xem-odom) : Xem KẾT QUẢ DUNG HỢP EKF CUỐI CÙNG (Tọa độ X/Y, Hướng Yaw, Tốc độ)
 
 💻 [TRÊN LAPTOP] (Màn hình quan sát, Lái xe & Xử lý Dataset)
-  laptop-cnn (pc-cnn): BẬT CAMERA & AI CNN TRÊN LAPTOP (Cắm cam vào Laptop, chạy 30-60 FPS, HUD trực quan, bắn góc lái xuống Pi)
+  laptop-cnn-continuous (pc-cnn-continuous): BẬT AI CNN LAPTOP CHẾ ĐỘ VỪA CHẠY VỪA ĐÁNH LÁI MỚI (15 FPS, HUD trực quan)
+  laptop-cnn (pc-cnn): BẬT CAMERA & AI CNN TRÊN LAPTOP (Chế độ dừng xoay căn góc PIVOT truyền thống)
   check-cam (test-cam): Kiểm tra nhanh Camera RealSense D435 / Webcam cắm trên Laptop
   laptop-view        : Mở RViz2 trực quan hoá Robot 3D, LiDAR C1 và Bộ lọc EKF (nhẹ, mượt, không giật lag)
   quay-rviz [tên]    : Mở RViz + Quay video Full HD 1080p 60FPS + Tách Dataset ảnh
@@ -1138,7 +1232,8 @@ cat << 'EOF'
   cancel             : Hủy mục tiêu dẫn đường Nav2
 
 🍓 [TRÊN RASPBERRY PI] (Khởi động phần cứng xe & Nhận góc lái AI)
-  real-cnn (pi-cnn)  : BẬT TỰ HÀNH BÁM LUỐNG AI TRÊN PI (Không cần cam trên Pi, tự nhận góc lái từ Laptop!)
+  real-cnn-continuous (pi-cnn-continuous): BẬT XE THẬT CHẾ ĐỘ VỪA CHẠY VỪA ĐÁNH LÁI MỚI (Không dừng, hãm bánh trong, tăng tốc bánh ngoài)
+  real-cnn (pi-cnn)  : BẬT TỰ HÀNH BÁM LUỐNG AI TRÊN PI (Chế độ dừng xoay căn góc PIVOT truyền thống)
   real-robot         : BẬT XE THẬT (Chỉ chạy phần cứng: ESP32 + IMU + EKF + LiDAR)
   real-record [tên]  : BẬT XE THẬT + QUAY VIDEO THÔ (100% Raw, lưu MP4 vào Pi)
   real-cnn           : BẬT XE THẬT TỰ HÀNH BÁM LUỐNG BẰNG AI CNN (Tự động lưu toàn bộ log & góc lái)

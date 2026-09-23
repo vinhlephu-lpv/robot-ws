@@ -1,0 +1,138 @@
+# ============================================================
+# Tham số cho XE THẬT — CHẾ ĐỘ ĐÁNH LÁI LIÊN TỤC (CONTINUOUS STEER)
+# Vừa chạy vừa đánh lái trong luống bắp, không dừng xoay tại chỗ
+# Dùng với: ros2 launch my_robot_bringup real_robot_continuous.launch.py
+# ============================================================
+
+cnn_driver_node:
+  ros__parameters:
+    # ── Chế độ điều hướng bám luống ─────────────────────────────
+    tracking_steer_mode: 'CONTINUOUS_STEER' # Bật chế độ vừa chạy vừa đánh lái
+    steer_trigger_deg: 1.5        # độ — Ngưỡng kích hoạt bẻ lái (|góc| > 1.5°)
+    steer_resume_deg: 1.0         # độ — Ngưỡng xác nhận thẳng hàng (|góc| < 1.0°)
+    steer_aligned_frames: 10      # frames — Số frame liên tiếp < 1.0° để xác nhận thẳng
+    steer_boost_speed: 1.00       # m/s — Vận tốc bánh ngoài khi bẻ lái
+    steer_brake_speed: 0.00       # m/s — Vận tốc bánh trong khi bẻ lái (dừng êm)
+    steer_ramp_time: 0.25         # s — Thời gian tăng/giảm tốc mềm chống giật
+
+    # Đường dẫn model ONNX INT8
+    model_path: 'models/crop_row_cnn_best_final_int8.onnx'
+    input_height: 384
+    input_width: 384
+    save_debug_imgs: false
+
+    # Cấu hình Topics đồng bộ cảm biến trên xe thật
+    image_topic: '/camera/color/image_raw'
+    odom_topic: '/odometry/filtered'
+    imu_topic: '/imu/data'
+
+    # Không sử dụng mặt nạ HSV trên xe thật (dùng model ONNX)
+    use_hsv_mask: false
+
+    mask_threshold: 0.35        # cao hơn sim vì model nhận diện ảnh thật tốt hơn
+    roi_ratio: 0.80             # Vùng quan tâm (ROI) 80% chiều cao ảnh tính từ cận cảnh đáy lên
+
+    # Tốc độ di chuyển danh định khi đi thẳng (0.75 m/s)
+    linear_speed: 0.75
+    turn_linear_speed: 0.075    # tốc độ chạy ngang khi U-Turn (giữ chậm an toàn)
+    turn_angular_speed: 0.60    # rad/s — Vận tốc góc khi U-Turn
+    turn_in_place_threshold_deg: 1.5
+    turn_in_place_resume_deg: 1.0
+    heading_adjust_aligned_frames: 10
+    camera_trim_deg: 0.0
+
+    # Bộ điều khiển trượt SMC
+    lambda_smc: 2.5
+    k_smc: 4.2
+    eta_smc: 0.8
+    phi_smc: 0.4
+
+    kp: 1.5
+    max_steering_angle_deg: 14.0
+    ema_alpha: 0.35
+
+    # Khoảng cách giữa 2 hàng luống thực tế (m)
+    row_spacing: 0.80
+    min_row_length: 1.5
+
+    # Ngưỡng confidence
+    low_confidence_threshold: 0.30
+    high_confidence_threshold: 0.55
+
+    # Tự động nhận biết hết hàng (End of Row) & Quay đầu U-Turn (Giữ nguyên 100%):
+    enable_uturn: true
+    uturn_mode: 'PIVOT'           # Pivot U-Turn 4 giai đoạn
+    drive_out_distance: 0.50
+    low_conf_frames_threshold: 15
+    min_turn_angle_deg: 130.0
+    max_row_length: 10.0
+
+    # ── Điều Phối Nhiệm Vụ 2 Luống Thực Nghiệm (Mission Goals) ──
+    enable_mission_goals: true
+    enable_global_plan_assist: true
+    field_length: 3.0
+    headland_area_length: 4.0
+    goal_tolerance: 0.40
+
+    # Tọa độ 4 điểm mốc nhiệm vụ: (+) = Rẽ Phải, (-) = Rẽ Trái
+    goal_1_x: 3.0
+    goal_1_y: 0.0
+    goal_2_x: 3.0
+    goal_2_y: 0.80
+    goal_3_x: 0.0
+    goal_3_y: 0.80
+
+    # Tham số Quỹ Đạo Omega / Pivot Turn
+    turn_side: 'RIGHT'
+    omega_open_angle_deg: 35.0
+    omega_r1: 0.65
+    omega_clearance: 0.25
+    omega_lead_in: 0.40
+
+    warmup_time: 3.0
+    drive_out_time: 2.0
+    min_turn_time: 8.0
+
+    # Tham số GPS & Geodetic Datum Origin (Tọa độ WGS-84 gốc)
+    datum_latitude: 10.775667
+    datum_longitude: 106.670889
+    datum_altitude: 10.0
+    gps_topic: '/gps/fix'
+
+    # Cấu hình xuất Log & Chuẩn hóa Terminal
+    enable_file_logging: true
+    log_output_dir: 'logs'
+    terminal_log_interval: 1.0
+
+gps_driver_node:
+  ros__parameters:
+    serial_port: '/dev/ttyAMA0'
+    baudrate: 38400
+    frame_id: 'gps_link'
+    publish_topic: '/gps/fix'
+
+bts7960_driver_node:
+  ros__parameters:
+    wheel_base: 0.58
+    max_linear_speed: 1.00      # m/s = 100% PWM
+    min_duty_cycle: 22.0
+    pwm_frequency: 1000
+
+    left_rpwm_pin:  17
+    left_lpwm_pin:  27
+    left_en_pin:    22
+    right_rpwm_pin: 23
+    right_lpwm_pin: 24
+    right_en_pin:   25
+
+# Cấu hình Bản đồ Chi phí Thời gian thực (Real-time Costmap cho RViz)
+costmap_node:
+  ros__parameters:
+    inscribed_radius: 0.35
+    inflation_radius: 0.45
+    cost_scaling_factor: 10.0
+    obstacle_threshold: 40
+    resolution: 0.05
+    map_length_m: 60.0
+    map_width_m: 20.0
+    publish_rate: 4.0

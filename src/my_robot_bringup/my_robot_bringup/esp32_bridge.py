@@ -48,6 +48,7 @@ class ESP32Bridge(Node):
         self.declare_parameter('min_moving_rpm', 24.0)  # Sàn RPM tối thiểu khi lăn bánh để thắng ma sát tải nặng
         self.declare_parameter('rpm_scale', 1.25)       # Hệ số bù lực kéo tải nặng (+25%)
         self.declare_parameter('encoder_sign', -1.0)    # -1.0: Đảo dấu xung encoder chuẩn xác với chiều tiến thực tế
+        self.declare_parameter('min_forward_speed', 0.035) # m/s — Sàn tốc độ tiến (0.0 cho phép dừng hẳn 1 bên khi đánh lái)
 
         self.mode = self.get_parameter('connection_mode').value
         self.port = self.get_parameter('serial_port').value
@@ -62,6 +63,7 @@ class ESP32Bridge(Node):
         self.min_moving_rpm = float(self.get_parameter('min_moving_rpm').value)
         self.rpm_scale = float(self.get_parameter('rpm_scale').value)
         self.encoder_sign = float(self.get_parameter('encoder_sign').value)
+        self.min_forward_speed = float(self.get_parameter('min_forward_speed').value)
         
         raw_pub_tf = self.get_parameter('publish_tf').value
         if isinstance(raw_pub_tf, str):
@@ -194,7 +196,7 @@ class ESP32Bridge(Node):
             # Khi xe đang có lệnh tiến (v > 0.03 m/s), cả 2 bánh luôn quay tiến để duy trì lực kéo ổn định,
             # tránh giật lùi bánh trong làm mất lực hoặc khựng xe trên nền đất/cỏ.
             if v > 0.03:
-                min_fwd = 0.035
+                min_fwd = self.min_forward_speed
                 min_v = min(v_left, v_right)
                 if min_v < min_fwd:
                     shift = min_fwd - min_v
