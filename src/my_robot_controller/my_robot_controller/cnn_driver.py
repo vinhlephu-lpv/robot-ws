@@ -432,7 +432,7 @@ class CnnDriverNode(Node):
         self.pivot_uturn_timer = self.create_timer(0.05, self._pivot_uturn_timer_callback)
 
         self.image_sub = self.create_subscription(
-            Image, self.image_topic, self.image_callback, 10)
+            Image, self.image_topic, self.image_callback, qos_profile_sensor_data)
 
         self.odom_sub = self.create_subscription(
             Odometry, self.odom_topic, self.odom_callback, 10)

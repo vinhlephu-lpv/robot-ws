@@ -375,7 +375,7 @@ class CostmapNode(Node):
         costmap[known_mask] = 0
 
         if np.any(obs_clean):
-            inv_obs = 1 - clean_obs
+            inv_obs = 1 - obs_clean
             dist_cells = cv2.distanceTransform(inv_obs, cv2.DIST_L2, 5)
             dist_m = dist_cells * resolution
 
