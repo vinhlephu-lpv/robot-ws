@@ -1237,43 +1237,49 @@ cat << 'EOF'
   🤖 BẢNG TRA CỨU TOÀN BỘ LỆNH TẮT NHANH (ROS 2 ROBOT CHEAT SHEET)
 ================================================================================
 
-📊 [THEO DÕI BỘ LỌC & SENSOR FUSION] (Mới nhất)
+🌾 [2 CHẾ ĐỘ TỰ HÀNH BÁM LUỐNG AI TRÊN THỰC ĐỊA]
+  1. VỪA CHẠY VỪA ĐÁNH LÁI (MỚI - Chạy lướt êm 0.75 m/s, cua vi sai 0.0 - 1.0 m/s không dừng):
+     • Trên Laptop : laptop-cnn-continuous (hoặc pc-cnn-continuous / laptop-cnn-steer)
+     • Trên Pi     : real-cnn-continuous (hoặc pi-cnn-continuous / real-cnn-steer)
+
+  2. DỪNG XOAY CĂN GÓC (TRUYỀN THỐNG - Dừng xoay tại chỗ PIVOT khi lệch góc > 1.0°):
+     • Trên Laptop : laptop-cnn (hoặc pc-cnn)
+     • Trên Pi     : real-cnn (hoặc pi-cnn)
+
+📊 [THEO DÕI BỘ LỌC & SENSOR FUSION]
   xem-imu (show-imu) : Xem IMU qua Bộ lọc Madgwick (Roll, Pitch, Yaw theo Độ °)
   xem-enc (xem-encoder): Xem Odometry bánh xe thô từ ESP32 (Vận tốc m/s, Xoay bánh)
   xem-ekf (xem-odom) : Xem KẾT QUẢ DUNG HỢP EKF CUỐI CÙNG (Tọa độ X/Y, Hướng Yaw, Tốc độ)
 
 💻 [TRÊN LAPTOP] (Màn hình quan sát, Lái xe & Xử lý Dataset)
-  laptop-cnn-continuous (pc-cnn-continuous): BẬT AI CNN LAPTOP CHẾ ĐỘ VỪA CHẠY VỪA ĐÁNH LÁI MỚI (15 FPS, HUD trực quan)
-  laptop-cnn (pc-cnn): BẬT CAMERA & AI CNN TRÊN LAPTOP (Chế độ dừng xoay căn góc PIVOT truyền thống)
+  laptop-cnn-continuous: BẬT AI CNN LAPTOP CHẾ ĐỘ VỪA CHẠY VỪA ĐÁNH LÁI MỚI (15-16 FPS, HUD)
+  laptop-cnn (pc-cnn): BẬT CAMERA & AI CNN TRÊN LAPTOP (Chế độ dừng xoay PIVOT)
   check-cam (test-cam): Kiểm tra nhanh Camera RealSense D435 / Webcam cắm trên Laptop
-  laptop-view        : Mở RViz2 trực quan hoá Robot 3D, LiDAR C1 và Bộ lọc EKF (nhẹ, mượt, không giật lag)
+  laptop-view        : Mở RViz2 trực quan hoá Robot 3D, LiDAR C1 và Bộ lọc EKF (nhẹ, mượt)
   quay-rviz [tên]    : Mở RViz + Quay video Full HD 1080p 60FPS + Tách Dataset ảnh
-                       (Tên khác: rviz-record, laptop-record)
   teleop (lai-xe)    : Bàn phím lái xe chuẩn gốc ROS 2 (i=tiến, ,=lùi, j/l=rẽ, k=dừng)
   get-video          : Tự động tìm Pi và kéo video MP4 mới quay về máy tính
   play-video (xem)   : Xem ngay video vừa quay bằng trình duyệt Firefox
   clean-video        : Dọn dẹp các video cũ giải phóng ổ đĩa
   extract-dataset <f>: Cắt video thành bộ ảnh sạch (JPG) để gán nhãn train CNN
   rviz               : Mở giao diện RViz2 đồ họa thuần túy
-  rviz-only          : Mở giao diện RViz2 cấu hình chuẩn cho xe thật
   pc-nav (nav-slam)  : Bật Nav2 trên Laptop kết hợp với SLAM trực tiếp từ Pi
   cancel             : Hủy mục tiêu dẫn đường Nav2
 
 🍓 [TRÊN RASPBERRY PI] (Khởi động phần cứng xe & Nhận góc lái AI)
-  real-cnn-continuous (pi-cnn-continuous): BẬT XE THẬT CHẾ ĐỘ VỪA CHẠY VỪA ĐÁNH LÁI MỚI (Không dừng, hãm bánh trong, tăng tốc bánh ngoài)
-  real-cnn (pi-cnn)  : BẬT TỰ HÀNH BÁM LUỐNG AI TRÊN PI (Chế độ dừng xoay căn góc PIVOT truyền thống)
+  real-cnn-continuous: BẬT XE THẬT VỪA CHẠY VỪA ĐÁNH LÁI MỚI (Tự nhận góc từ Laptop)
+  real-cnn (pi-cnn)  : BẬT XE THẬT DỪNG XOAY PIVOT TRUYỀN THỐNG (Tự nhận góc từ Laptop)
   real-robot         : BẬT XE THẬT (Chỉ chạy phần cứng: ESP32 + IMU + EKF + LiDAR)
   real-record [tên]  : BẬT XE THẬT + QUAY VIDEO THÔ (100% Raw, lưu MP4 vào Pi)
-  real-cnn           : BẬT XE THẬT TỰ HÀNH BÁM LUỐNG BẰNG AI CNN (Tự động lưu toàn bộ log & góc lái)
-  xem-lai (xem-log)  : Xem báo cáo phân tích góc lái, tốc độ, độ tin cậy AI của lần chạy gần nhất
+  xem-lai (xem-log)  : Xem báo cáo phân tích góc lái, tốc độ, độ tin cậy AI lần chạy gần nhất
   tail-log           : Xem luồng log terminal thời gian thực của real-cnn
   mo-log             : Liệt kê toàn bộ các file log CSV & Text trong robot_ws/logs/
   real-slam          : Bật Xe Thật + SLAM Toolbox vẽ bản đồ
-  real-nav            : Bật Xe Thật + Nav2 ngoài trời (Odom-Only, LiDAR obstacle avoidance)
+  real-nav           : Bật Xe Thật + Nav2 ngoài trời (Odom-Only, LiDAR obstacle avoidance)
   savemap <tên_map>  : Lưu bản đồ SLAM vừa quét xong vào thư mục maps/
 
 🔍 [KIỂM TRA CẢM BIẾN & AI] (1-Click Test trên Pi / Laptop)
-  test-img (cnn-img) : Mô phỏng 100% luồng AI CNN & điều khiển xe thật trên ảnh (384x384, ROI 80%, SMC, ESP32, BTS7960)
+  test-img (cnn-img) : Mô phỏng 100% luồng AI CNN & điều khiển xe thật trên ảnh
   test-d435          : Kiểm tra Camera Intel RealSense D435 (640x480 @ 15 FPS)
   check-cnn (test-cnn): Kiểm tra chẩn đoán toàn diện chuỗi AI CNN (384x384 INT8, góc lái, ESP32)
   check-ekf (test-ekf): Chẩn đoán bảng số liệu trực tiếp EKF (Wheel, IMU, GPS, Độ lệch)
@@ -1295,18 +1301,20 @@ cat << 'EOF'
   slam               : Bật SLAM vẽ bản đồ ảo
   nav                : Bật Nav2 dẫn đường trong mô phỏng
   plot (plot-log)    : Vẽ biểu đồ quỹ đạo & cảm biến Telemetry
-  plot-pp            : Vẽ phân tích đáp ứng Pure Pursuit
-  plot-smc           : Vẽ phân tích bộ điều khiển trượt SMC
+  plot-pp / plot-smc : Vẽ phân tích đáp ứng Pure Pursuit / Bộ trượt SMC
   plot-gui           : Mở giao diện thanh trượt tinh chỉnh Live Tuning
 
-⚙️ [BIÊN DỊCH & CẬP NHẬT]
-  reload (capnhat)   : Nạp lại toàn bộ lệnh mới nhất sau khi git pull
-  git-sync (dongbo)  : Kéo code mới nhất từ GitHub + Build lại tự động 1-Click
+⚙️ [ĐỒNG BỘ GITHUB & PHANH DỪNG]
+  push-all (day-code): ĐẨY CODE ĐỒNG THỜI LÊN CẢ 2 REPO GITHUB (robot-ws & robot-ws2) 1-Click
+  git-sync (dongbo)  : Kéo code mới nhất từ GitHub + Build lại tự động 1-Click (Chạy trên Pi)
+  reload (capnhat)   : Nạp lại toàn bộ lệnh tắt mới nhất sau khi sửa file
   build              : Build nhanh workspace (colcon build)
   build-all          : Build toàn bộ tất cả package
-  ros-help           : Xem lại bảng hướng dẫn này bất cứ lúc nào
+  stop (dung)        : PHANH KHẨN CẤP & DỌN SẠCH TIẾN TRÌNH ROBOT
+  ros-help           : Xem lại bảng tra cứu này bất cứ lúc nào
 
-📡 [CHUYỂN MẠNG & TÌM PI] (Hotspot điện thoại / Mạng trường)
+📡 [CHUYỂN MẠNG & TƯỜNG LỬA BẢO MẬT] (Hotspot điện thoại / Mạng trường)
+  sudo ufw status    : Xem trạng thái tường lửa (Bảo vệ Pi chỉ cho phép IP Laptop truy cập)
   edit-net (sua-mang): Mở file cấu hình mạng network_config.env để điền tên/pass Wi-Fi
   find-pi (tim-pi)   : Tự động tìm IP của Pi trên bất kỳ mạng nào (Chạy trên PC)
   switch-hotspot     : Chuyển Pi sang Hotspot điện thoại (Chạy trên Pi SSH)
