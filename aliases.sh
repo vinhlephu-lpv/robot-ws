@@ -783,6 +783,18 @@ alias quay-rviz="rviz-record"
 alias quay="rviz-record"
 alias quay-video="rviz-record"
 
+# Lệnh QUAY VIDEO DATASET TRỰC TIẾP TỪ CAMERA ƯU TIÊN (D435 / iPhone / Webcam, Không tách frame)
+let_video_func() {
+    load_ws
+    # Giải phóng camera nếu bị tiến trình khác chiếm
+    fuser -k /dev/video* 2>/dev/null || true
+    python3 "$WS_DIR/scripts/let_video.py" "$@"
+}
+alias let-video="let_video_func"
+alias quay-dataset="let_video_func"
+alias rec-video="let_video_func"
+
+
 # =====================================================
 # TÌM PI & CHUYỂN MẠNG (Hotspot / Mạng trường)
 # =====================================================
@@ -1252,6 +1264,7 @@ cat << 'EOF'
   xem-ekf (xem-odom) : Xem KẾT QUẢ DUNG HỢP EKF CUỐI CÙNG (Tọa độ X/Y, Hướng Yaw, Tốc độ)
 
 💻 [TRÊN LAPTOP] (Màn hình quan sát, Lái xe & Xử lý Dataset)
+  let-video [tên]    : QUAY VIDEO DATASET TRỰC TIẾP (Tự nhận D435/iPhone/Webcam, MP4 chuẩn, KHÔNG TÁCH FRAME)
   laptop-cnn-continuous: BẬT AI CNN LAPTOP CHẾ ĐỘ VỪA CHẠY VỪA ĐÁNH LÁI MỚI (15-16 FPS, HUD)
   laptop-cnn (pc-cnn): BẬT CAMERA & AI CNN TRÊN LAPTOP (Chế độ dừng xoay PIVOT)
   check-cam (test-cam): Kiểm tra nhanh Camera RealSense D435 / Webcam cắm trên Laptop
@@ -1267,6 +1280,7 @@ cat << 'EOF'
   cancel             : Hủy mục tiêu dẫn đường Nav2
 
 🍓 [TRÊN RASPBERRY PI] (Khởi động phần cứng xe & Nhận góc lái AI)
+  let-video [tên]    : QUAY VIDEO DATASET TRỰC TIẾP TRÊN PI (Lưu thẳng MP4 vào recordings/, không qua mạng)
   real-cnn-continuous: BẬT XE THẬT VỪA CHẠY VỪA ĐÁNH LÁI MỚI (Tự nhận góc từ Laptop)
   real-cnn (pi-cnn)  : BẬT XE THẬT DỪNG XOAY PIVOT TRUYỀN THỐNG (Tự nhận góc từ Laptop)
   real-robot         : BẬT XE THẬT (Chỉ chạy phần cứng: ESP32 + IMU + EKF + LiDAR)
