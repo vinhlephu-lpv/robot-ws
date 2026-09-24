@@ -100,12 +100,12 @@ class RealSenseSDKCapture:
         return 0
 
 
-def detect_and_open_camera(req_device=None, width=640, height=480, fps=30.0):
+def detect_and_open_camera(req_device=None, width=1920, height=1080, fps=30.0):
     """
     Tự động dò tìm và mở Camera theo đúng thứ tự ưu tiên chuẩn của hệ thống:
-    1. Intel RealSense D435
-    2. Camera iPhone DroidCam
-    3. USB Webcam vật lý (/dev/video*)
+    1. Intel RealSense D435 (Ưu tiên 1080p @ 30 FPS)
+    2. Camera iPhone DroidCam (1080p @ 30 FPS)
+    3. USB Webcam vật lý (/dev/video* chuẩn 1080p MJPG @ 30 FPS)
     """
     # Nếu người dùng chỉ định thiết bị cụ thể
     if req_device and req_device != 'auto':
@@ -125,16 +125,16 @@ def detect_and_open_camera(req_device=None, width=640, height=480, fps=30.0):
         print(f"⚠️ Không thể mở thiết bị {req_device}, chuyển sang tự động dò tìm...")
 
     # ── ƯU TIÊN 1: Intel RealSense D435 ──────────────────────────────────────
-    print("🔍 [1/3] Đang tìm kiếm Intel RealSense D435...")
+    print("🔍 [1/3] Đang tìm kiếm Intel RealSense D435 (Mục tiêu: 1080p @ 30 FPS)...")
     cap, name = _open_realsense(width, height, fps)
     if cap:
         return cap, name
 
     # ── ƯU TIÊN 2: Camera iPhone DroidCam (172.20.10.1:4747) ────────────────────────
-    print("🔍 [2/3] Đang tìm kiếm Camera iPhone DroidCam (172.20.10.1)...")
+    print("🔍 [2/3] Đang tìm kiếm Camera iPhone DroidCam (172.20.10.1: 1080p @ 30 FPS)...")
     iphone_urls = [
+        "http://172.20.10.1:4747/mjpegfeed?1920x1080",
         "http://172.20.10.1:4747/video",
-        "http://172.20.10.1:4747/mjpegfeed?640x480",
     ]
     for url in iphone_urls:
         if is_url_accessible(url, timeout=0.4):
@@ -143,7 +143,7 @@ def detect_and_open_camera(req_device=None, width=640, height=480, fps=30.0):
                 return cap, f"Camera iPhone DroidCam ({url})"
 
     # ── ƯU TIÊN 3: USB Webcam vật lý (/dev/video*) ───────────────────────────
-    print("🔍 [3/3] Đang tìm kiếm USB Webcam vật lý (/dev/video*)...")
+    print("🔍 [3/3] Đang tìm kiếm USB Webcam vật lý (Mục tiêu: 1080p MJPG @ 30 FPS)...")
     candidates = sorted(glob.glob('/dev/video*'))
     for dev in candidates:
         sname_file = f"/sys/class/video4linux/{os.path.basename(dev)}/name"
@@ -166,22 +166,35 @@ def detect_and_open_camera(req_device=None, width=640, height=480, fps=30.0):
 
 
 def _open_realsense(width, height, fps):
-    """Mở RealSense qua pyrealsense2 hoặc V4L2 RGB node."""
+    """Mở RealSense qua pyrealsense2 hoặc V4L2 RGB node (Ưu tiên 1080p @ 30 FPS)."""
     try:
         import pyrealsense2 as rs
         ctx = rs.context()
         if len(ctx.query_devices()) > 0:
             pipeline = rs.pipeline()
             config = rs.config()
-            rs_w = width if width > 0 else 640
-            rs_h = height if height > 0 else 480
+            rs_w = width if width > 0 else 1920
+            rs_h = height if height > 0 else 1080
             rs_fps = int(min(30.0, fps))
-            config.enable_stream(rs.stream.color, rs_w, rs_h, rs.format.bgr8, rs_fps)
-            pipeline.start(config)
-            frames = pipeline.wait_for_frames(timeout_ms=1500)
-            if frames.get_color_frame():
-                return RealSenseSDKCapture(pipeline, rs_w, rs_h, rs_fps), "Intel RealSense D435 (pyrealsense2 SDK)"
-            pipeline.stop()
+            try:
+                config.enable_stream(rs.stream.color, rs_w, rs_h, rs.format.bgr8, rs_fps)
+                pipeline.start(config)
+                frames = pipeline.wait_for_frames(timeout_ms=1500)
+                if frames.get_color_frame():
+                    return RealSenseSDKCapture(pipeline, rs_w, rs_h, rs_fps), f"Intel RealSense D435 ({rs_w}x{rs_h} @ {rs_fps} FPS)"
+                pipeline.stop()
+            except Exception:
+                # Fallback nếu USB 2.0 nghẽn băng thông
+                try:
+                    config = rs.config()
+                    config.enable_stream(rs.stream.color, 1280, 720, rs.format.bgr8, rs_fps)
+                    pipeline.start(config)
+                    frames = pipeline.wait_for_frames(timeout_ms=1500)
+                    if frames.get_color_frame():
+                        return RealSenseSDKCapture(pipeline, 1280, 720, rs_fps), "Intel RealSense D435 (1280x720 @ 30 FPS)"
+                    pipeline.stop()
+                except Exception:
+                    pass
     except Exception:
         pass
 
@@ -269,8 +282,16 @@ class VideoRecordingEngine:
         self.target_fps = fps
         self.show_view = show_view
 
-        self.width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)) or 640
-        self.height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) or 480
+        # Đọc 1 frame thăm dò kích thước thực tế
+        ret, test_frame = self.cap.read()
+        if ret and test_frame is not None:
+            self.height, self.width = test_frame.shape[:2]
+            self.first_frame = test_frame
+        else:
+            self.width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)) or 1920
+            self.height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) or 1080
+            self.first_frame = None
+
         cam_fps = self.cap.get(cv2.CAP_PROP_FPS)
         self.record_fps = float(cam_fps) if cam_fps and cam_fps > 5.0 else self.target_fps
 
@@ -288,6 +309,11 @@ class VideoRecordingEngine:
 
         if not self.writer.isOpened():
             raise RuntimeError(f"❌ Không thể khởi tạo VideoWriter cho file: {self.output_path}")
+
+        # Đẩy frame đầu tiên vào queue nếu có
+        if self.first_frame is not None:
+            self.frame_queue.put(self.first_frame)
+            self.total_frames += 1
 
         self.writer_thread = threading.Thread(target=self._writer_worker, daemon=True)
         self.writer_thread.start()
@@ -454,8 +480,8 @@ def main():
     )
     parser.add_argument('name', nargs='?', default='', help='Tên phiên quay (ví dụ: luong_1, bap_ngay)')
     parser.add_argument('--device', default='auto', help='Cổng camera (realsense, auto, /dev/video0, URL)')
-    parser.add_argument('--width', type=int, default=640, help='Chiều rộng khung hình (mặc định: 640)')
-    parser.add_argument('--height', type=int, default=480, help='Chiều cao khung hình (mặc định: 480)')
+    parser.add_argument('--width', type=int, default=1920, help='Chiều rộng khung hình (mặc định: 1920)')
+    parser.add_argument('--height', type=int, default=1080, help='Chiều cao khung hình (mặc định: 1080)')
     parser.add_argument('--fps', type=float, default=30.0, help='Tốc độ khung hình (mặc định: 30.0)')
     parser.add_argument('--dir', default='', help='Thư mục lưu video (mặc định: ~/robot-ws/recordings)')
     parser.add_argument('--no-view', action='store_true', help='Tắt cửa sổ hiển thị (chạy headless nhẹ máy)')
