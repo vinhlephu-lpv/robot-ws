@@ -643,7 +643,7 @@ pi_cnn_continuous_func() {
     load_ws
     echo "================================================================================"
     echo "🌾 [PI ROBOT SLAVE - CONTINUOUS STEER] Đánh Lái Liên Tục Trong Luống"
-    echo "   🏎️ 4 bánh chạy đều 0.75 m/s | Bẻ lái: 2 bánh dừng 0 m/s, 2 bánh vọt 1.0 m/s"
+    echo "   🏎️ 4 bánh chạy đều 0.075 m/s | Bẻ lái: 2 bánh dừng 0 m/s, 2 bánh vọt 0.10 m/s"
     echo "   🛑 Không dừng xoay tại chỗ trong hàng bắp | Giữ nguyên U-Turn & né cản"
     echo "   📡 Nhận góc lái (/crop_row/detection) từ Laptop qua Wi-Fi"
     echo "================================================================================"
@@ -660,8 +660,8 @@ real_cnn_continuous_func() {
 
     echo "================================================================================" | tee "$term_log"
     echo "🌾 [REAL ROBOT - CONTINUOUS STEER] Bắt đầu tự hành ĐÁNH LÁI LIÊN TỤC TRONG LUỐNG" | tee -a "$term_log"
-    echo "   🏎️ Tốc độ danh định: 0.75 m/s | Đánh lái: 2 bánh trong 0.0 m/s, 2 bánh ngoài 1.0 m/s" | tee -a "$term_log"
-    echo "   ⚡ Ngưỡng bẻ lái: 1.5° | Hồi thẳng: < 1.0° trong 10 frame | Ramp: 0.25s" | tee -a "$term_log"
+    echo "   🏎️ Tốc độ danh định: 0.075 m/s | Đánh lái: 2 bánh trong 0.0 m/s, 2 bánh ngoài 0.10 m/s" | tee -a "$term_log"
+    echo "   ⚡ Ngưỡng bẻ lái: 2.0° | Hồi thẳng: < 1.2° trong 3 frame | Ramp: 0.25s" | tee -a "$term_log"
     echo "   🛑 Không dừng xoay tại chỗ trong hàng bắp | U-Turn & né cản giữ nguyên 100%" | tee -a "$term_log"
     echo "================================================================================" | tee -a "$term_log"
 
@@ -1250,11 +1250,11 @@ cat << 'EOF'
 ================================================================================
 
 🌾 [2 CHẾ ĐỘ TỰ HÀNH BÁM LUỐNG AI TRÊN THỰC ĐỊA]
-  1. VỪA CHẠY VỪA ĐÁNH LÁI (MỚI - Chạy lướt êm 0.75 m/s, cua vi sai 0.0 - 1.0 m/s không dừng):
+  1. VỪA CHẠY VỪA ĐÁNH LÁI (MỚI - Chạy lướt êm 0.075 m/s, cua vi sai 0.0 - 0.10 m/s không dừng):
      • Trên Laptop : laptop-cnn-continuous (hoặc pc-cnn-continuous / laptop-cnn-steer)
      • Trên Pi     : real-cnn-continuous (hoặc pi-cnn-continuous / real-cnn-steer)
 
-  2. DỪNG XOAY CĂN GÓC (TRUYỀN THỐNG - Dừng xoay tại chỗ PIVOT khi lệch góc > 1.0°):
+  2. DỪNG XOAY CĂN GÓC (TRUYỀN THỐNG - Dừng xoay tại chỗ PIVOT khi lệch góc > 2.0°, hồi thẳng <= 1.2°):
      • Trên Laptop : laptop-cnn (hoặc pc-cnn)
      • Trên Pi     : real-cnn (hoặc pi-cnn)
 

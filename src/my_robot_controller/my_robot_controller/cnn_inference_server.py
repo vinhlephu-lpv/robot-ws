@@ -155,11 +155,11 @@ class CnnInferenceServer(Node):
         self.declare_parameter('num_threads', 0)
         self.declare_parameter('show_window', False)
         self.declare_parameter('tracking_steer_mode', 'PIVOT_STOP')
-        self.declare_parameter('steer_trigger_deg', 1.5)
-        self.declare_parameter('steer_resume_deg', 1.0)
-        self.declare_parameter('steer_boost_speed', 1.00)
+        self.declare_parameter('steer_trigger_deg', 2.0)
+        self.declare_parameter('steer_resume_deg', 1.2)
+        self.declare_parameter('steer_boost_speed', 0.10)
         self.declare_parameter('steer_brake_speed', 0.00)
-        self.declare_parameter('linear_speed', 0.75)
+        self.declare_parameter('linear_speed', 0.075)
         self.declare_parameter('wheel_base', 0.58)
 
         p = self.get_parameter
@@ -386,21 +386,21 @@ class CnnInferenceServer(Node):
                         v_left = 0.0
                         v_right = 0.0
                     elif heading_error > self.steer_trigger_deg:
-                        state_name = f"BE PHAI LIEN TUC (L={self.steer_boost_speed:.1f}m/s, R={self.steer_brake_speed:.1f}m/s)"
+                        state_name = f"BE PHAI LIEN TUC (L={self.steer_boost_speed:.2f}m/s, R={self.steer_brake_speed:.2f}m/s)"
                         state_color = (0, 215, 255)  # Vàng cam
                         v_left = self.steer_boost_speed
                         v_right = self.steer_brake_speed
                         v_lin = (v_left + v_right) / 2.0
                         w_ang = (v_right - v_left) / self.wheel_base
                     elif heading_error < -self.steer_trigger_deg:
-                        state_name = f"BE TRAI LIEN TUC (L={self.steer_brake_speed:.1f}m/s, R={self.steer_boost_speed:.1f}m/s)"
+                        state_name = f"BE TRAI LIEN TUC (L={self.steer_brake_speed:.2f}m/s, R={self.steer_boost_speed:.2f}m/s)"
                         state_color = (0, 215, 255)
                         v_left = self.steer_brake_speed
                         v_right = self.steer_boost_speed
                         v_lin = (v_left + v_right) / 2.0
                         w_ang = (v_right - v_left) / self.wheel_base
                     else:
-                        state_name = f"TIEN THANG 4 BANH ({self.linear_speed:.2f} m/s | |goc|<={self.steer_trigger_deg:.1f}°)"
+                        state_name = f"TIEN THANG 4 BANH ({self.linear_speed:.3f} m/s | |goc|<={self.steer_trigger_deg:.1f}°)"
                         state_color = (0, 255, 0)  # Xanh lá
                         v_left = self.linear_speed
                         v_right = self.linear_speed

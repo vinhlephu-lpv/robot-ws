@@ -67,8 +67,8 @@ class CnnDriverNode(Node):
         self.declare_parameter('eta_smc', 0.6)
         self.declare_parameter('phi_smc', 0.5)
         self.declare_parameter('max_steering_angle_deg', 14.0)
-        self.declare_parameter('turn_in_place_threshold_deg', 1.5)
-        self.declare_parameter('turn_in_place_resume_deg', 1.0)
+        self.declare_parameter('turn_in_place_threshold_deg', 2.0)
+        self.declare_parameter('turn_in_place_resume_deg', 1.2)
         self.declare_parameter('heading_adjust_aligned_frames', 15)
         self.declare_parameter('camera_trim_deg', 0.0)
         self.declare_parameter('row_spacing', 0.80)
@@ -122,10 +122,10 @@ class CnnDriverNode(Node):
 
         # ── Tham số Đánh Lái Liên Tục Trong Luống (Continuous Dynamic Steer) ────
         self.declare_parameter('tracking_steer_mode', 'PIVOT_STOP') # 'PIVOT_STOP' (mặc định) hoặc 'CONTINUOUS_STEER'
-        self.declare_parameter('steer_trigger_deg', 1.5)            # độ — Ngưỡng bắt đầu bẻ lái
-        self.declare_parameter('steer_resume_deg', 1.0)             # độ — Ngưỡng thẳng hàng kết thúc bẻ lái
-        self.declare_parameter('steer_aligned_frames', 10)          # frames — Số frame liên tiếp < steer_resume_deg để xác nhận thẳng
-        self.declare_parameter('steer_boost_speed', 1.00)           # m/s — Vận tốc tăng tốc mềm bánh ngoài
+        self.declare_parameter('steer_trigger_deg', 2.0)            # độ — Ngưỡng bắt đầu bẻ lái
+        self.declare_parameter('steer_resume_deg', 1.2)             # độ — Ngưỡng thẳng hàng kết thúc bẻ lái
+        self.declare_parameter('steer_aligned_frames', 3)           # frames — Số frame liên tiếp < steer_resume_deg để xác nhận thẳng
+        self.declare_parameter('steer_boost_speed', 0.10)           # m/s — Vận tốc tăng tốc mềm bánh ngoài
         self.declare_parameter('steer_brake_speed', 0.00)           # m/s — Vận tốc giảm tốc mềm bánh trong
         self.declare_parameter('steer_ramp_time', 0.25)             # s — Thời gian ramp gia tốc/giảm tốc mềm
 
@@ -819,12 +819,12 @@ class CnnDriverNode(Node):
         # - Lệch nhiều (>= 1.5°): quay dứt khoát base_w để thắng ma sát cỏ.
         angle_err = abs(self.smoothed_angle_deg)
         base_w = getattr(self, 'turn_angular_speed', 0.60)
-        resume_threshold = float(getattr(self, 'turn_in_place_resume_deg', 1.0))
+        resume_threshold = float(getattr(self, 'turn_in_place_resume_deg', 1.2))
 
         if angle_err <= resume_threshold or getattr(self, '_aligned_frame_count', 0) > 0:
             current_w = 0.0
         else:
-            if angle_err < 1.5:
+            if angle_err < 2.0:
                 target_w = min(0.48, base_w)
             else:
                 target_w = base_w
@@ -1427,17 +1427,17 @@ class CnnDriverNode(Node):
                 # CHẾ ĐỘ ĐIỀU HƯỚNG MỚI: VỪA CHẠY VỪA ĐÁNH LÁI LIÊN TỤC (CONTINUOUS STEER)
                 # =========================================================================
                 # 1. Tham số:
-                #    - Ngưỡng kích hoạt bẻ lái: steer_trigger_deg = 1.5 độ
-                #    - Ngưỡng xác nhận thẳng hàng: steer_resume_deg = 1.0 độ trong 10 frame
-                #    - Tốc độ danh định tiến thẳng 4 bánh: self.linear_speed (0.75 m/s)
-                #    - Bánh ngoài tăng tốc mềm lên steer_boost_speed (1.00 m/s)
+                #    - Ngưỡng kích hoạt bẻ lái: steer_trigger_deg = 2.0 độ
+                #    - Ngưỡng xác nhận thẳng hàng: steer_resume_deg = 1.2 độ trong 3 frame
+                #    - Tốc độ danh định tiến thẳng 4 bánh: self.linear_speed (0.075 m/s)
+                #    - Bánh ngoài tăng tốc mềm lên steer_boost_speed (0.10 m/s)
                 #    - Bánh trong giảm tốc mềm về steer_brake_speed (0.00 m/s)
                 #    - Thời gian chuyển tiếp mềm: steer_ramp_time = 0.25s
-                steer_trigger = float(getattr(self, 'steer_trigger_deg', 1.5))
-                steer_resume = float(getattr(self, 'steer_resume_deg', 1.0))
-                required_straight_frames = int(getattr(self, 'steer_aligned_frames', 10))
+                steer_trigger = float(getattr(self, 'steer_trigger_deg', 2.0))
+                steer_resume = float(getattr(self, 'steer_resume_deg', 1.2))
+                required_straight_frames = int(getattr(self, 'steer_aligned_frames', 3))
                 v_nom = float(self.linear_speed)
-                v_boost = float(getattr(self, 'steer_boost_speed', 1.00))
+                v_boost = float(getattr(self, 'steer_boost_speed', 0.10))
                 v_brake = float(getattr(self, 'steer_brake_speed', 0.00))
                 ramp_t = max(0.05, float(getattr(self, 'steer_ramp_time', 0.25)))
 
@@ -1511,8 +1511,8 @@ class CnnDriverNode(Node):
                 # CHẾ ĐỘ MẶC ĐỊNH CŨ (PIVOT_STOP): DỪNG TIẾN, XOAY TẠI CHỖ KHI LỆCH GÓC
                 # (100% Giữ nguyên vẹn mã nguồn và hành vi ban đầu của hệ thống)
                 # =========================================================================
-                stop_threshold = float(getattr(self, 'turn_in_place_threshold_deg', 1.5))
-                resume_threshold = float(getattr(self, 'turn_in_place_resume_deg', 1.0))
+                stop_threshold = float(getattr(self, 'turn_in_place_threshold_deg', 2.0))
+                resume_threshold = float(getattr(self, 'turn_in_place_resume_deg', 1.2))
 
                 if self.is_adjusting_heading:
                     required_aligned_frames = int(getattr(self, 'heading_adjust_aligned_frames', 15))

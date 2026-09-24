@@ -27,9 +27,9 @@ cnn_driver_node:
     linear_speed: 0.075
     turn_linear_speed: 0.075
     turn_angular_speed: 0.60          # rad/s — Vận tốc góc xoay căn chỉnh (tăng lực mô-men xoắn xoay khỏe, không bị kẹt trên cỏ)
-    turn_in_place_threshold_deg: 1.5  # Dừng tiến xoay tại chỗ khi góc CNN lệch > 1.5°
-    turn_in_place_resume_deg: 1.0     # Ngừng xoay, tiếp tục chạy thẳng khi góc CNN <= 1.0°
-    heading_adjust_aligned_frames: 15 # Số frame liên tiếp đạt chuẩn thẳng hàng (<= 1.0°) trước khi cho xe chạy tiếp (laptop 12-15 FPS ~1.0-1.2s)
+    turn_in_place_threshold_deg: 2.0  # Dừng tiến xoay tại chỗ khi góc CNN lệch > 2.0°
+    turn_in_place_resume_deg: 1.2     # Ngừng xoay, tiếp tục chạy thẳng khi góc CNN <= 1.2°
+    heading_adjust_aligned_frames: 15 # Số frame liên tiếp đạt chuẩn thẳng hàng (<= 1.2°) trước khi cho xe chạy tiếp (laptop 12-15 FPS ~1.0-1.2s)
     camera_trim_deg: 0.0              # Bù trừ góc đặt camera iPhone (nếu xe lệch phải đặt số âm như -1.5)
 
     # Bộ điều khiển trượt SMC bám luống với lực bẻ lái mạnh mẽ, dứt khoát
