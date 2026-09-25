@@ -80,7 +80,7 @@ class CnnDriverNode(Node):
         self.declare_parameter('min_row_length', 1.50)
         self.declare_parameter('max_row_length', 30.0)
         self.declare_parameter('low_conf_frames_threshold', 15)
-        self.declare_parameter('drive_out_distance', 0.50)
+        self.declare_parameter('drive_out_distance', 1.00)
         self.declare_parameter('min_turn_angle_deg', 130.0)
         self.declare_parameter('max_turn_angle_deg', 200.0)
         self.declare_parameter('reactive_avoid_wait_time', 3.0)  # seconds to wait before planning bypass
@@ -735,13 +735,7 @@ class CnnDriverNode(Node):
             timed_out = (now_sec - self.heading_adjust_start_time) > 6.0
             
             if timed_out:
-                self.is_adjusting_heading = False
-                self.heading_adjust_cooldown_until = now_sec + 1.0
-                self._aligned_frame_count = 0
-                twist = Twist()
-                twist.linear.x = self.linear_speed
-                twist.angular.z = 0.0
-                self.cmd_vel_pub.publish(twist)
+                self._finish_heading_adjust(now_sec)
                 log_msg = f"⚠️ [ĐIỀU HƯỚNG CNN - WATCHDOG] Căn chỉnh quá 6.0s -> Khôi phục chạy thẳng {self.linear_speed:.2f} m/s an toàn!"
                 self.get_logger().warn(log_msg)
                 if self.enable_file_logging and self.telemetry_logger:
@@ -762,6 +756,25 @@ class CnnDriverNode(Node):
             self._prev_yaw_for_turn = self.current_yaw
         else:
             self._prev_yaw_for_turn = None
+
+    def _finish_heading_adjust(self, now_sec):
+        """Khôi phục di chuyển sau khi căn chỉnh hướng: hãm tĩnh 0.20s rồi tăng tốc mềm thẳng tuyệt đối."""
+        self.is_adjusting_heading = False
+        self._current_heading_adjust_w = 0.0
+        self._aligned_frame_count = 0
+        self.heading_adjust_cooldown_until = now_sec + 1.5
+        self.heading_adjust_settle_until = now_sec + 0.20
+        self.forward_resume_start_time = self.heading_adjust_settle_until
+        if hasattr(self, 'controller_manager'):
+            self.controller_manager.reset()
+        if hasattr(self, 'tracking_controller'):
+            self.tracking_controller.reset()
+
+        twist = Twist()
+        twist.linear.x = 0.0
+        twist.angular.z = 0.0
+        self._latest_twist = twist
+        self.cmd_vel_pub.publish(twist)
 
     def _heading_adjust_timer_callback(self):
         """
@@ -786,15 +799,7 @@ class CnnDriverNode(Node):
 
         # Watchdog an toàn: quá 6s tự động thoát
         if elapsed > 6.0:
-            self.is_adjusting_heading = False
-            self._current_heading_adjust_w = 0.0
-            self.heading_adjust_cooldown_until = now_sec + 1.0
-            self._aligned_frame_count = 0
-            twist = Twist()
-            twist.linear.x = self.linear_speed
-            twist.angular.z = 0.0
-            self._latest_twist = twist
-            self.cmd_vel_pub.publish(twist)
+            self._finish_heading_adjust(now_sec)
             self.get_logger().warn(
                 f"⚠️ [ĐIỀU HƯỚNG CNN] Quá 6s căn chỉnh -> Tự động khôi phục chạy thẳng! "
                 f"(CNN còn lệch: {self.smoothed_angle_deg:+.2f}° | IMU xoay: {delta_yaw_deg:+.1f}° | Encoder: {delta_wheel_deg:+.1f}°)"
@@ -863,7 +868,7 @@ class CnnDriverNode(Node):
         elapsed_stage = now_sec - getattr(self, 'pivot_stage_start_time', now_sec)
 
         # =========================================================================
-        # GIAI ĐOẠN 1: EXIT_ROW (Chạy thẳng thoát khỏi miệng luống 0.50m)
+        # GIAI ĐOẠN 1: EXIT_ROW (Chạy thẳng thoát khỏi miệng luống 1.0m vào headland trống)
         # =========================================================================
         if stage == 'EXIT_ROW':
             dx = self.current_x - self.pivot_start_x
@@ -875,10 +880,11 @@ class CnnDriverNode(Node):
             right_side_dist = getattr(self, '_latest_right_side_dist', float('inf'))
             sides_cleared = (left_side_dist > 0.60 and right_side_dist > 0.60)
 
-            # Điều kiện thoát luống an toàn:
-            # Xe bắt buộc chạy thẳng thoát khỏi miệng luống (0.45m - 0.50m) trước khi kích hoạt xoay tại chỗ:
-            exit_target = getattr(self, 'drive_out_distance', 0.50)
-            is_cleared = (dist_exit >= exit_target) or (sides_cleared and dist_exit >= 0.45) or (elapsed_stage >= 8.0)
+            # Điều kiện thoát luống an toàn tuyệt đối:
+            # Xe bắt buộc chạy thẳng thoát hẳn ra ngoài thêm 1.0m (vào bãi đất trống đầu bờ)
+            # trước khi cho phép quay đầu, tránh chém đuôi vào cây bắp/bờ ruộng!
+            exit_target = float(getattr(self, 'drive_out_distance', 1.00))
+            is_cleared = (dist_exit >= exit_target) or (elapsed_stage >= 22.0)
 
             if is_cleared:
                 self.StopRobot()
@@ -888,11 +894,11 @@ class CnnDriverNode(Node):
                 self.pivot_1_start_imu_yaw = float(self.current_yaw)
                 self.pivot_1_start_wheel_yaw = getattr(self, 'current_wheel_yaw', float(self.current_yaw))
                 self.get_logger().info(
-                    f"🛑 [PIVOT U-TURN - GIAI ĐOẠN 1 HOÀN TẤT] Xe đã thoát miệng luống {dist_exit:.2f}m "
+                    f"🛑 [PIVOT U-TURN - GIAI ĐOẠN 1 HOÀN TẤT] Xe đã chạy thoát hàng an toàn {dist_exit:.2f}m >= {exit_target:.2f}m "
                     f"(LiDAR sườn: L={left_side_dist:.2f}m, R={right_side_dist:.2f}m). Dừng hẳn -> Bắt đầu PIVOT 1 xoay 90°..."
                 )
                 if self.enable_file_logging and self.telemetry_logger:
-                    self.telemetry_logger.log_event("PIVOT_STAGE_EXIT_ROW_DONE", f"Thoát luống dist={dist_exit:.2f}m")
+                    self.telemetry_logger.log_event("PIVOT_STAGE_EXIT_ROW_DONE", f"Thoát luống dist={dist_exit:.2f}m >= {exit_target:.2f}m")
                 return
 
             # Tiếp tục chạy thẳng chậm ra khỏi miệng luống với khóa hướng xuất phát
@@ -1523,17 +1529,7 @@ class CnnDriverNode(Node):
                     if is_frame_aligned:
                         self._aligned_frame_count += 1
                         if self._aligned_frame_count >= required_aligned_frames:
-                            self.is_adjusting_heading = False
-                            self._current_heading_adjust_w = 0.0
-                            self._aligned_frame_count = 0
-                            self.heading_adjust_cooldown_until = now_sec + 1.2
-                            self.forward_resume_start_time = now_sec
-
-                            twist = Twist()
-                            twist.linear.x = 0.0
-                            twist.angular.z = 0.0
-                            self._latest_twist = twist
-                            self.cmd_vel_pub.publish(twist)
+                            self._finish_heading_adjust(now_sec)
 
                             cur_yaw = float(self.localization_manager.imu_yaw)
                             start_yaw = getattr(self, 'heading_adjust_start_imu_yaw', cur_yaw)
@@ -1546,7 +1542,7 @@ class CnnDriverNode(Node):
                             self.get_logger().info(
                                 f"✅ [ĐIỀU HƯỚNG CNN] ĐÃ THẲNG HÀNG VỮNG CHẮC "
                                 f"(Xác nhận {required_aligned_frames}/{required_aligned_frames} frame liên tiếp |góc CNN|={abs(self.smoothed_angle_deg):.2f}° <= {resume_threshold:.2f}° | IMU xoay: {delta_yaw_deg:+.1f}° | Encoder: {delta_wheel_deg:+.1f}°)! "
-                                f"Hãm xoay êm dịu và tăng tốc tiến mượt mà {self.linear_speed:.3f} m/s."
+                                f"Hãm tĩnh 0.2s rồi 4 bánh cùng lăn thẳng và tăng tốc mềm {self.linear_speed:.3f} m/s."
                             )
                             if self.enable_file_logging and self.telemetry_logger:
                                 self.telemetry_logger.log_event(
@@ -1583,11 +1579,30 @@ class CnnDriverNode(Node):
                 if self.is_adjusting_heading:
                     lin_speed = 0.0
                     ang_vel = getattr(self, '_current_heading_adjust_w', 0.0)
+                elif now_sec < getattr(self, 'heading_adjust_settle_until', 0.0):
+                    # Settle Pause: Giữ xe đứng yên 0.20s để triệt tiêu mọi quán tính quay của cả 4 bánh
+                    lin_speed = 0.0
+                    ang_vel = 0.0
                 else:
-                    time_since_resume = now_sec - getattr(self, 'forward_resume_start_time', 0.0)
-                    fwd_ramp = min(1.0, time_since_resume / 0.35) if time_since_resume < 0.35 else 1.0
+                    resume_start = getattr(self, 'forward_resume_start_time', now_sec)
+                    time_since_resume = max(0.0, now_sec - resume_start)
+
+                    lock_duration = 0.60   # Khóa lái thẳng tuyệt đối trong 0.60s đầu (4 bánh cùng quay tiến)
+                    blend_duration = 0.40  # Hòa trộn góc lái mượt mà sau 0.60s (chống giật khựng)
+
+                    # Tăng tốc mềm tuyến tính từ 0 lên linear_speed trong lock_duration
+                    fwd_ramp = min(1.0, time_since_resume / lock_duration) if lock_duration > 0 else 1.0
                     lin_speed = self.linear_speed * fwd_ramp
-                    ang_vel = float(_ang_smc)
+
+                    if time_since_resume < lock_duration:
+                        # 4 BÁNH CÙNG QUAY TIẾN ĐỒNG BỘ 100%: Khóa hoàn toàn ang_vel = 0.0
+                        ang_vel = 0.0
+                    elif time_since_resume < (lock_duration + blend_duration):
+                        # Hòa trộn từ từ từ 0.0 sang _ang_smc
+                        blend = (time_since_resume - lock_duration) / blend_duration
+                        ang_vel = blend * float(_ang_smc)
+                    else:
+                        ang_vel = float(_ang_smc)
 
                 twist.linear.x = lin_speed
                 twist.angular.z = ang_vel
