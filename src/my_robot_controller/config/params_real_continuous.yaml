@@ -65,19 +65,19 @@ cnn_driver_node:
     drive_out_distance: 0.50
     low_conf_frames_threshold: 15
     min_turn_angle_deg: 130.0
-    max_row_length: 10.0
+    max_row_length: 25.0
 
     # ── Điều Phối Nhiệm Vụ 2 Luống Thực Nghiệm (Mission Goals) ──
     enable_mission_goals: true
     enable_global_plan_assist: true
-    field_length: 3.0
+    field_length: 15.0
     headland_area_length: 4.0
     goal_tolerance: 0.40
 
     # Tọa độ 4 điểm mốc nhiệm vụ: (+) = Rẽ Phải, (-) = Rẽ Trái
-    goal_1_x: 3.0
+    goal_1_x: 15.0
     goal_1_y: 0.0
-    goal_2_x: 3.0
+    goal_2_x: 15.0
     goal_2_y: 0.80
     goal_3_x: 0.0
     goal_3_y: 0.80

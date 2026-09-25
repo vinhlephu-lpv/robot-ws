@@ -56,20 +56,20 @@ cnn_driver_node:
     drive_out_distance: 0.50      # m — Thoát khỏi miệng luống 0.5m trước khi xoay
     low_conf_frames_threshold: 15 # 15 frame liên tiếp thấy hết cây / confidence giảm dưới 30% (laptop ~12-15 FPS)
     min_turn_angle_deg: 130.0     # độ — góc xoay tối thiểu (>130 độ) trước khi trao quyền cho CNN bắt luống mới
-    max_row_length: 10.0          # m — giới hạn an toàn tối đa
+    max_row_length: 25.0          # m — giới hạn an toàn tối đa luống ngoài đồng
 
     # ── Điều Phối Nhiệm Vụ 2 Luống Thực Nghiệm (3 hàng thùng, 2 luống) ──
     enable_mission_goals: true      # Giám sát 4 điểm mốc (Start -> Goal 1 -> Goal 2 -> Goal 3)
     enable_global_plan_assist: true # Hỗ trợ song song cùng CNN giữ đúng tim luống
-    field_length: 3.0              # m — Chiều dài mỗi luống (3.0m)
+    field_length: 15.0             # m — Chiều dài luống ước tính (nếu CNN còn thấy luống, xe tiếp tục chạy)
     headland_area_length: 4.0      # m — Khoảng không gian quay đầu 4.0m
     goal_tolerance: 0.40           # m — Bán kính dung sai chạm mốc
 
     # ── Tọa độ 4 điểm mốc nhiệm vụ (Mission Goals) ─────────────────
     # Quy ước dấu hệ thống: (+) = Rẽ Phải / Bên Phải, (-) = Rẽ Trái / Bên Trái
-    goal_1_x: 3.0                  # m — Cuối Luống 1 (kích hoạt quay đầu)
+    goal_1_x: 15.0                 # m — Cuối Luống 1 (kích hoạt quay đầu khi hết hàng)
     goal_1_y: 0.0                  # m
-    goal_2_x: 3.0                  # m — Đầu Luống 2 bên Phải (sau khi quay đầu 180°)
+    goal_2_x: 15.0                 # m — Đầu Luống 2 bên Phải (sau khi quay đầu 180°)
     goal_2_y: 0.80                 # m — Tim Luống 2 bên Phải (Quy ước: (+) = Phải, (-) = Trái)
     goal_3_x: 0.0                  # m — Cuối Luống 2 bên Phải (về đích dừng xe an toàn)
     goal_3_y: 0.80                 # m

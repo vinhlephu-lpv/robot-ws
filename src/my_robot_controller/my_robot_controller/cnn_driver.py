@@ -1078,7 +1078,8 @@ class CnnDriverNode(Node):
                 self.accumulated_turn_angle = 0.0
                 self.is_adjusting_heading = False
                 self.pure_pursuit_controller.reset()
-                self.smc_controller.reset()
+                if hasattr(self, 'smc_controller') and self.smc_controller is not None:
+                    self.smc_controller.reset()
                 self.pivot_2_see_row_frames = 0
 
                 self.transition_to_state(FSMState.TRACKING, now)
@@ -1600,27 +1601,58 @@ class CnnDriverNode(Node):
                 self.eor_low_conf_frames = 0
             trigger_confidence = (self.eor_low_conf_frames >= self.low_conf_frames_threshold)
 
-            # Cảm biến đa tầng: Bắt buộc LiDAR 2 bên sườn phải xác nhận khoảng trống (> 0.60m)
+            # Cảm biến đa tầng: Kiểm tra LiDAR 2 bên sườn thoát khoảng trống (> 0.45m đối với luống 0.7-0.8m)
             # mới cho phép nhận biết hết luống qua cảm biến, chống kích hoạt non do thưa cây/bóng râm giữa luống:
             left_side_dist = getattr(self, '_latest_left_side_dist', float('inf'))
             right_side_dist = getattr(self, '_latest_right_side_dist', float('inf'))
-            sides_cleared_eor = (left_side_dist > 0.60 and right_side_dist > 0.60)
+            sides_cleared_eor = (left_side_dist > 0.45 and right_side_dist > 0.45)
             perception_eor = (trigger_confidence or end_of_row) and sides_cleared_eor
 
             # 2. Điều phối theo 4 Điểm Mốc Nhiệm Vụ (Mission Goals):
             if self.enable_mission_goals and warmup_done:
                 if self.current_lane_idx == 1:
-                    # Đang chạy Luống 1: kiểm tra đã đến cuối Luống 1 chưa (Goal 1: x = field_length)
+                    # Đang chạy Luống 1: kiểm tra đã đến cuối Luống 1 chưa
                     dist_to_g1 = math.hypot(self.current_x - self.goal_1_x, self.current_y - self.goal_1_y)
-                    reached_g1 = (dist_to_g1 <= self.goal_tolerance) or (self.current_x >= self.goal_1_x)
+                    reached_g1_spatial = (dist_to_g1 <= self.goal_tolerance) or (self.current_x >= self.goal_1_x)
+                    
+                    # Giới hạn an toàn tối đa (chống chạy mãi nếu camera bị dính cỏ bờ ruộng)
+                    max_limit_x = max(self.goal_1_x + getattr(self, 'headland_area_length', 4.0), getattr(self, 'max_row_length', 15.0))
+                    exceeded_max_limit = (self.current_x >= max_limit_x) or (self.distance_traveled >= getattr(self, 'max_row_length', 15.0))
 
-                    if reached_g1 or (perception_eor and self.current_x >= self.min_row_length):
+                    # ĐIỀU KIỆN TIÊN QUYẾT: Khi CNN vẫn nhận diện thấy luống rõ ràng (confidence >= threshold)
+                    # thì xe ĐANG Ở TRONG HÀNG BẮP, TUYỆT ĐỐI KHÔNG ĐƯỢC QUAY XE!
+                    cnn_still_confident = (confidence >= self.low_confidence_threshold)
+
+                    can_trigger_u_turn = False
+                    trigger_reason = ""
+
+                    if cnn_still_confident and not exceeded_max_limit:
+                        # Vẫn nhìn thấy luống rõ ràng: ƯU TIÊN CAO NHẤT TIẾP TỤC BÁM LUỐNG TIẾN VỀ PHÍA TRƯỚC!
+                        if reached_g1_spatial and (now - getattr(self, '_last_g1_pass_log_time', 0.0)) > 2.0:
+                            self.get_logger().info(
+                                f"🌾 [GIỮ LUỐNG] Đã tới x={self.current_x:.2f}m nhưng CNN vẫn nhìn thấy luống rõ "
+                                f"(Conf={confidence*100:.1f}% >= {self.low_confidence_threshold*100:.0f}%) -> Tiếp tục bám luống cho tới khi hết hàng bắp thật sự!"
+                            )
+                            self._last_g1_pass_log_time = now
+                    else:
+                        # CNN đã xác nhận mất luống (hoặc vượt quá giới hạn an toàn tối đa):
+                        if perception_eor and self.current_x >= self.min_row_length:
+                            can_trigger_u_turn = True
+                            trigger_reason = f"Camera xác nhận hết hàng bắp ({self.eor_low_conf_frames} frames conf < {self.low_confidence_threshold*100:.0f}%)"
+                        elif reached_g1_spatial and (confidence < self.low_confidence_threshold) and self.current_x >= self.min_row_length:
+                            can_trigger_u_turn = True
+                            trigger_reason = f"Đến mốc Goal 1 (x={self.current_x:.2f}m) & Camera xác nhận hết luống (Conf={confidence*100:.1f}%)"
+                        elif exceeded_max_limit:
+                            can_trigger_u_turn = True
+                            trigger_reason = f"Vượt quá giới hạn an toàn tối đa luống (x={self.current_x:.2f}m >= {max_limit_x:.2f}m)"
+
+                    if can_trigger_u_turn:
                         self.get_logger().info(
-                            f"🎯 [MỐC GOAL 1] Đã đến cuối Luống 1 tại x={self.current_x:.2f}m (dist={self.distance_traveled:.2f}m)! "
-                            f"Kích hoạt quay đầu Omega Turn chuyển sang Luống 2..."
+                            f"🎯 [MỐC GOAL 1 - KÍCH HOẠT QUAY ĐẦU] {trigger_reason} tại x={self.current_x:.2f}m (dist={self.distance_traveled:.2f}m)! "
+                            f"Bắt đầu chuyển sang Luống 2..."
                         )
                         if self.enable_file_logging and self.telemetry_logger:
-                            self.telemetry_logger.log_event("GOAL_1_REACHED", f"Cuối Luống 1 tại x={self.current_x:.2f}m, dist={self.distance_traveled:.2f}m")
+                            self.telemetry_logger.log_event("GOAL_1_REACHED", f"{trigger_reason} tại x={self.current_x:.2f}m, dist={self.distance_traveled:.2f}m")
                         self.eor_detected = False
                         self.current_lane_idx = 2
                         self.low_confidence_counter = 0
@@ -1638,16 +1670,33 @@ class CnnDriverNode(Node):
                     # Đang chạy Luống 2: chạy ngược chiều từ x = field_length về Goal 3 (x = 0)
                     target_g3_y = getattr(self, 'goal_3_y_ros', getattr(self, 'current_lane_y', -abs(self.row_spacing)))
                     dist_to_g3 = math.hypot(self.current_x - self.goal_3_x, self.current_y - target_g3_y)
-                    reached_g3 = (dist_to_g3 <= self.goal_tolerance) or (self.current_x <= (self.goal_3_x + 0.15))
+                    reached_g3_spatial = (dist_to_g3 <= self.goal_tolerance) or (self.current_x <= (self.goal_3_x + 0.15))
 
-                    if (reached_g3 and self.distance_traveled >= self.min_row_length) or (perception_eor and self.distance_traveled >= self.min_row_length):
+                    cnn_still_confident = (confidence >= self.low_confidence_threshold)
+                    can_finish = False
+                    finish_reason = ""
+
+                    if cnn_still_confident and not (self.current_x <= (self.goal_3_x - 1.0)):
+                        # Vẫn thấy luống 2 rõ: tiếp tục bám hàng chạy về đích!
+                        pass
+                    else:
+                        if (reached_g3_spatial and self.distance_traveled >= self.min_row_length and not cnn_still_confident):
+                            can_finish = True
+                            finish_reason = f"Đã về đích Goal 3 (x={self.current_x:.2f}m) & Camera hết luống"
+                        elif (perception_eor and self.distance_traveled >= self.min_row_length):
+                            can_finish = True
+                            finish_reason = f"Hết hàng Luống 2 (dist={self.distance_traveled:.2f}m)"
+                        elif (self.current_x <= (self.goal_3_x - 1.0) and self.distance_traveled >= self.min_row_length):
+                            can_finish = True
+                            finish_reason = f"Đã qua vạch đích Goal 3 (x={self.current_x:.2f}m)"
+
+                    if can_finish:
                         self.StopRobot()
                         self.get_logger().info(
-                            f"🏆 [HOÀN THÀNH NHIỆM VỤ] Đã chạy xong Luống 2 về đích Goal 3 tại x={self.current_x:.2f}m, y={self.current_y:.2f}m! "
-                            f"Dừng xe an toàn tuyệt đối."
+                            f"🏆 [HOÀN THÀNH NHIỆM VỤ] {finish_reason}! Vị trí: x={self.current_x:.2f}m, y={self.current_y:.2f}m. Dừng xe an toàn tuyệt đối."
                         )
                         if self.enable_file_logging and self.telemetry_logger:
-                            self.telemetry_logger.log_event("MISSION_COMPLETE", f"Về đích Goal 3 x={self.current_x:.2f}m, y={self.current_y:.2f}m")
+                            self.telemetry_logger.log_event("MISSION_COMPLETE", f"{finish_reason} tại x={self.current_x:.2f}m, y={self.current_y:.2f}m")
                         self.transition_to_state(FSMState.IDLE, now)
                         return
 
