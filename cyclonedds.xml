@@ -2,17 +2,31 @@
 <CycloneDDS xmlns="https://cdds.io/config">
   <Domain>
     <General>
+      <!-- ƯU TIÊN CAO NHẤT CHO CÁP MẠNG ETHERNET -->
+      <Interfaces>
+        <!-- Cáp mạng dây Ethernet trên Laptop (enp3s0) và Raspberry Pi (eth0) -->
+        <NetworkInterface name="enp3s0" priority="20" presence_required="false" />
+        <NetworkInterface name="eth0" priority="20" presence_required="false" />
+        <!-- Dự phòng: Mạng Wi-Fi / Hotspot (Ưu tiên thấp hơn) -->
+        <NetworkInterface name="wlp0s20f3" priority="5" presence_required="false" />
+        <NetworkInterface name="wlan0" priority="5" presence_required="false" />
+      </Interfaces>
       <AllowMulticast>true</AllowMulticast>
       <MaxMessageSize>65500B</MaxMessageSize>
     </General>
     <Discovery>
       <Peers>
+        <!-- Cáp mạng dây trực tiếp Laptop <-> Pi (10.42.0.x) - Ưu tiên cao nhất -->
+        <Peer address="10.42.0.1"/>
+        <Peer address="10.42.0.236"/>
+        <Peer address="10.42.0.255"/>
+        <!-- Dự phòng qua Wi-Fi Trường (10.10.x.x) & Hotspot điện thoại (172.20.10.x) -->
         <Peer address="10.10.178.200"/>
         <Peer address="10.10.177.141"/>
         <Peer address="10.10.160.2"/>
         <Peer address="10.10.191.255"/>
-        <Peer address="172.20.10.255"/>
         <Peer address="172.20.10.1"/>
+        <Peer address="172.20.10.255"/>
         <Peer address="255.255.255.255"/>
       </Peers>
       <ParticipantIndex>auto</ParticipantIndex>

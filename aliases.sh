@@ -15,6 +15,72 @@ if [ -z "$WS_DIR" ] || [ ! -d "$WS_DIR" ]; then
 fi
 export WS_DIR
 
+# Hàm tự động cấu hình CycloneDDS ưu tiên cáp mạng Ethernet trực tiếp 10.42.0.x
+setup_cyclonedds() {
+    local my_ip=""
+    local peer_ip=""
+    local is_pi=false
+    if [ "$(hostname)" = "bao-desktop" ] || [ "$USER" = "bao" ]; then
+        is_pi=true
+    fi
+
+    # Ưu tiên 1: Cáp mạng dây Ethernet trực tiếp (Laptop 10.42.0.1 <-> Pi 10.42.0.236)
+    if [ "$is_pi" = true ]; then
+        if ip -4 addr show dev eth0 2>/dev/null | grep -q "10.42.0."; then
+            my_ip="10.42.0.236"
+            peer_ip="10.42.0.1"
+        fi
+    else
+        if ip -4 addr show 2>/dev/null | grep -q "10.42.0.1"; then
+            my_ip="10.42.0.1"
+            peer_ip="10.42.0.236"
+        fi
+    fi
+
+    # Ưu tiên 2 (Dự phòng khi rút cáp mạng): Mạng Wi-Fi Trường (10.10.x.x) hoặc Hotspot (172.20.10.x)
+    if [ -z "$my_ip" ]; then
+        if [ "$is_pi" = true ]; then
+            my_ip=$(ip -4 addr show dev wlan0 2>/dev/null | grep -oP 'inet \K[\d.]+' | head -1)
+            peer_ip="10.10.177.141"
+        else
+            local iface
+            iface=$(ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="dev") print $(i+1)}' | head -1)
+            my_ip=$(ip -4 addr show dev "$iface" 2>/dev/null | grep -oP 'inet \K[\d.]+' | head -1)
+            peer_ip="10.10.178.200"
+        fi
+    fi
+
+    cat > "$HOME/.cyclonedds.xml" << EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<CycloneDDS xmlns="https://cdds.io/config">
+  <Domain>
+    <General>
+      <Interfaces>
+        <NetworkInterface address="${my_ip:-127.0.0.1}" priority="20" presence_required="false" />
+      </Interfaces>
+      <AllowMulticast>true</AllowMulticast>
+      <MaxMessageSize>65500B</MaxMessageSize>
+    </General>
+    <Discovery>
+      <Peers>
+        <Peer address="${peer_ip:-127.0.0.1}"/>
+        <Peer address="10.42.0.1"/>
+        <Peer address="10.42.0.236"/>
+        <Peer address="10.42.0.255"/>
+        <Peer address="10.10.178.200"/>
+        <Peer address="10.10.177.141"/>
+        <Peer address="172.20.10.1"/>
+        <Peer address="255.255.255.255"/>
+      </Peers>
+      <ParticipantIndex>auto</ParticipantIndex>
+      <MaxAutoParticipantIndex>100</MaxAutoParticipantIndex>
+    </Discovery>
+  </Domain>
+</CycloneDDS>
+EOF
+    export CYCLONEDDS_URI="file://$HOME/.cyclonedds.xml"
+}
+
 # Hàm nạp môi trường ROS 2 và Workspace
 load_ws() {
     if [ -f "/opt/ros/jazzy/setup.bash" ]; then
@@ -33,7 +99,6 @@ load_ws() {
         source "$WS_DIR/install/setup.bash"
     fi
 
-
     export RCUTILS_CONSOLE_OUTPUT_FORMAT="{message}"
     export RCUTILS_COLORIZED_OUTPUT=1
     export PYTHONUNBUFFERED=1
@@ -43,12 +108,7 @@ load_ws() {
     export ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
     if [ -f "/opt/ros/jazzy/lib/librmw_cyclonedds_cpp.so" ] || [ -f "/opt/ros/humble/lib/librmw_cyclonedds_cpp.so" ] || [ -f "/usr/lib/librmw_cyclonedds_cpp.so" ]; then
         export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
-        if [ -f "$WS_DIR/cyclonedds.xml" ]; then
-            export CYCLONEDDS_URI="file://$WS_DIR/cyclonedds.xml"
-            cp -f "$WS_DIR/cyclonedds.xml" "$HOME/.cyclonedds.xml" 2>/dev/null || true
-        elif [ -f "$HOME/.cyclonedds.xml" ]; then
-            export CYCLONEDDS_URI="file://$HOME/.cyclonedds.xml"
-        fi
+        setup_cyclonedds
     else
         unset RMW_IMPLEMENTATION
     fi
@@ -962,13 +1022,37 @@ sync_time_func() {
 alias sync-time="sync_time_func"
 alias dongbo-gio="sync_time_func"
 
-# Hàm đồng bộ toàn bộ mã nguồn sang Raspberry Pi và tự động build
+# Hàm đồng bộ toàn bộ mã nguồn sang Raspberry Pi và tự động build (sạch 100% như git pull)
 sync_to_pi_func() {
-    local pi_ip="${1:-${PI_STATIC_IP:-10.10.178.200}}"
-    "$WS_DIR/scripts/sync_to_pi.sh" "$pi_ip"
+    "$WS_DIR/scripts/sync_to_pi.sh" "$@"
 }
 alias sync-pi="sync_to_pi_func"
 alias dongbo-pi="sync_to_pi_func"
+
+# Phím tắt vào thẳng SSH của Pi (tự động nhận diện mạng dây LAN hoặc Wi-Fi)
+ssh_pi_func() {
+    local target_ip="${1:-${PI_IP:-}}"
+    local candidates=("$target_ip" "10.42.0.236" "10.10.178.200" "bao-desktop.local")
+    for ip in "${candidates[@]}"; do
+        [ -z "$ip" ] && continue
+        if timeout 1 bash -c "echo >/dev/tcp/$ip/22" 2>/dev/null; then
+            echo "🚀 Đang kết nối Pi tại $ip..."
+            ssh -o StrictHostKeyChecking=no "${PI_USER:-bao}@$ip"
+            return $?
+        fi
+    done
+    echo "🔍 Đang tự động dò IP Pi trên mạng..."
+    local detected_ip
+    detected_ip=$(find_pi_func 2>/dev/null)
+    if [ -n "$detected_ip" ]; then
+        echo "✅ Tìm thấy Pi tại $detected_ip, đang kết nối..."
+        ssh -o StrictHostKeyChecking=no "${PI_USER:-bao}@$detected_ip"
+    else
+        echo "❌ Không tìm thấy Pi! Hãy kiểm tra dây mạng hoặc Wi-Fi."
+    fi
+}
+alias ssh-pi="ssh_pi_func"
+alias vao-pi="ssh_pi_func"
 
 # Hàm cập nhật CycloneDDS cho unicast (khi hotspot chặn multicast)
 update_cyclone_peers() {
@@ -1369,3 +1453,6 @@ alias huy="cancel_nav_func"
 alias huy-nav="cancel_nav_func"
 alias stop-nav="cancel_nav_func"
 alias cancel-nav="cancel_nav_func"
+
+# Tự động nạp môi trường và cấu hình CycloneDDS (ưu tiên mạng dây) khi mở terminal
+load_ws
