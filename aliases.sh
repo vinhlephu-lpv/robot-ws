@@ -703,8 +703,8 @@ pi_cnn_continuous_func() {
     load_ws
     echo "================================================================================"
     echo "🌾 [PI ROBOT SLAVE - CONTINUOUS STEER] Đánh Lái Liên Tục Trong Luống"
-    echo "   🏎️ 4 bánh chạy đều 0.075 m/s | Bẻ lái: 2 bánh dừng 0 m/s, 2 bánh vọt 0.10 m/s"
-    echo "   🛑 Không dừng xoay tại chỗ trong hàng bắp | Giữ nguyên U-Turn & né cản"
+    echo "   🏎️ 4 bánh chạy đều 0.075 m/s | Bẻ lái êm dịu: bánh trong 0.045 m/s, bánh ngoài 0.088 m/s"
+    echo "   🛑 Không dừng xoay tại chỗ trong hàng bắp | Giữ nguyên U-Turn & né cản | Ramp mềm: 0.5s"
     echo "   📡 Nhận góc lái (/crop_row/detection) từ Laptop qua Wi-Fi"
     echo "================================================================================"
     real_cnn_continuous_func enable_camera:=false enable_costmap:=false "$@"
@@ -720,8 +720,8 @@ real_cnn_continuous_func() {
 
     echo "================================================================================" | tee "$term_log"
     echo "🌾 [REAL ROBOT - CONTINUOUS STEER] Bắt đầu tự hành ĐÁNH LÁI LIÊN TỤC TRONG LUỐNG" | tee -a "$term_log"
-    echo "   🏎️ Tốc độ danh định: 0.075 m/s | Đánh lái: 2 bánh trong 0.0 m/s, 2 bánh ngoài 0.10 m/s" | tee -a "$term_log"
-    echo "   ⚡ Ngưỡng bẻ lái: 2.0° | Hồi thẳng: < 1.2° trong 3 frame | Ramp: 0.25s" | tee -a "$term_log"
+    echo "   🏎️ Tốc độ danh định: 0.075 m/s | Đánh lái: bánh trong 0.045 m/s, bánh ngoài 0.088 m/s" | tee -a "$term_log"
+    echo "   ⚡ Ngưỡng bẻ lái: 2.2° | Hồi thẳng: < 1.2° trong 6 frame | Ramp chuyển tiếp: 0.50s" | tee -a "$term_log"
     echo "   🛑 Không dừng xoay tại chỗ trong hàng bắp | U-Turn & né cản giữ nguyên 100%" | tee -a "$term_log"
     echo "================================================================================" | tee -a "$term_log"
 

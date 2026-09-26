@@ -10,10 +10,10 @@ cnn_driver_node:
     tracking_steer_mode: 'CONTINUOUS_STEER' # Bật chế độ vừa chạy vừa đánh lái
     steer_trigger_deg: 2.2        # độ — Ngưỡng kích hoạt bẻ lái (|góc| > 2.2°)
     steer_resume_deg: 1.2         # độ — Ngưỡng xác nhận thẳng hàng (|góc| < 1.2°)
-    steer_aligned_frames: 4       # frames — Số frame liên tiếp < 1.2° để xác nhận thẳng
-    steer_boost_speed: 0.095      # m/s — Vận tốc bánh ngoài khi bẻ lái (đủ lực bẻ lái dứt khoát)
-    steer_brake_speed: 0.025      # m/s — Vận tốc bánh trong khi bẻ lái (lăn chậm duy trì bám đường, không dừng khựng)
-    steer_ramp_time: 0.40         # s — Thời gian tăng/giảm tốc mềm chống giật, chống trượt bánh
+    steer_aligned_frames: 6       # frames — Số frame liên tiếp < 1.2° để xác nhận thẳng vững chắc
+    steer_boost_speed: 0.088      # m/s — Bánh ngoài tăng tốc êm dịu (chênh lệch vừa đủ, không giật xe)
+    steer_brake_speed: 0.045      # m/s — Bánh trong giảm nhẹ giữ lực kéo ổn định (tốc độ quay vi sai chậm rãi êm ái)
+    steer_ramp_time: 0.50         # s — Thời gian tăng/giảm tốc mềm đồng bộ 0.5s như pi-cnn và pc-cnn
 
     # Đường dẫn model ONNX INT8
     model_path: 'models/crop_row_cnn_best_final_int8.onnx'

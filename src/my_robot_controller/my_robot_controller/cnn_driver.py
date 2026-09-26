@@ -122,12 +122,12 @@ class CnnDriverNode(Node):
 
         # ── Tham số Đánh Lái Liên Tục Trong Luống (Continuous Dynamic Steer) ────
         self.declare_parameter('tracking_steer_mode', 'PIVOT_STOP') # 'PIVOT_STOP' (mặc định) hoặc 'CONTINUOUS_STEER'
-        self.declare_parameter('steer_trigger_deg', 2.0)            # độ — Ngưỡng bắt đầu bẻ lái
+        self.declare_parameter('steer_trigger_deg', 2.2)            # độ — Ngưỡng bắt đầu bẻ lái
         self.declare_parameter('steer_resume_deg', 1.2)             # độ — Ngưỡng thẳng hàng kết thúc bẻ lái
-        self.declare_parameter('steer_aligned_frames', 3)           # frames — Số frame liên tiếp < steer_resume_deg để xác nhận thẳng
-        self.declare_parameter('steer_boost_speed', 0.10)           # m/s — Vận tốc tăng tốc mềm bánh ngoài
-        self.declare_parameter('steer_brake_speed', 0.00)           # m/s — Vận tốc giảm tốc mềm bánh trong
-        self.declare_parameter('steer_ramp_time', 0.25)             # s — Thời gian ramp gia tốc/giảm tốc mềm
+        self.declare_parameter('steer_aligned_frames', 6)           # frames — Số frame liên tiếp < steer_resume_deg để xác nhận thẳng
+        self.declare_parameter('steer_boost_speed', 0.088)          # m/s — Vận tốc bánh ngoài khi bẻ lái
+        self.declare_parameter('steer_brake_speed', 0.045)          # m/s — Vận tốc bánh trong khi bẻ lái
+        self.declare_parameter('steer_ramp_time', 0.50)             # s — Thời gian ramp gia tốc/giảm tốc mềm đồng bộ 0.5s
 
         p = self.get_parameter
         self.model_path               = p('model_path').value
@@ -1398,10 +1398,13 @@ class CnnDriverNode(Node):
             self._is_stabilized = True
             self.node_start_time = now
             self.state_start_time = now
+            self.row_start_x = self.current_x
+            self.row_start_y = self.current_y
+            self.distance_traveled = 0.0
             s_lidar_str = "OK" if lidar_ok else "OFF"
             ready_msg = (
                 f"🚀 [SẴN SÀNG TỰ HÀNH] Cảm biến & AI đã ổn định 100%! "
-                f"(Odom: OK, IMU: OK, LiDAR: {s_lidar_str}, AI Conf: {confidence*100:.1f}%). "
+                f"(Start: x={self.row_start_x:.2f}m, y={self.row_start_y:.2f}m | Odom: OK, IMU: OK, LiDAR: {s_lidar_str}, AI Conf: {confidence*100:.1f}%). "
                 f"Bắt đầu lăn bánh tự hành vào luống bắp!"
             )
             self.get_logger().info(ready_msg)
@@ -1413,7 +1416,7 @@ class CnnDriverNode(Node):
             self.state_start_time = now
         elapsed_state= (now - self.state_start_time).nanoseconds / 1e9
         elapsed_total= (now - self.node_start_time).nanoseconds / 1e9
-        warmup_done  = elapsed_total > self.warmup_time
+        warmup_done  = getattr(self, '_is_stabilized', False) or (elapsed_total > self.warmup_time)
 
         current_state = self.fsm.get_state()
 
@@ -1482,6 +1485,9 @@ class CnnDriverNode(Node):
         # ── IDLE ──────────────────────────────────────────────────────
         if current_state == FSMState.IDLE:
             self.StopRobot()
+            # Nếu nhiệm vụ đã hoàn thành về đích Goal 3, dừng hẳn xe vĩnh viễn, không tự chạy lại
+            if getattr(self, 'mission_completed', False):
+                return
             if confidence >= self.low_confidence_threshold:
                 self.transition_to_state(FSMState.TRACKING, now)
             return
@@ -1855,6 +1861,7 @@ class CnnDriverNode(Node):
                             finish_reason = f"Đạt giới hạn quãng đường tối đa Luống 2 (dist={self.distance_traveled:.2f}m >= {max_limit_dist:.2f}m)"
 
                     if can_finish:
+                        self.mission_completed = True
                         self.StopRobot()
                         self.get_logger().info(
                             f"🏆 [GOAL 3 - HOÀN THÀNH NHIỆM VỤ] {finish_reason}! Vị trí: x={self.current_x:.2f}m, y={self.current_y:.2f}m. Dừng xe an toàn tuyệt đối."
