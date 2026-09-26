@@ -113,7 +113,7 @@ class ESP32Bridge(Node):
         self.target_rpm_right = 0.0
         self.current_rpm_left = 0.0
         self.current_rpm_right = 0.0
-        self.max_rpm_accel = 35.0  # RPM/s — Tăng/giảm tốc mềm chống trượt bánh và chống văng xe
+        self.max_rpm_accel = 18.0  # RPM/s — Đủ lực kéo tức thì thắng ma sát cỏ nhưng êm dịu chống trượt bánh
         self._serial_rx_buffer = ''
 
         # ── Loop Timer (20 Hz for Odom processing & continuous ESP32 streaming) ──
@@ -187,21 +187,19 @@ class ESP32Bridge(Node):
         if abs(v) < 0.005 and abs(w) < 0.005:
             self.target_rpm_left = 0.0
             self.target_rpm_right = 0.0
-            if abs(self.current_rpm_left) < 1.0 and abs(self.current_rpm_right) < 1.0:
-                self.current_rpm_left = 0.0
-                self.current_rpm_right = 0.0
         else:
             # Differential drive kinematics chuẩn mực
             v_left = v - (w * self.wheel_base / 2.0)
             v_right = v + (w * self.wheel_base / 2.0)
 
             # Smooth Forward-Bias Kinematics:
-            # Khi xe đang có lệnh tiến (v > 0.005 m/s):
-            # Tuyệt đối không cho phép bánh nào quay lùi (negative RPM) làm mất lực hoặc khựng xe trên nền đất/cỏ
-            if v > 0.005:
+            # Khi xe đang có lệnh tiến (v > 0.03 m/s), cả 2 bánh luôn quay tiến để duy trì lực kéo ổn định,
+            # tránh giật lùi bánh trong làm mất lực hoặc khựng xe trên nền đất/cỏ.
+            if v > 0.03:
+                min_fwd = self.min_forward_speed
                 min_v = min(v_left, v_right)
-                if min_v < 0.0:
-                    shift = -min_v
+                if min_v < min_fwd:
+                    shift = min_fwd - min_v
                     v_left += shift
                     v_right += shift
 
@@ -211,22 +209,6 @@ class ESP32Bridge(Node):
 
             self.target_rpm_left = rpm_l
             self.target_rpm_right = rpm_r
-
-            # Xử lý đồng bộ 4 bánh khi xe bắt đầu lăn bánh tiến thẳng (abs(w) < 0.01 và v > 0.005):
-            # 1. Triệt tiêu ngay lập tức bất kỳ RPM âm nào còn sót lại từ lúc xoay tại chỗ
-            if self.target_rpm_left > 0 and self.current_rpm_left < 0:
-                self.current_rpm_left = 0.0
-            if self.target_rpm_right > 0 and self.current_rpm_right < 0:
-                self.current_rpm_right = 0.0
-
-            # 2. Khóa đồng bộ 100% hai vế bánh: cùng xuất phát từ cùng 1 giá trị RPM và cùng tăng tốc song song
-            if abs(w) < 0.01 and v > 0.005:
-                sync_rpm = min(self.current_rpm_left, self.current_rpm_right)
-                self.current_rpm_left = sync_rpm
-                self.current_rpm_right = sync_rpm
-                straight_target_rpm = (v * 60.0) / self.wheel_circ
-                self.target_rpm_left = straight_target_rpm
-                self.target_rpm_right = straight_target_rpm
 
         # Slew-Rate Limiter (Bộ làm mềm gia tốc/hãm phanh chống trượt bánh và văng xe trên cỏ/đất)
         max_delta = self.max_rpm_accel * dt

@@ -8,12 +8,12 @@ cnn_driver_node:
   ros__parameters:
     # ── Chế độ điều hướng bám luống ─────────────────────────────
     tracking_steer_mode: 'CONTINUOUS_STEER' # Bật chế độ vừa chạy vừa đánh lái
-    steer_trigger_deg: 2.0        # độ — Ngưỡng kích hoạt bẻ lái (|góc| > 2.0°)
+    steer_trigger_deg: 2.2        # độ — Ngưỡng kích hoạt bẻ lái (|góc| > 2.2°)
     steer_resume_deg: 1.2         # độ — Ngưỡng xác nhận thẳng hàng (|góc| < 1.2°)
-    steer_aligned_frames: 3       # frames — Số frame liên tiếp < 1.2° để xác nhận thẳng
-    steer_boost_speed: 0.10       # m/s — Vận tốc bánh ngoài khi bẻ lái
-    steer_brake_speed: 0.00       # m/s — Vận tốc bánh trong khi bẻ lái (dừng êm)
-    steer_ramp_time: 0.25         # s — Thời gian tăng/giảm tốc mềm chống giật
+    steer_aligned_frames: 4       # frames — Số frame liên tiếp < 1.2° để xác nhận thẳng
+    steer_boost_speed: 0.095      # m/s — Vận tốc bánh ngoài khi bẻ lái (đủ lực bẻ lái dứt khoát)
+    steer_brake_speed: 0.025      # m/s — Vận tốc bánh trong khi bẻ lái (lăn chậm duy trì bám đường, không dừng khựng)
+    steer_ramp_time: 0.40         # s — Thời gian tăng/giảm tốc mềm chống giật, chống trượt bánh
 
     # Đường dẫn model ONNX INT8
     model_path: 'models/crop_row_cnn_best_final_int8.onnx'
@@ -35,10 +35,10 @@ cnn_driver_node:
     # Tốc độ di chuyển danh định khi đi thẳng (0.075 m/s)
     linear_speed: 0.075
     turn_linear_speed: 0.075    # tốc độ chạy ngang khi U-Turn (giữ chậm an toàn)
-    turn_angular_speed: 0.60    # rad/s — Vận tốc góc khi U-Turn
-    turn_in_place_threshold_deg: 2.0
+    turn_angular_speed: 0.38    # rad/s — Vận tốc góc khi U-Turn / xoay đủ lực thắng cỏ
+    turn_in_place_threshold_deg: 2.2
     turn_in_place_resume_deg: 1.2
-    heading_adjust_aligned_frames: 15
+    heading_adjust_aligned_frames: 10
     camera_trim_deg: 0.0
 
     # Bộ điều khiển trượt SMC
@@ -49,22 +49,20 @@ cnn_driver_node:
 
     kp: 1.5
     max_steering_angle_deg: 14.0
-    ema_alpha: 0.35
-
-    # Khoảng cách giữa 2 hàng luống thực tế (m)
-    row_spacing: 0.80
-    min_row_length: 1.5
+    # Khoảng cách giữa 2 hàng luống thực tế (m): Luống 2 bên phải Luống 1 khoảng 1.0m - 1.2m
+    row_spacing: 1.10
+    min_row_length: 1.0
 
     # Ngưỡng confidence
     low_confidence_threshold: 0.30
-    high_confidence_threshold: 0.55
+    high_confidence_threshold: 0.40  # >= 40% (0.40) là bắt luống sớm và tracking ngay
 
     # Tự động nhận biết hết hàng (End of Row) & Quay đầu U-Turn (Giữ nguyên 100%):
     enable_uturn: true
     uturn_mode: 'PIVOT'           # Pivot U-Turn 4 giai đoạn
-    drive_out_distance: 0.50
+    drive_out_distance: 1.20      # m — Chạy thẳng thoát khỏi miệng luống 1.0m - 1.5m (chọn 1.2m) để xác định Goal 1
     low_conf_frames_threshold: 15
-    min_turn_angle_deg: 130.0
+    min_turn_angle_deg: 120.0     # độ — góc xoay tối thiểu (>120 độ) trước khi cho phép CNN bắt luống mới
     max_row_length: 25.0
 
     # ── Điều Phối Nhiệm Vụ 2 Luống Thực Nghiệm (Mission Goals) ──
