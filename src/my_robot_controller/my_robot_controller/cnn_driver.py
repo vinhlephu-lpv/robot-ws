@@ -68,8 +68,9 @@ class CnnDriverNode(Node):
         self.declare_parameter('phi_smc', 0.5)
         self.declare_parameter('max_steering_angle_deg', 14.0)
         self.declare_parameter('turn_in_place_threshold_deg', 2.2)
+        self.declare_parameter('turn_in_place_trigger_frames', 3)
         self.declare_parameter('turn_in_place_resume_deg', 1.2)
-        self.declare_parameter('heading_adjust_aligned_frames', 10)
+        self.declare_parameter('heading_adjust_aligned_frames', 3)
         self.declare_parameter('camera_trim_deg', 0.0)
         self.declare_parameter('row_spacing', 0.80)
         self.declare_parameter('ema_alpha', 0.45)
@@ -123,11 +124,12 @@ class CnnDriverNode(Node):
         # ── Tham số Đánh Lái Liên Tục Trong Luống (Continuous Dynamic Steer) ────
         self.declare_parameter('tracking_steer_mode', 'PIVOT_STOP') # 'PIVOT_STOP' (mặc định) hoặc 'CONTINUOUS_STEER'
         self.declare_parameter('steer_trigger_deg', 2.2)            # độ — Ngưỡng bắt đầu bẻ lái
+        self.declare_parameter('steer_trigger_frames', 3)           # frames — Số frame lệch liên tiếp để bắt đầu bẻ lái
         self.declare_parameter('steer_resume_deg', 1.2)             # độ — Ngưỡng thẳng hàng kết thúc bẻ lái
-        self.declare_parameter('steer_aligned_frames', 6)           # frames — Số frame liên tiếp < steer_resume_deg để xác nhận thẳng
+        self.declare_parameter('steer_aligned_frames', 2)           # frames — Số frame liên tiếp < steer_resume_deg để xác nhận thẳng và hồi thẳng
         self.declare_parameter('steer_boost_speed', 0.088)          # m/s — Vận tốc bánh ngoài khi bẻ lái
         self.declare_parameter('steer_brake_speed', 0.045)          # m/s — Vận tốc bánh trong khi bẻ lái
-        self.declare_parameter('steer_ramp_time', 0.50)             # s — Thời gian ramp gia tốc/giảm tốc mềm đồng bộ 0.5s
+        self.declare_parameter('steer_ramp_time', 0.25)             # s — Thời gian ramp gia tốc/giảm tốc mềm
 
         p = self.get_parameter
         self.model_path               = p('model_path').value
@@ -147,6 +149,7 @@ class CnnDriverNode(Node):
         self.phi_smc                  = p('phi_smc').value
         self.max_steering_angle_deg   = p('max_steering_angle_deg').value
         self.turn_in_place_threshold_deg = float(p('turn_in_place_threshold_deg').value)
+        self.turn_in_place_trigger_frames = int(p('turn_in_place_trigger_frames').value)
         self.turn_in_place_resume_deg    = float(p('turn_in_place_resume_deg').value)
         self.heading_adjust_aligned_frames = int(p('heading_adjust_aligned_frames').value)
         self.camera_trim_deg             = float(p('camera_trim_deg').value)
@@ -200,6 +203,7 @@ class CnnDriverNode(Node):
         # Tham số Đánh Lái Liên Tục
         self.tracking_steer_mode      = str(p('tracking_steer_mode').value).upper()
         self.steer_trigger_deg        = float(p('steer_trigger_deg').value)
+        self.steer_trigger_frames     = int(p('steer_trigger_frames').value)
         self.steer_resume_deg         = float(p('steer_resume_deg').value)
         self.steer_aligned_frames     = int(p('steer_aligned_frames').value)
         self.steer_boost_speed        = float(p('steer_boost_speed').value)
@@ -343,6 +347,7 @@ class CnnDriverNode(Node):
         self.heading_adjust_start_time  = 0.0
         self.heading_adjust_cooldown_until = 0.0
         self._aligned_frame_count       = 0
+        self.turn_in_place_trigger_count = 0
         self.forward_resume_start_time  = 0.0
         self.current_lane_y             = 0.0
 
@@ -351,6 +356,8 @@ class CnnDriverNode(Node):
         self.steer_current_v_l        = float(self.linear_speed)
         self.steer_current_v_r        = float(self.linear_speed)
         self.steer_straight_frames    = 0
+        self.steer_trigger_counter    = 0
+        self.steer_candidate_side     = None
 
         # ── Odometry tracking & Sensor Health ─────────────────────────
         self.distance_traveled  = 0.0    # m — cộng dồn từ đầu hàng
@@ -1227,6 +1234,9 @@ class CnnDriverNode(Node):
                 self.steer_current_v_l = float(self.linear_speed)
                 self.steer_current_v_r = float(self.linear_speed)
                 self.steer_straight_frames = 0
+                self.steer_trigger_counter = 0
+                self.steer_candidate_side = None
+                self.turn_in_place_trigger_count = 0
             elif new_state == FSMState.RECOVERY:
                 self.recovery_start_x = self.current_x
                 self.recovery_start_y = self.current_y
@@ -1605,38 +1615,60 @@ class CnnDriverNode(Node):
                 #    - Ngưỡng kích hoạt bẻ lái: steer_trigger_deg = 2.0 độ
                 #    - Ngưỡng xác nhận thẳng hàng: steer_resume_deg = 1.2 độ trong 3 frame
                 #    - Tốc độ danh định tiến thẳng 4 bánh: self.linear_speed (0.075 m/s)
-                #    - Bánh ngoài tăng tốc mềm lên steer_boost_speed (0.10 m/s)
-                #    - Bánh trong giảm tốc mềm về steer_brake_speed (0.00 m/s)
+                #    - Bánh ngoài tăng tốc mềm lên steer_boost_speed (0.088 m/s)
+                #    - Bánh trong giảm tốc mềm về steer_brake_speed (0.045 m/s)
                 #    - Thời gian chuyển tiếp mềm: steer_ramp_time = 0.25s
                 steer_trigger = float(getattr(self, 'steer_trigger_deg', 2.0))
+                steer_trigger_frames = int(getattr(self, 'steer_trigger_frames', 3))
                 steer_resume = float(getattr(self, 'steer_resume_deg', 1.2))
-                required_straight_frames = int(getattr(self, 'steer_aligned_frames', 3))
+                required_straight_frames = int(getattr(self, 'steer_aligned_frames', 2))
                 v_nom = float(self.linear_speed)
-                v_boost = float(getattr(self, 'steer_boost_speed', 0.10))
-                v_brake = float(getattr(self, 'steer_brake_speed', 0.00))
+                v_boost = float(getattr(self, 'steer_boost_speed', 0.088))
+                v_brake = float(getattr(self, 'steer_brake_speed', 0.045))
                 ramp_t = max(0.05, float(getattr(self, 'steer_ramp_time', 0.25)))
 
                 cur_angle = float(self.smoothed_angle_deg)
                 
                 # Quản lý trạng thái đánh lái có trễ (Hysteresis Guard chống quăng xe):
                 if self.steer_active_side is None:
-                    # Đang chạy thẳng 4 bánh: Chỉ bẻ lái khi sai số vượt rõ rệt ngưỡng 1.5 độ
+                    # Đang chạy thẳng 4 bánh: Cần đủ 3 frame lệch liên tiếp mới bắt đầu đánh lái
                     if cur_angle > steer_trigger:
-                        self.steer_active_side = 'RIGHT'
-                        self.steer_straight_frames = 0
-                        self.get_logger().info(
-                            f"🌾 [ĐÁNH LÁI LIÊN TỤC] Lệch Phải ({cur_angle:+.2f}° > {steer_trigger}°): "
-                            f"2 bánh Phải hãm mềm về {v_brake:.2f} m/s, 2 bánh Trái vọt lên {v_boost:.2f} m/s (liền mạch, không dừng xe)!"
-                        )
+                        if getattr(self, 'steer_candidate_side', None) == 'RIGHT':
+                            self.steer_trigger_counter = getattr(self, 'steer_trigger_counter', 0) + 1
+                        else:
+                            self.steer_candidate_side = 'RIGHT'
+                            self.steer_trigger_counter = 1
+
+                        if self.steer_trigger_counter >= steer_trigger_frames:
+                            self.steer_active_side = 'RIGHT'
+                            self.steer_straight_frames = 0
+                            self.steer_trigger_counter = 0
+                            self.steer_candidate_side = None
+                            self.get_logger().info(
+                                f"🌾 [ĐÁNH LÁI LIÊN TỤC] Lệch Phải ({cur_angle:+.2f}° > {steer_trigger}° xác nhận đủ {steer_trigger_frames} frame): "
+                                f"2 bánh Phải hãm mềm về {v_brake:.3f} m/s, 2 bánh Trái vọt lên {v_boost:.3f} m/s (liền mạch, không dừng xe)!"
+                            )
                     elif cur_angle < -steer_trigger:
-                        self.steer_active_side = 'LEFT'
-                        self.steer_straight_frames = 0
-                        self.get_logger().info(
-                            f"🌾 [ĐÁNH LÁI LIÊN TỤC] Lệch Trái ({cur_angle:+.2f}° < -{steer_trigger}°): "
-                            f"2 bánh Trái hãm mềm về {v_brake:.2f} m/s, 2 bánh Phải vọt lên {v_boost:.2f} m/s (liền mạch, không dừng xe)!"
-                        )
+                        if getattr(self, 'steer_candidate_side', None) == 'LEFT':
+                            self.steer_trigger_counter = getattr(self, 'steer_trigger_counter', 0) + 1
+                        else:
+                            self.steer_candidate_side = 'LEFT'
+                            self.steer_trigger_counter = 1
+
+                        if self.steer_trigger_counter >= steer_trigger_frames:
+                            self.steer_active_side = 'LEFT'
+                            self.steer_straight_frames = 0
+                            self.steer_trigger_counter = 0
+                            self.steer_candidate_side = None
+                            self.get_logger().info(
+                                f"🌾 [ĐÁNH LÁI LIÊN TỤC] Lệch Trái ({cur_angle:+.2f}° < -{steer_trigger}° xác nhận đủ {steer_trigger_frames} frame): "
+                                f"2 bánh Trái hãm mềm về {v_brake:.3f} m/s, 2 bánh Phải vọt lên {v_boost:.3f} m/s (liền mạch, không dừng xe)!"
+                            )
+                    else:
+                        self.steer_trigger_counter = 0
+                        self.steer_candidate_side = None
                 else:
-                    # Đang bẻ lái: Chỉ hồi thẳng khi góc lệch đã triệt tiêu < 1.0 độ liên tục 10 frame
+                    # Đang bẻ lái: Chỉ hồi thẳng khi góc lệch đã triệt tiêu < steer_resume trong đủ 2 frame
                     if abs(cur_angle) < steer_resume and confidence >= self.low_confidence_threshold:
                         self.steer_straight_frames += 1
                         if self.steer_straight_frames >= required_straight_frames:
@@ -1647,13 +1679,17 @@ class CnnDriverNode(Node):
                             )
                             self.steer_active_side = None
                             self.steer_straight_frames = 0
+                            self.steer_trigger_counter = 0
+                            self.steer_candidate_side = None
                     else:
                         self.steer_straight_frames = 0
                         # Chống đảo chiều bẻ lái đột ngột: chỉ đổi bên khi góc thực sự đảo dấu lớn hơn ngưỡng trigger
                         if self.steer_active_side == 'RIGHT' and cur_angle < -steer_trigger:
                             self.steer_active_side = 'LEFT'
+                            self.steer_straight_frames = 0
                         elif self.steer_active_side == 'LEFT' and cur_angle > steer_trigger:
                             self.steer_active_side = 'RIGHT'
+                            self.steer_straight_frames = 0
 
                 # Xác định tốc độ mục tiêu của bánh Trái (L) và bánh Phải (R):
                 if self.steer_active_side == 'RIGHT':
@@ -1693,7 +1729,7 @@ class CnnDriverNode(Node):
                     stage = getattr(self, 'heading_adjust_stage', 'ROTATING')
 
                     if stage == 'ROTATING':
-                        required_aligned_frames = int(getattr(self, 'heading_adjust_aligned_frames', 10))
+                        required_aligned_frames = int(getattr(self, 'heading_adjust_aligned_frames', 3))
                         is_frame_aligned = (confidence >= self.low_confidence_threshold) and (abs(self.smoothed_angle_deg) <= resume_threshold)
 
                         if is_frame_aligned:
@@ -1732,24 +1768,31 @@ class CnnDriverNode(Node):
 
                 else:
                     can_trigger = (now_sec >= getattr(self, 'heading_adjust_cooldown_until', 0.0))
+                    required_trigger_frames = int(getattr(self, 'turn_in_place_trigger_frames', 3))
                     if can_trigger and abs(self.smoothed_angle_deg) > stop_threshold:
-                        self.is_adjusting_heading = True
-                        self.heading_adjust_stage = 'BRAKE_DECEL'
-                        self.heading_adjust_stage_start = now_sec
-                        self.heading_adjust_start_time = now_sec
-                        self.heading_adjust_start_v = max(0.0, float(getattr(self, '_latest_twist', Twist()).linear.x))
-                        self.heading_adjust_dir = -1.0 if self.smoothed_angle_deg > 0 else 1.0
-                        self._current_heading_adjust_w = 0.0
-                        self._aligned_frame_count = 0
-                        self.get_logger().info(
-                            f"🌾 [ĐIỀU HƯỚNG CNN] CNN trả góc lệch {self.smoothed_angle_deg:+.2f}° > {stop_threshold:.2f}°. "
-                            f"Giảm tốc êm dịu trong 0.5s để dừng xe trước khi xoay căn chỉnh..."
-                        )
-                        if self.enable_file_logging and self.telemetry_logger:
-                            self.telemetry_logger.log_event(
-                                "CNN_HEADING_STOP_ADJUST",
-                                f"Lệch {self.smoothed_angle_deg:+.2f}° > {stop_threshold:.2f}°. Giảm tốc êm dịu 0.5s."
+                        self.turn_in_place_trigger_count = getattr(self, 'turn_in_place_trigger_count', 0) + 1
+                        if self.turn_in_place_trigger_count >= required_trigger_frames:
+                            self.turn_in_place_trigger_count = 0
+                            self.is_adjusting_heading = True
+                            self.heading_adjust_stage = 'BRAKE_DECEL'
+                            self.heading_adjust_stage_start = now_sec
+                            self.heading_adjust_start_time = now_sec
+                            self.heading_adjust_start_v = max(0.0, float(getattr(self, '_latest_twist', Twist()).linear.x))
+                            self.heading_adjust_dir = -1.0 if self.smoothed_angle_deg > 0 else 1.0
+                            self._current_heading_adjust_w = 0.0
+                            self._aligned_frame_count = 0
+                            self.get_logger().info(
+                                f"🌾 [ĐIỀU HƯỚNG CNN - PIVOT STOP] CNN trả góc lệch {self.smoothed_angle_deg:+.2f}° > {stop_threshold:.2f}° "
+                                f"(xác nhận đủ {required_trigger_frames} frame). "
+                                f"Giảm tốc êm dịu trong 0.5s để dừng xe trước khi xoay căn chỉnh..."
                             )
+                            if self.enable_file_logging and self.telemetry_logger:
+                                self.telemetry_logger.log_event(
+                                    "CNN_HEADING_STOP_ADJUST",
+                                    f"Lệch {self.smoothed_angle_deg:+.2f}° > {stop_threshold:.2f}° ({required_trigger_frames} frames). Giảm tốc êm dịu 0.5s."
+                                )
+                    else:
+                        self.turn_in_place_trigger_count = 0
 
                 if self.is_adjusting_heading:
                     # Trong các giai đoạn căn chỉnh góc, cmd_vel do timer 20Hz điều khiển hoàn toàn

@@ -9,11 +9,12 @@ cnn_driver_node:
     # ── Chế độ điều hướng bám luống ─────────────────────────────
     tracking_steer_mode: 'CONTINUOUS_STEER' # Bật chế độ vừa chạy vừa đánh lái
     steer_trigger_deg: 2.2        # độ — Ngưỡng kích hoạt bẻ lái (|góc| > 2.2°)
+    steer_trigger_frames: 3       # frames — Cần đủ 3 frame lệch góc liên tiếp mới bắt đầu đánh lái
     steer_resume_deg: 1.2         # độ — Ngưỡng xác nhận thẳng hàng (|góc| < 1.2°)
-    steer_aligned_frames: 6       # frames — Số frame liên tiếp < 1.2° để xác nhận thẳng vững chắc
-    steer_boost_speed: 0.088      # m/s — Bánh ngoài tăng tốc êm dịu (chênh lệch vừa đủ, không giật xe)
-    steer_brake_speed: 0.045      # m/s — Bánh trong giảm nhẹ giữ lực kéo ổn định (tốc độ quay vi sai chậm rãi êm ái)
-    steer_ramp_time: 0.50         # s — Thời gian tăng/giảm tốc mềm đồng bộ 0.5s như pi-cnn và pc-cnn
+    steer_aligned_frames: 2       # frames — Số frame liên tiếp < 1.2° để xác nhận thẳng vững chắc và hồi thẳng
+    steer_boost_speed: 0.088      # m/s — Bánh ngoài khi bẻ lái
+    steer_brake_speed: 0.045      # m/s — Bánh trong khi bẻ lái
+    steer_ramp_time: 0.25         # s — Thời gian tăng/giảm tốc mềm chống giật
 
     # Đường dẫn model ONNX INT8
     model_path: 'models/crop_row_cnn_best_final_int8.onnx'
@@ -37,8 +38,9 @@ cnn_driver_node:
     turn_linear_speed: 0.075    # tốc độ chạy ngang khi U-Turn (giữ chậm an toàn)
     turn_angular_speed: 0.38    # rad/s — Vận tốc góc khi U-Turn / xoay đủ lực thắng cỏ
     turn_in_place_threshold_deg: 2.2
+    turn_in_place_trigger_frames: 3
     turn_in_place_resume_deg: 1.2
-    heading_adjust_aligned_frames: 10
+    heading_adjust_aligned_frames: 3
     camera_trim_deg: 0.0
 
     # Bộ điều khiển trượt SMC
@@ -112,8 +114,8 @@ gps_driver_node:
 bts7960_driver_node:
   ros__parameters:
     wheel_base: 0.58
-    max_linear_speed: 1.00      # m/s = 100% PWM
-    min_duty_cycle: 22.0
+    max_linear_speed: 0.18      # m/s = 100% PWM (đồng bộ 100% với params_real.yaml để có lực quay và mô-men xoắn mạnh mẽ)
+    min_duty_cycle: 32.0        # % — Nâng lên 32% để motor luôn đủ momen xoắn đẩy xe vượt ma sát tĩnh trên cỏ/đất
     pwm_frequency: 1000
 
     left_rpwm_pin:  17

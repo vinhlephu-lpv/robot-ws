@@ -156,9 +156,15 @@ class CnnInferenceServer(Node):
         self.declare_parameter('show_window', False)
         self.declare_parameter('tracking_steer_mode', 'PIVOT_STOP')
         self.declare_parameter('steer_trigger_deg', 2.0)
+        self.declare_parameter('steer_trigger_frames', 3)
         self.declare_parameter('steer_resume_deg', 1.2)
-        self.declare_parameter('steer_boost_speed', 0.10)
-        self.declare_parameter('steer_brake_speed', 0.00)
+        self.declare_parameter('steer_aligned_frames', 2)
+        self.declare_parameter('steer_boost_speed', 0.088)
+        self.declare_parameter('steer_brake_speed', 0.045)
+        self.declare_parameter('turn_in_place_threshold_deg', 2.2)
+        self.declare_parameter('turn_in_place_trigger_frames', 3)
+        self.declare_parameter('turn_in_place_resume_deg', 1.2)
+        self.declare_parameter('heading_adjust_aligned_frames', 3)
         self.declare_parameter('linear_speed', 0.075)
         self.declare_parameter('wheel_base', 0.58)
 
@@ -173,9 +179,15 @@ class CnnInferenceServer(Node):
         self.show_window = p('show_window').value
         self.tracking_steer_mode = str(p('tracking_steer_mode').value).upper()
         self.steer_trigger_deg = float(p('steer_trigger_deg').value)
+        self.steer_trigger_frames = int(p('steer_trigger_frames').value)
         self.steer_resume_deg = float(p('steer_resume_deg').value)
+        self.steer_aligned_frames = int(p('steer_aligned_frames').value)
         self.steer_boost_speed = float(p('steer_boost_speed').value)
         self.steer_brake_speed = float(p('steer_brake_speed').value)
+        self.turn_in_place_thresh = float(p('turn_in_place_threshold_deg').value)
+        self.turn_in_place_trigger_frames = int(p('turn_in_place_trigger_frames').value)
+        self.turn_in_place_resume_deg = float(p('turn_in_place_resume_deg').value)
+        self.heading_adjust_aligned_frames = int(p('heading_adjust_aligned_frames').value)
 
         # Tự động tìm model ONNX nếu đường dẫn tương đối
         if not os.path.exists(self.model_path):
@@ -213,14 +225,20 @@ class CnnInferenceServer(Node):
 
         # Thông số mô phỏng điều khiển & động học xe thật (differential drive)
         self.linear_speed = float(p('linear_speed').value)
-        self.turn_angular_speed = 0.25
-        self.turn_in_place_thresh = 8.0
+        self.turn_angular_speed = 0.38
         self.low_conf_thresh = 0.35
         self.wheel_base = float(p('wheel_base').value)
         self.wheel_d = 0.20
         self.wheel_circ = math.pi * self.wheel_d
-        self.max_linear_speed = 1.00 if self.tracking_steer_mode == 'CONTINUOUS_STEER' else 0.18
-        self.min_duty_cycle = 22.0
+        self.max_linear_speed = 0.18
+        self.min_duty_cycle = 32.0
+        self.steer_active_side = None
+        self.steer_candidate_side = None
+        self.steer_trigger_counter = 0
+        self.steer_straight_counter = 0
+        self.turn_in_place_active = False
+        self.turn_in_place_trigger_counter = 0
+        self.turn_in_place_aligned_counter = 0
 
         if TrackingControllerSMC is not None:
             try:
@@ -385,27 +403,73 @@ class CnnInferenceServer(Node):
                         w_ang = 0.0
                         v_left = 0.0
                         v_right = 0.0
-                    elif heading_error > self.steer_trigger_deg:
-                        state_name = f"BE PHAI LIEN TUC (L={self.steer_boost_speed:.2f}m/s, R={self.steer_brake_speed:.2f}m/s)"
-                        state_color = (0, 215, 255)  # Vàng cam
-                        v_left = self.steer_boost_speed
-                        v_right = self.steer_brake_speed
-                        v_lin = (v_left + v_right) / 2.0
-                        w_ang = (v_right - v_left) / self.wheel_base
-                    elif heading_error < -self.steer_trigger_deg:
-                        state_name = f"BE TRAI LIEN TUC (L={self.steer_brake_speed:.2f}m/s, R={self.steer_boost_speed:.2f}m/s)"
-                        state_color = (0, 215, 255)
-                        v_left = self.steer_brake_speed
-                        v_right = self.steer_boost_speed
-                        v_lin = (v_left + v_right) / 2.0
-                        w_ang = (v_right - v_left) / self.wheel_base
+                        self.steer_active_side = None
+                        self.steer_trigger_counter = 0
                     else:
-                        state_name = f"TIEN THANG 4 BANH ({self.linear_speed:.3f} m/s | |goc|<={self.steer_trigger_deg:.1f}°)"
-                        state_color = (0, 255, 0)  # Xanh lá
-                        v_left = self.linear_speed
-                        v_right = self.linear_speed
-                        v_lin = self.linear_speed
-                        w_ang = 0.0
+                        if self.steer_active_side is None:
+                            if heading_error > self.steer_trigger_deg:
+                                if self.steer_candidate_side == 'RIGHT':
+                                    self.steer_trigger_counter += 1
+                                else:
+                                    self.steer_candidate_side = 'RIGHT'
+                                    self.steer_trigger_counter = 1
+                                if self.steer_trigger_counter >= self.steer_trigger_frames:
+                                    self.steer_active_side = 'RIGHT'
+                                    self.steer_straight_counter = 0
+                                    self.steer_trigger_counter = 0
+                                    self.steer_candidate_side = None
+                            elif heading_error < -self.steer_trigger_deg:
+                                if self.steer_candidate_side == 'LEFT':
+                                    self.steer_trigger_counter += 1
+                                else:
+                                    self.steer_candidate_side = 'LEFT'
+                                    self.steer_trigger_counter = 1
+                                if self.steer_trigger_counter >= self.steer_trigger_frames:
+                                    self.steer_active_side = 'LEFT'
+                                    self.steer_straight_counter = 0
+                                    self.steer_trigger_counter = 0
+                                    self.steer_candidate_side = None
+                            else:
+                                self.steer_trigger_counter = 0
+                                self.steer_candidate_side = None
+                        else:
+                            if abs(heading_error) < self.steer_resume_deg:
+                                self.steer_straight_counter += 1
+                                if self.steer_straight_counter >= self.steer_aligned_frames:
+                                    self.steer_active_side = None
+                                    self.steer_straight_counter = 0
+                                    self.steer_trigger_counter = 0
+                                    self.steer_candidate_side = None
+                            else:
+                                self.steer_straight_counter = 0
+                                if self.steer_active_side == 'RIGHT' and heading_error < -self.steer_trigger_deg:
+                                    self.steer_active_side = 'LEFT'
+                                    self.steer_straight_counter = 0
+                                elif self.steer_active_side == 'LEFT' and heading_error > self.steer_trigger_deg:
+                                    self.steer_active_side = 'RIGHT'
+                                    self.steer_straight_counter = 0
+
+                        if self.steer_active_side == 'RIGHT':
+                            state_name = f"BE PHAI LIEN TUC (L={self.steer_boost_speed:.2f}m/s, R={self.steer_brake_speed:.2f}m/s)"
+                            state_color = (0, 215, 255)  # Vàng cam
+                            v_left = self.steer_boost_speed
+                            v_right = self.steer_brake_speed
+                            v_lin = (v_left + v_right) / 2.0
+                            w_ang = (v_right - v_left) / self.wheel_base
+                        elif self.steer_active_side == 'LEFT':
+                            state_name = f"BE TRAI LIEN TUC (L={self.steer_brake_speed:.2f}m/s, R={self.steer_boost_speed:.2f}m/s)"
+                            state_color = (0, 215, 255)
+                            v_left = self.steer_brake_speed
+                            v_right = self.steer_boost_speed
+                            v_lin = (v_left + v_right) / 2.0
+                            w_ang = (v_right - v_left) / self.wheel_base
+                        else:
+                            state_name = f"TIEN THANG 4 BANH ({self.linear_speed:.3f} m/s | |goc|<={self.steer_trigger_deg:.1f}°)"
+                            state_color = (0, 255, 0)  # Xanh lá
+                            v_left = self.linear_speed
+                            v_right = self.linear_speed
+                            v_lin = self.linear_speed
+                            w_ang = 0.0
 
                     rpm_left = (v_left / self.wheel_circ) * 60.0
                     rpm_right = (v_right / self.wheel_circ) * 60.0
@@ -420,25 +484,48 @@ class CnnInferenceServer(Node):
                         state_color = (0, 0, 255)  # Đỏ
                         v_lin = 0.0
                         w_ang = 0.0
-                    elif abs(heading_error) > self.turn_in_place_thresh:
-                        state_name = f"DUNG TIEN - XOAY TAI CHO (|goc|={abs(heading_error):.1f}° > {self.turn_in_place_thresh:.1f}°)"
-                        state_color = (0, 215, 255)  # Vàng cam
-                        v_lin = 0.0
-                        turn_dir = -1.0 if heading_error > 0 else 1.0
-                        w_ang = turn_dir * self.turn_angular_speed
+                        self.turn_in_place_active = False
+                        self.turn_in_place_trigger_counter = 0
+                        self.turn_in_place_aligned_counter = 0
                     else:
-                        state_name = f"TIEN BAM LUONG SMC (|goc|={abs(heading_error):.1f}° <= {self.turn_in_place_thresh:.1f}°)"
-                        state_color = (0, 255, 0)  # Xanh lá
-                        v_lin = self.linear_speed
-                        if self.controller is not None:
-                            try:
-                                self.controller.reset()
-                                cmd = self.controller.compute_command(heading_error, dt_actual=0.067)
-                                w_ang = float(cmd.get("angular_velocity", 0.0))
-                            except Exception:
-                                w_ang = float(np.clip(-0.045 * heading_error, -0.6, 0.6))
+                        if not self.turn_in_place_active:
+                            if abs(heading_error) > self.turn_in_place_thresh:
+                                self.turn_in_place_trigger_counter += 1
+                                if self.turn_in_place_trigger_counter >= self.turn_in_place_trigger_frames:
+                                    self.turn_in_place_active = True
+                                    self.turn_in_place_trigger_counter = 0
+                                    self.turn_in_place_aligned_counter = 0
+                            else:
+                                self.turn_in_place_trigger_counter = 0
                         else:
-                            w_ang = float(np.clip(-0.045 * heading_error, -0.6, 0.6))
+                            if abs(heading_error) <= self.turn_in_place_resume_deg:
+                                self.turn_in_place_aligned_counter += 1
+                                if self.turn_in_place_aligned_counter >= self.heading_adjust_aligned_frames:
+                                    self.turn_in_place_active = False
+                                    self.turn_in_place_aligned_counter = 0
+                                    self.turn_in_place_trigger_counter = 0
+                            else:
+                                self.turn_in_place_aligned_counter = 0
+
+                        if self.turn_in_place_active:
+                            state_name = f"DUNG TIEN - XOAY TAI CHO (|goc|={abs(heading_error):.1f}° > {self.turn_in_place_thresh:.1f}°)"
+                            state_color = (0, 215, 255)  # Vàng cam
+                            v_lin = 0.0
+                            turn_dir = -1.0 if heading_error > 0 else 1.0
+                            w_ang = turn_dir * self.turn_angular_speed
+                        else:
+                            state_name = f"TIEN BAM LUONG SMC (|goc|={abs(heading_error):.1f}° <= {self.turn_in_place_thresh:.1f}°)"
+                            state_color = (0, 255, 0)  # Xanh lá
+                            v_lin = self.linear_speed
+                            if self.controller is not None:
+                                try:
+                                    self.controller.reset()
+                                    cmd = self.controller.compute_command(heading_error, dt_actual=0.067)
+                                    w_ang = float(cmd.get("angular_velocity", 0.0))
+                                except Exception:
+                                    w_ang = float(np.clip(-0.045 * heading_error, -0.6, 0.6))
+                            else:
+                                w_ang = float(np.clip(-0.045 * heading_error, -0.6, 0.6))
 
                     # 2. Differential Drive Kinematics (Vận tốc bánh & RPM)
                     v_left = v_lin - (w_ang * self.wheel_base / 2.0)

@@ -27,9 +27,11 @@ cnn_driver_node:
     linear_speed: 0.075
     turn_linear_speed: 0.075
     turn_angular_speed: 0.38          # rad/s — Đủ mô-men xoắn xoay dứt khoát trên cỏ nhưng không quăng giật
+    tracking_steer_mode: 'PIVOT_STOP' # Chế độ dừng tiến, xoay tại chỗ (Pivot Stop)
     turn_in_place_threshold_deg: 2.2  # Ngưỡng lệch góc kích hoạt giảm tốc dừng xoay căn chỉnh (> 2.2°)
+    turn_in_place_trigger_frames: 3   # Số frame liên tiếp lệch góc (> 2.2°) để xác nhận dừng xe xoay căn chỉnh
     turn_in_place_resume_deg: 1.2     # Ngừng xoay, tiếp tục chạy thẳng khi góc CNN <= 1.2°
-    heading_adjust_aligned_frames: 10 # Số frame liên tiếp đạt chuẩn thẳng hàng (<= 1.2°) trước khi hãm tĩnh lăn thẳng
+    heading_adjust_aligned_frames: 3  # Số frame liên tiếp đạt chuẩn thẳng hàng (<= 1.2°) trước khi hãm tĩnh lăn thẳng
     camera_trim_deg: 0.0              # Bù trừ góc đặt camera iPhone (nếu xe lệch phải đặt số âm như -1.5)
 
     # Bộ điều khiển trượt SMC bám luống với lực bẻ lái mạnh mẽ, dứt khoát
