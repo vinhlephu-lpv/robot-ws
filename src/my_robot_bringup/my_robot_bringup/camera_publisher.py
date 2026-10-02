@@ -53,6 +53,52 @@ def _is_url_accessible(url: str, timeout: float = 0.8) -> bool:
         return False
 
 
+def query_max_fps_v4l2(dev_path, width: int = 640, height: int = 480) -> float:
+    """Truy vấn trực tiếp V4L2 kernel driver để tìm FPS tối đa mà thiết bị phần cứng hỗ trợ."""
+    try:
+        import fcntl
+        import struct
+        p = dev_path if isinstance(dev_path, str) and dev_path.startswith('/dev/video') else f'/dev/video{dev_path}'
+        if not os.path.exists(p):
+            return 30.0
+        fd = os.open(p, os.O_RDWR)
+    except Exception:
+        return 30.0
+
+    max_fps = 30.0
+    ival_fmt = 'IIIII8I'
+    # Các định dạng thông dụng: MJPG, YUYV, H264, RGB3
+    fourccs = [0x47504a4d, 0x56595559, 0x34363248, 0x33424752]
+    try:
+        for fourcc in fourccs:
+            for idx in range(30):
+                buf = struct.pack(ival_fmt, idx, fourcc, int(width), int(height), 0, 0, 0, 0, 0, 0, 0, 0, 0)
+                try:
+                    res = fcntl.ioctl(fd, 0xc034564b, buf)  # VIDIOC_ENUM_FRAMEINTERVALS
+                    data = struct.unpack(ival_fmt, res)
+                    itype = data[4]
+                    if itype == 1:  # DISCRETE
+                        num, denom = data[5], data[6]
+                        if denom > 0 and num > 0:
+                            fps = denom / num
+                            if fps > max_fps:
+                                max_fps = fps
+                    elif itype in (2, 3):  # CONTINUOUS / STEPWISE
+                        min_num, min_denom = data[5], data[6]
+                        if min_num > 0 and min_denom > 0:
+                            fps = min_denom / min_num
+                            if fps > max_fps:
+                                max_fps = fps
+                except Exception:
+                    break
+    finally:
+        try:
+            os.close(fd)
+        except Exception:
+            pass
+    return float(max_fps)
+
+
 class RealSenseCapture:
     """
     Bộ bọc (Wrapper) cho Intel RealSense D435 qua pyrealsense2 pipeline.
@@ -109,13 +155,17 @@ class CameraPublisher(Node):
         self.declare_parameter('video_device', 'realsense')
         self.declare_parameter('width', 640)
         self.declare_parameter('height', 480)
-        self.declare_parameter('fps', 15.0)
+        self.declare_parameter('fps', 0.0)  # 0.0 = AUTO (Tự động thích ứng FPS tối đa của phần cứng Camera)
         self.declare_parameter('camera_frame_id', 'camera_link')
 
         self.device = self.get_parameter('video_device').value
         self.width = int(self.get_parameter('width').value)
         self.height = int(self.get_parameter('height').value)
-        self.fps = float(self.get_parameter('fps').value)
+        try:
+            self.fps = float(self.get_parameter('fps').value)
+        except Exception:
+            self.fps = 0.0
+        self.auto_fps = (self.fps <= 0.0)
         self.frame_id = self.get_parameter('camera_frame_id').value
 
         # ── Publisher (BEST_EFFORT depth 1: không bao giờ block luồng đọc camera) ─
@@ -152,14 +202,17 @@ class CameraPublisher(Node):
                 try:
                     cap = cv2.VideoCapture(url, api)
                     if cap.isOpened():
-                        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                        cap.set(cv2.CAP_PROP_BUFFERSIZE, 2)
                         ret, test_frame = cap.read()
                         if ret and test_frame is not None:
                             actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
                             actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                            actual_fps = cap.get(cv2.CAP_PROP_FPS)
+                            if actual_fps and actual_fps > 0 and actual_fps <= 120:
+                                self.fps = float(actual_fps)
                             self.get_logger().info(
                                 f"📱 Camera iPhone / IP Stream đã kết nối thành công: {url} "
-                                f"({actual_w}x{actual_h})")
+                                f"({actual_w}x{actual_h} @ {self.fps:.0f} FPS [Tự động thích ứng])")
                             return cap
                         cap.release()
                 except Exception:
@@ -201,20 +254,49 @@ class CameraPublisher(Node):
                 dev_name = dev.get_info(rs.camera_info.name)
                 self.get_logger().info(f"🔍 [RealSense] Phát hiện thiết bị phần cứng: {dev_name}")
                 pipeline = rs.pipeline()
-                config = rs.config()
                 rs_w = 640 if self.width <= 640 else 1280
                 rs_h = 480 if self.height <= 480 else 720
-                rs_fps = int(min(30.0, self.fps))
-                config.enable_stream(rs.stream.color, rs_w, rs_h, rs.format.bgr8, rs_fps)
-                pipeline.start(config)
+
+                # Tự động dò tìm FPS tối đa mà RealSense hỗ trợ
+                max_rs_fps = 30
+                try:
+                    for sensor in dev.query_sensors():
+                        for profile in sensor.get_stream_profiles():
+                            if profile.stream_type() == rs.stream.color:
+                                vid_prof = profile.as_video_stream_profile()
+                                if vid_prof.width() == rs_w and vid_prof.height() == rs_h:
+                                    if vid_prof.fps() > max_rs_fps:
+                                        max_rs_fps = vid_prof.fps()
+                except Exception:
+                    max_rs_fps = 60 if self.auto_fps or self.fps >= 60 else int(self.fps)
+
+                target_fps = int(self.fps) if not self.auto_fps and self.fps > 0 else max_rs_fps
+
+                started = False
+                rs_fps = target_fps
+                for try_fps in sorted(list({target_fps, max_rs_fps, 60, 30}), reverse=True):
+                    try:
+                        cfg = rs.config()
+                        cfg.enable_stream(rs.stream.color, rs_w, rs_h, rs.format.bgr8, try_fps)
+                        pipeline.start(cfg)
+                        rs_fps = try_fps
+                        started = True
+                        break
+                    except Exception as err:
+                        self.get_logger().warn(f"⚠️ [RealSense] Không mở được {rs_w}x{rs_h} @ {try_fps} FPS: {err}")
+
+                if not started:
+                    pipeline.start()
+                    rs_fps = 30
 
                 # Kiểm tra frame thực tế
                 frames = pipeline.wait_for_frames(timeout_ms=2000)
                 color_frame = frames.get_color_frame()
                 if color_frame:
+                    self.fps = float(rs_fps)
                     self.get_logger().info(
                         f"📷 [ƯU TIÊN 1] Intel RealSense D435 đã kết nối thành công qua pyrealsense2 SDK "
-                        f"({rs_w}x{rs_h} @ {rs_fps} FPS, BGR8)!")
+                        f"({rs_w}x{rs_h} @ {rs_fps} FPS [Đồng bộ tối đa phần cứng], BGR8)!")
                     return RealSenseCapture(pipeline, rs_w, rs_h, rs_fps)
                 pipeline.stop()
         except Exception:
@@ -276,10 +358,13 @@ class CameraPublisher(Node):
                         break
 
                 if cap and cap.isOpened():
-                    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                    cap.set(cv2.CAP_PROP_BUFFERSIZE, 2)
+                    cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
                     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
                     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-                    cap.set(cv2.CAP_PROP_FPS, int(self.fps))
+                    hw_max_fps = query_max_fps_v4l2(real_path, 640, 480)
+                    target_fps = int(self.fps) if not self.auto_fps and self.fps > 0 else int(hw_max_fps)
+                    cap.set(cv2.CAP_PROP_FPS, target_fps)
                     ret, test_frame = cap.read()
                     if ret and test_frame is not None:
                         diff_channels = 0.0
@@ -293,10 +378,11 @@ class CameraPublisher(Node):
 
                         actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
                         actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                        actual_fps = cap.get(cv2.CAP_PROP_FPS) or self.fps
+                        actual_fps = cap.get(cv2.CAP_PROP_FPS) or target_fps
+                        self.fps = float(actual_fps)
                         self.get_logger().info(
                             f"📷 [ƯU TIÊN 1] Intel RealSense D435 đã kết nối thành công qua V4L2: {dev} -> {real_path} (Index {dev_idx}) "
-                            f"({actual_w}x{actual_h} @ {actual_fps:.0f} FPS, RGB Color)!")
+                            f"({actual_w}x{actual_h} @ {actual_fps:.0f} FPS [Đồng bộ tối đa phần cứng], RGB Color)!")
                         return cap
                     cap.release()
                     cap = None
@@ -320,10 +406,6 @@ class CameraPublisher(Node):
             if dev not in candidates and os.path.exists(dev) and not self._is_realsense_device(dev):
                 candidates.append(dev)
 
-        resolutions_to_try = [(self.width, self.height, self.fps)]
-        if (self.width, self.height, self.fps) != (640, 480, 30.0):
-            resolutions_to_try.append((640, 480, 30.0))
-
         for dev in candidates:
             if dev.endswith('1') and '/dev/video0' in candidates and dev != self.device:
                 continue
@@ -333,7 +415,24 @@ class CameraPublisher(Node):
             else:
                 dev_id = dev
 
-            for w, h, fps in resolutions_to_try:
+            # Tự động dò tìm FPS tối đa mà phần cứng USB này hỗ trợ
+            hw_max_fps = query_max_fps_v4l2(dev, self.width, self.height)
+            target_fps = self.fps if not self.auto_fps and self.fps > 0 else hw_max_fps
+
+            resolutions_to_try = [
+                (self.width, self.height, target_fps),
+                (self.width, self.height, 30.0),
+                (640, 480, target_fps),
+                (640, 480, 30.0),
+            ]
+            seen = set()
+            unique_resolutions = []
+            for r in resolutions_to_try:
+                if r not in seen:
+                    seen.add(r)
+                    unique_resolutions.append(r)
+
+            for w, h, fps in unique_resolutions:
                 cap = None
                 try:
                     cap = cv2.VideoCapture(dev_id, cv2.CAP_V4L2)
@@ -341,7 +440,7 @@ class CameraPublisher(Node):
                         cap = cv2.VideoCapture(dev_id)
 
                     if cap.isOpened():
-                        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                        cap.set(cv2.CAP_PROP_BUFFERSIZE, 2)
                         cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
                         cap.set(cv2.CAP_PROP_FRAME_WIDTH, w)
                         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
@@ -351,10 +450,11 @@ class CameraPublisher(Node):
                         if ret and test_frame is not None:
                             actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
                             actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                            actual_fps = cap.get(cv2.CAP_PROP_FPS)
+                            actual_fps = cap.get(cv2.CAP_PROP_FPS) or fps
+                            self.fps = float(actual_fps)
                             self.get_logger().info(
                                 f"📷 [ƯU TIÊN 3] Camera USB Webcam đã kết nối thành công: {dev} "
-                                f"({actual_w}x{actual_h} @ {actual_fps:.0f} FPS, MJPG)")
+                                f"({actual_w}x{actual_h} @ {actual_fps:.0f} FPS [Đồng bộ tối đa phần cứng], MJPG)")
                             return cap
                         cap.release()
                 except Exception:

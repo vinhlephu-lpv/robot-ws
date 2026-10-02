@@ -112,6 +112,16 @@ load_ws() {
     else
         unset RMW_IMPLEMENTATION
     fi
+
+    # Tự động nạp thư viện CUDA / cuDNN cho ONNX Runtime GPU (NVIDIA RTX 3050 Laptop)
+    for p in "$HOME/.local/lib/python3"*"/site-packages/nvidia"/*/lib; do
+        if [ -d "$p" ]; then
+            case ":$LD_LIBRARY_PATH:" in
+                *":$p:"*) ;;
+                *) export LD_LIBRARY_PATH="$p${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" ;;
+            esac
+        fi
+    done
 }
 
 # 1. Biên dịch & Cập nhật Workspace

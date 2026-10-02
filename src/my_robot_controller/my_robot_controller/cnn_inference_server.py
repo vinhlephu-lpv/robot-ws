@@ -53,7 +53,7 @@ def vel_to_duty(velocity_ms: float, max_linear_speed: float = 0.18, min_duty_cyc
 
 def draw_hud_3panel(bgr_orig, mask_prob, lane_center, conf, heading_err, lane_off, 
                     v_lin, w_ang, rpm_l, rpm_r, duty_l, duty_r, esp_cmd, inference_ms,
-                    state_name, state_color, roi_ratio=0.80, mask_thresh=0.35, max_steer=14.0):
+                    state_name, state_color, roi_ratio=0.80, mask_thresh=0.35, max_steer=14.0, cam_fps=0.0):
     """
     Renders 3-panel vehicle HUD:
     [1: Camera Gốc] | [2: Mặt Nạ CNN (ROI 80%)] | [3: Dashboard Điều Khiển Xe Thật]
@@ -128,11 +128,13 @@ def draw_hud_3panel(bgr_orig, mask_prob, lane_center, conf, heading_err, lane_of
     
     # Line 4: BTS7960 PWM & ESP32 Protocol & FPS
     fps_val = 1000.0 / max(1.0, inference_ms)
-    cv2.putText(p3, f"PWM: L={duty_l:+.0f}% R={duty_r:+.0f}% | ESP: {repr(esp_cmd).strip()} | {inference_ms:.1f}ms ({fps_val:.1f} FPS)", 
-                (10, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.36, (0, 220, 255), 1, cv2.LINE_AA)
+    cam_str = f" | Cam: {cam_fps:.0f}FPS" if cam_fps > 0 else ""
+    cv2.putText(p3, f"PWM: L={duty_l:+.0f}% R={duty_r:+.0f}% | GPU: {inference_ms:.1f}ms (~{fps_val:.0f}FPS){cam_str}", 
+                (10, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (0, 220, 255), 1, cv2.LINE_AA)
 
     # Add labels to top of panels
-    cv2.putText(p1, f"[1] CAMERA GOC ({w_orig}x{h_orig} -> D435)", (10, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.48, (0, 255, 255), 1, cv2.LINE_AA)
+    cam_fps_label = f" @ {cam_fps:.0f} FPS" if cam_fps > 0 else ""
+    cv2.putText(p1, f"[1] CAMERA GOC ({w_orig}x{h_orig}{cam_fps_label})", (10, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.48, (0, 255, 255), 1, cv2.LINE_AA)
     cv2.putText(p2, f"[2] CNN MASK 384x384 (ROI: {int(roi_ratio*100)}%)", (10, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.48, (0, 255, 255), 1, cv2.LINE_AA)
     cv2.putText(p3, "[3] DIEU KHIEN XE THAT (REALTIME)", (10, dash_h + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.48, (0, 255, 255), 1, cv2.LINE_AA)
 
@@ -152,19 +154,21 @@ class CnnInferenceServer(Node):
         self.declare_parameter('mask_threshold', 0.30)
         self.declare_parameter('roi_ratio', 0.80)
         self.declare_parameter('max_steering_angle_deg', 14.0)
+        self.declare_parameter('in_row_max_steer_deg', 5.0)
+        self.declare_parameter('in_row_max_yaw_dev_deg', 5.0)
         self.declare_parameter('num_threads', 0)
         self.declare_parameter('show_window', False)
         self.declare_parameter('tracking_steer_mode', 'PIVOT_STOP')
-        self.declare_parameter('steer_trigger_deg', 2.0)
-        self.declare_parameter('steer_trigger_frames', 3)
+        self.declare_parameter('steer_trigger_deg', 2.2)
+        self.declare_parameter('steer_trigger_frames', 6)
         self.declare_parameter('steer_resume_deg', 1.2)
-        self.declare_parameter('steer_aligned_frames', 2)
+        self.declare_parameter('steer_aligned_frames', 6)
         self.declare_parameter('steer_boost_speed', 0.088)
         self.declare_parameter('steer_brake_speed', 0.045)
         self.declare_parameter('turn_in_place_threshold_deg', 2.2)
-        self.declare_parameter('turn_in_place_trigger_frames', 3)
+        self.declare_parameter('turn_in_place_trigger_frames', 6)
         self.declare_parameter('turn_in_place_resume_deg', 1.2)
-        self.declare_parameter('heading_adjust_aligned_frames', 3)
+        self.declare_parameter('heading_adjust_aligned_frames', 6)
         self.declare_parameter('linear_speed', 0.075)
         self.declare_parameter('wheel_base', 0.58)
 
@@ -188,6 +192,8 @@ class CnnInferenceServer(Node):
         self.turn_in_place_trigger_frames = int(p('turn_in_place_trigger_frames').value)
         self.turn_in_place_resume_deg = float(p('turn_in_place_resume_deg').value)
         self.heading_adjust_aligned_frames = int(p('heading_adjust_aligned_frames').value)
+        self.in_row_max_steer_deg = float(p('in_row_max_steer_deg').value)
+        self.in_row_max_yaw_dev_deg = float(p('in_row_max_yaw_dev_deg').value)
 
         # Tự động tìm model ONNX nếu đường dẫn tương đối
         if not os.path.exists(self.model_path):
@@ -239,6 +245,9 @@ class CnnInferenceServer(Node):
         self.turn_in_place_active = False
         self.turn_in_place_trigger_counter = 0
         self.turn_in_place_aligned_counter = 0
+        self.initial_alignment_done = False
+        self._align_counter = 0
+        self._hud_smooth_angle = 0.0
 
         if TrackingControllerSMC is not None:
             try:
@@ -363,7 +372,7 @@ class CnnInferenceServer(Node):
         # Hiển thị cửa sổ HUD trực quan 3 khung hình OpenCV trên Laptop
         if self.show_window:
             now_gui = time.time()
-            if now_gui - self._last_gui_time < 0.033:  # Điều tiết render ~30 FPS để tối ưu tài nguyên máy
+            if now_gui - self._last_gui_time < 0.016:  # Cho phép render tối đa 60 FPS siêu mượt
                 return
             self._last_gui_time = now_gui
 
@@ -394,6 +403,34 @@ class CnnInferenceServer(Node):
                     self.show_window = False
 
             if self.show_window and self._window_created:
+                # ── Phân định Pha: Đầu hàng vs Trong hàng ──
+                if not self.initial_alignment_done:
+                    if abs(heading_error) <= 1.2 and confidence >= self.low_conf_thresh:
+                        self._align_counter += 1
+                        if self._align_counter >= 3:
+                            self.initial_alignment_done = True
+                            self.get_logger().info(
+                                f"🚀 [HUD] Đầu hàng đã thẳng! Khóa chế độ TRONG HÀNG (Max steer <= {self.in_row_max_steer_deg:.1f}°)."
+                            )
+                    else:
+                        self._align_counter = 0
+
+                is_spike = False
+                if self.initial_alignment_done:
+                    # Trong hàng: kiểm tra góc bất thường / spike do nhìn trúng khe giữa 2 thùng
+                    if abs(heading_error) > (self.in_row_max_steer_deg + 0.5) or abs(heading_error - self._hud_smooth_angle) > 3.5:
+                        is_spike = True
+                        spike_dir = 1.0 if heading_error > 0 else -1.0
+                        restoring_steer = -2.0 * spike_dir
+                        self._hud_smooth_angle = 0.60 * restoring_steer + 0.40 * self._hud_smooth_angle
+                    else:
+                        clamped = float(np.clip(heading_error, -self.in_row_max_steer_deg, self.in_row_max_steer_deg))
+                        self._hud_smooth_angle = 0.35 * clamped + 0.65 * self._hud_smooth_angle
+                    active_heading_error = self._hud_smooth_angle
+                else:
+                    active_heading_error = heading_error
+                    self._hud_smooth_angle = heading_error
+
                 # 1. Tính toán trạng thái FSM và Động học xe mô phỏng (100% khớp cnn_driver & test-img)
                 if self.tracking_steer_mode == 'CONTINUOUS_STEER':
                     if confidence < self.low_conf_thresh:
@@ -407,7 +444,7 @@ class CnnInferenceServer(Node):
                         self.steer_trigger_counter = 0
                     else:
                         if self.steer_active_side is None:
-                            if heading_error > self.steer_trigger_deg:
+                            if active_heading_error > self.steer_trigger_deg:
                                 if self.steer_candidate_side == 'RIGHT':
                                     self.steer_trigger_counter += 1
                                 else:
@@ -418,7 +455,7 @@ class CnnInferenceServer(Node):
                                     self.steer_straight_counter = 0
                                     self.steer_trigger_counter = 0
                                     self.steer_candidate_side = None
-                            elif heading_error < -self.steer_trigger_deg:
+                            elif active_heading_error < -self.steer_trigger_deg:
                                 if self.steer_candidate_side == 'LEFT':
                                     self.steer_trigger_counter += 1
                                 else:
@@ -433,7 +470,7 @@ class CnnInferenceServer(Node):
                                 self.steer_trigger_counter = 0
                                 self.steer_candidate_side = None
                         else:
-                            if abs(heading_error) < self.steer_resume_deg:
+                            if abs(active_heading_error) < self.steer_resume_deg:
                                 self.steer_straight_counter += 1
                                 if self.steer_straight_counter >= self.steer_aligned_frames:
                                     self.steer_active_side = None
@@ -442,14 +479,21 @@ class CnnInferenceServer(Node):
                                     self.steer_candidate_side = None
                             else:
                                 self.steer_straight_counter = 0
-                                if self.steer_active_side == 'RIGHT' and heading_error < -self.steer_trigger_deg:
+                                if self.steer_active_side == 'RIGHT' and active_heading_error < -self.steer_trigger_deg:
                                     self.steer_active_side = 'LEFT'
                                     self.steer_straight_counter = 0
-                                elif self.steer_active_side == 'LEFT' and heading_error > self.steer_trigger_deg:
+                                elif self.steer_active_side == 'LEFT' and active_heading_error > self.steer_trigger_deg:
                                     self.steer_active_side = 'RIGHT'
                                     self.steer_straight_counter = 0
 
-                        if self.steer_active_side == 'RIGHT':
+                        if is_spike:
+                            state_name = f"TRONG HANG: NE KHE THUNG (Counter-Steer {active_heading_error:+.1f}°)"
+                            state_color = (0, 215, 255)
+                            v_left = self.steer_brake_speed if active_heading_error < 0 else self.steer_boost_speed
+                            v_right = self.steer_boost_speed if active_heading_error < 0 else self.steer_brake_speed
+                            v_lin = (v_left + v_right) / 2.0
+                            w_ang = (v_right - v_left) / self.wheel_base
+                        elif self.steer_active_side == 'RIGHT':
                             state_name = f"BE PHAI LIEN TUC (L={self.steer_boost_speed:.2f}m/s, R={self.steer_brake_speed:.2f}m/s)"
                             state_color = (0, 215, 255)  # Vàng cam
                             v_left = self.steer_boost_speed
@@ -488,8 +532,9 @@ class CnnInferenceServer(Node):
                         self.turn_in_place_trigger_counter = 0
                         self.turn_in_place_aligned_counter = 0
                     else:
-                        if not self.turn_in_place_active:
-                            if abs(heading_error) > self.turn_in_place_thresh:
+                        allow_pivot = True
+                        if not self.turn_in_place_active and allow_pivot:
+                            if abs(active_heading_error) > self.turn_in_place_thresh:
                                 self.turn_in_place_trigger_counter += 1
                                 if self.turn_in_place_trigger_counter >= self.turn_in_place_trigger_frames:
                                     self.turn_in_place_active = True
@@ -497,8 +542,8 @@ class CnnInferenceServer(Node):
                                     self.turn_in_place_aligned_counter = 0
                             else:
                                 self.turn_in_place_trigger_counter = 0
-                        else:
-                            if abs(heading_error) <= self.turn_in_place_resume_deg:
+                        elif self.turn_in_place_active:
+                            if abs(active_heading_error) <= self.turn_in_place_resume_deg:
                                 self.turn_in_place_aligned_counter += 1
                                 if self.turn_in_place_aligned_counter >= self.heading_adjust_aligned_frames:
                                     self.turn_in_place_active = False
@@ -508,24 +553,29 @@ class CnnInferenceServer(Node):
                                 self.turn_in_place_aligned_counter = 0
 
                         if self.turn_in_place_active:
-                            state_name = f"DUNG TIEN - XOAY TAI CHO (|goc|={abs(heading_error):.1f}° > {self.turn_in_place_thresh:.1f}°)"
+                            state_name = f"DUNG TIEN - XOAY TAI CHO (|goc|={abs(active_heading_error):.1f}° > {self.turn_in_place_thresh:.1f}°)"
                             state_color = (0, 215, 255)  # Vàng cam
                             v_lin = 0.0
-                            turn_dir = -1.0 if heading_error > 0 else 1.0
+                            turn_dir = -1.0 if active_heading_error > 0 else 1.0
                             w_ang = turn_dir * self.turn_angular_speed
+                        elif is_spike:
+                            state_name = f"TRONG HANG: NE KHE THUNG (Counter-Steer {active_heading_error:+.1f}°)"
+                            state_color = (0, 215, 255)
+                            v_lin = self.linear_speed
+                            w_ang = float(np.clip(-0.045 * active_heading_error, -0.6, 0.6))
                         else:
-                            state_name = f"TIEN BAM LUONG SMC (|goc|={abs(heading_error):.1f}° <= {self.turn_in_place_thresh:.1f}°)"
+                            state_name = f"TIEN BAM LUONG SMC (|goc|={abs(active_heading_error):.1f}° <= {self.in_row_max_steer_deg:.1f}°)"
                             state_color = (0, 255, 0)  # Xanh lá
                             v_lin = self.linear_speed
                             if self.controller is not None:
                                 try:
                                     self.controller.reset()
-                                    cmd = self.controller.compute_command(heading_error, dt_actual=0.067)
+                                    cmd = self.controller.compute_command(active_heading_error, dt_actual=0.067)
                                     w_ang = float(cmd.get("angular_velocity", 0.0))
                                 except Exception:
-                                    w_ang = float(np.clip(-0.045 * heading_error, -0.6, 0.6))
+                                    w_ang = float(np.clip(-0.045 * active_heading_error, -0.6, 0.6))
                             else:
-                                w_ang = float(np.clip(-0.045 * heading_error, -0.6, 0.6))
+                                w_ang = float(np.clip(-0.045 * active_heading_error, -0.6, 0.6))
 
                     # 2. Differential Drive Kinematics (Vận tốc bánh & RPM)
                     v_left = v_lin - (w_ang * self.wheel_base / 2.0)
@@ -572,7 +622,8 @@ class CnnInferenceServer(Node):
                     state_color=state_color,
                     roi_ratio=self.roi_ratio,
                     mask_thresh=self.mask_threshold,
-                    max_steer=self.max_steering_angle_deg
+                    max_steer=self.max_steering_angle_deg,
+                    cam_fps=float(self._latest_fps)
                 )
 
                 cv2.imshow(self.window_name, hud_canvas)
@@ -586,10 +637,11 @@ class CnnInferenceServer(Node):
     def _log_fps(self):
         fps = self._frame_count
         self._frame_count = 0
-        self._latest_fps = fps
+        self._latest_fps = float(fps)
         if fps > 0:
+            gpu_fps = 1000.0 / max(1.0, self._latest_latency_ms)
             self.get_logger().info(
-                f"⚡ [Laptop CNN Worker] Tốc độ: {fps} FPS | Độ trễ suy luận: {self._latest_latency_ms:.1f} ms"
+                f"⚡ [Laptop CNN Worker] Camera đầu vào: {fps} FPS | AI GPU: {self._latest_latency_ms:.1f} ms (~{gpu_fps:.0f} FPS khả năng)"
             )
 
 

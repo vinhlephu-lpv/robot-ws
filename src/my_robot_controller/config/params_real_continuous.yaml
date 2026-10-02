@@ -8,10 +8,12 @@ cnn_driver_node:
   ros__parameters:
     # ── Chế độ điều hướng bám luống ─────────────────────────────
     tracking_steer_mode: 'CONTINUOUS_STEER' # Bật chế độ vừa chạy vừa đánh lái
+    in_row_max_steer_deg: 5.0         # độ — Giới hạn góc đánh lái khi đi trong hàng từ 5 độ trở xuống (chống đâm khe)
+    in_row_max_yaw_dev_deg: 5.0       # độ — Khóa lệch góc thân xe so với tim luống ban đầu <= 5.0 độ
     steer_trigger_deg: 2.2        # độ — Ngưỡng kích hoạt bẻ lái (|góc| > 2.2°)
-    steer_trigger_frames: 3       # frames — Cần đủ 3 frame lệch góc liên tiếp mới bắt đầu đánh lái
+    steer_trigger_frames: 6       # frames — Cần đủ 6 frame lệch góc liên tiếp mới bắt đầu đánh lái (chống giật)
     steer_resume_deg: 1.2         # độ — Ngưỡng xác nhận thẳng hàng (|góc| < 1.2°)
-    steer_aligned_frames: 2       # frames — Số frame liên tiếp < 1.2° để xác nhận thẳng vững chắc và hồi thẳng
+    steer_aligned_frames: 6       # frames — Số frame liên tiếp < 1.2° để xác nhận thẳng vững chắc và hồi thẳng
     steer_boost_speed: 0.088      # m/s — Bánh ngoài khi bẻ lái
     steer_brake_speed: 0.045      # m/s — Bánh trong khi bẻ lái
     steer_ramp_time: 0.25         # s — Thời gian tăng/giảm tốc mềm chống giật
@@ -38,9 +40,9 @@ cnn_driver_node:
     turn_linear_speed: 0.075    # tốc độ chạy ngang khi U-Turn (giữ chậm an toàn)
     turn_angular_speed: 0.38    # rad/s — Vận tốc góc khi U-Turn / xoay đủ lực thắng cỏ
     turn_in_place_threshold_deg: 2.2
-    turn_in_place_trigger_frames: 3
+    turn_in_place_trigger_frames: 6
     turn_in_place_resume_deg: 1.2
-    heading_adjust_aligned_frames: 3
+    heading_adjust_aligned_frames: 6
     camera_trim_deg: 0.0
 
     # Bộ điều khiển trượt SMC
@@ -62,8 +64,8 @@ cnn_driver_node:
     # Tự động nhận biết hết hàng (End of Row) & Quay đầu U-Turn (Giữ nguyên 100%):
     enable_uturn: true
     uturn_mode: 'PIVOT'           # Pivot U-Turn 4 giai đoạn
-    drive_out_distance: 1.20      # m — Chạy thẳng thoát khỏi miệng luống 1.0m - 1.5m (chọn 1.2m) để xác định Goal 1
-    low_conf_frames_threshold: 15
+    drive_out_distance: 1.50      # m — Chạy thẳng thoát khỏi miệng luống đủ 1.5m rồi mới quay đầu
+    low_conf_frames_threshold: 20 # 20 frame liên tiếp mất dấu để xác nhận chớm hết hàng (tránh kích hoạt non khi qua khe)
     min_turn_angle_deg: 120.0     # độ — góc xoay tối thiểu (>120 độ) trước khi cho phép CNN bắt luống mới
     max_row_length: 25.0
 

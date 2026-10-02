@@ -107,6 +107,10 @@ def generate_launch_description():
         'enable_costmap', default_value='true',
         description='Enable real-time costmap generation for RViz visualization')
 
+    fps_arg = DeclareLaunchArgument(
+        'fps', default_value='0.0',
+        description='Tốc độ khung hình (0.0 = AUTO: Tự động thích ứng FPS tối đa của phần cứng Camera)')
+
     # ── Robot State Publisher (URDF + TF) ────────────────────────────
     robot_state_pub = Node(
         package='robot_state_publisher',
@@ -166,7 +170,7 @@ def generate_launch_description():
             'video_device': LaunchConfiguration('camera_device'),
             'width': 640,
             'height': 480,
-            'fps': 15.0,
+            'fps': LaunchConfiguration('fps'),
             'camera_frame_id': 'camera_link',
         }],
         condition=IfCondition(LaunchConfiguration('enable_camera'))
@@ -354,6 +358,7 @@ def generate_launch_description():
         enable_camera_arg,
         enable_lidar_arg,
         enable_costmap_arg,
+        fps_arg,
         enable_cnn_arg,
         enable_rviz_arg,
         record_arg,

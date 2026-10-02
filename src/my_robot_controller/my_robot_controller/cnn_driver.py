@@ -68,9 +68,9 @@ class CnnDriverNode(Node):
         self.declare_parameter('phi_smc', 0.5)
         self.declare_parameter('max_steering_angle_deg', 14.0)
         self.declare_parameter('turn_in_place_threshold_deg', 2.2)
-        self.declare_parameter('turn_in_place_trigger_frames', 3)
+        self.declare_parameter('turn_in_place_trigger_frames', 6)
         self.declare_parameter('turn_in_place_resume_deg', 1.2)
-        self.declare_parameter('heading_adjust_aligned_frames', 3)
+        self.declare_parameter('heading_adjust_aligned_frames', 6)
         self.declare_parameter('camera_trim_deg', 0.0)
         self.declare_parameter('row_spacing', 0.80)
         self.declare_parameter('ema_alpha', 0.45)
@@ -123,10 +123,12 @@ class CnnDriverNode(Node):
 
         # ── Tham số Đánh Lái Liên Tục Trong Luống (Continuous Dynamic Steer) ────
         self.declare_parameter('tracking_steer_mode', 'PIVOT_STOP') # 'PIVOT_STOP' (mặc định) hoặc 'CONTINUOUS_STEER'
+        self.declare_parameter('in_row_max_steer_deg', 5.0)         # độ — Giới hạn góc bẻ lái khi đi trong hàng từ 5 độ trở xuống
+        self.declare_parameter('in_row_max_yaw_dev_deg', 5.0)       # độ — Khóa lệch góc thân xe so với tim luống ban đầu <= 5.0 độ
         self.declare_parameter('steer_trigger_deg', 2.2)            # độ — Ngưỡng bắt đầu bẻ lái
-        self.declare_parameter('steer_trigger_frames', 3)           # frames — Số frame lệch liên tiếp để bắt đầu bẻ lái
+        self.declare_parameter('steer_trigger_frames', 6)           # frames — Số frame lệch liên tiếp để bắt đầu bẻ lái (chống giật)
         self.declare_parameter('steer_resume_deg', 1.2)             # độ — Ngưỡng thẳng hàng kết thúc bẻ lái
-        self.declare_parameter('steer_aligned_frames', 2)           # frames — Số frame liên tiếp < steer_resume_deg để xác nhận thẳng và hồi thẳng
+        self.declare_parameter('steer_aligned_frames', 6)           # frames — Số frame liên tiếp < steer_resume_deg để xác nhận thẳng và hồi thẳng
         self.declare_parameter('steer_boost_speed', 0.088)          # m/s — Vận tốc bánh ngoài khi bẻ lái
         self.declare_parameter('steer_brake_speed', 0.045)          # m/s — Vận tốc bánh trong khi bẻ lái
         self.declare_parameter('steer_ramp_time', 0.25)             # s — Thời gian ramp gia tốc/giảm tốc mềm
@@ -200,8 +202,10 @@ class CnnDriverNode(Node):
         self.omega_lead_in            = p('omega_lead_in').value
         self.current_lane_idx         = 1
 
-        # Tham số Đánh Lái Liên Tục
+        # Tham số Đánh Lái Liên Tục & Giới Hạn Trong Luống
         self.tracking_steer_mode      = str(p('tracking_steer_mode').value).upper()
+        self.in_row_max_steer_deg     = float(p('in_row_max_steer_deg').value)
+        self.in_row_max_yaw_dev_deg   = float(p('in_row_max_yaw_dev_deg').value)
         self.steer_trigger_deg        = float(p('steer_trigger_deg').value)
         self.steer_trigger_frames     = int(p('steer_trigger_frames').value)
         self.steer_resume_deg         = float(p('steer_resume_deg').value)
@@ -440,6 +444,14 @@ class CnnDriverNode(Node):
 
         self._latest_left_side_dist   = float('inf')
         self._latest_right_side_dist  = float('inf')
+
+        # ── Quản lý 3 Pha Hoạt Động (Đầu hàng - Trong hàng - Thoát hàng) ──
+        self.initial_alignment_done   = False
+        self.row_reference_yaw        = None
+        self._entry_align_counter     = 0
+        self._exit_recovery_frames    = 0
+        self._last_spike_warn_time    = 0.0
+        self._last_yaw_clamp_log_time = 0.0
 
         # ── Image logging ─────────────────────────────────────────────
         self.last_img_save_time = 0.0
@@ -864,6 +876,17 @@ class CnnDriverNode(Node):
             base_w = max(0.38, float(getattr(self, 'turn_angular_speed', 0.38)))
             resume_threshold = float(getattr(self, 'turn_in_place_resume_deg', 1.2))
 
+            # Giới hạn góc lệch thân xe trong hàng (chống quay mãi 1 hướng vào khe thùng)
+            if getattr(self, 'initial_alignment_done', False) and getattr(self, 'inside_row', False):
+                ref_y = getattr(self, 'row_reference_yaw', None)
+                if ref_y is not None:
+                    c_dev = math.degrees(normalize_angle(float(self.current_yaw) - ref_y))
+                    max_dev = float(getattr(self, 'in_row_max_yaw_dev_deg', 5.0))
+                    if c_dev >= max_dev and self.heading_adjust_dir > 0:
+                        self.heading_adjust_dir = -1.0
+                    elif c_dev <= -max_dev and self.heading_adjust_dir < 0:
+                        self.heading_adjust_dir = 1.0
+
             # Sàn mô-men xoay tối thiểu 0.38 rad/s theo yêu cầu
             min_break_w = 0.38
             ramp_up = min(1.0, elapsed_stage / 0.20)
@@ -927,22 +950,38 @@ class CnnDriverNode(Node):
         elapsed_stage = now_sec - getattr(self, 'pivot_stage_start_time', now_sec)
 
         # =========================================================================
-        # GIAI ĐOẠN 1: EXIT_ROW (Chạy thẳng thoát khỏi miệng luống 0.50m)
+        # GIAI ĐOẠN 1: EXIT_ROW (Chạy thẳng thoát khỏi miệng luống 1.50m ra bãi trống)
         # =========================================================================
         if stage == 'EXIT_ROW':
             dx = self.current_x - self.pivot_start_x
             dy = self.current_y - self.pivot_start_y
             dist_exit = math.hypot(dx, dy)
+            exit_target = float(getattr(self, 'drive_out_distance', 1.50))
 
-            # Cảm biến đa tầng: Kiểm tra khoảng hở 2 bên sườn qua LiDAR (> 0.60m)
-            left_side_dist = getattr(self, '_latest_left_side_dist', float('inf'))
-            right_side_dist = getattr(self, '_latest_right_side_dist', float('inf'))
-            sides_cleared = (left_side_dist > 0.60 and right_side_dist > 0.60)
+            # ── BỘ TỰ PHỤC HỒI AN TOÀN (RECOVERY GUARD) ──
+            # Nếu đang chạy thoát hàng mà camera nhìn thấy lại thùng rõ ràng (conf >= high_thresh):
+            # Chứng tỏ trước đó chỉ là khe hở nhỏ giữa 2 thùng, chưa thực sự hết hàng!
+            latest_conf = getattr(self, '_latest_confidence', 0.0)
+            if self.current_lane_idx == 1 and latest_conf >= self.high_confidence_threshold:
+                self._exit_recovery_frames = getattr(self, '_exit_recovery_frames', 0) + 1
+                if self._exit_recovery_frames >= 6:
+                    self.get_logger().info(
+                        f"🌾 [PHỤC HỒI BÁM LUỐNG] Phát hiện lại thùng phía trước (conf={latest_conf*100:.1f}%) "
+                        f"khi mới chạy thoát {dist_exit:.2f}m < {exit_target:.2f}m! Hủy bỏ quay đầu và tiếp tục bám hàng!"
+                    )
+                    self._exit_recovery_frames = 0
+                    self.eor_detected = False
+                    self.eor_low_conf_frames = 0
+                    self.inside_row = True
+                    self.pivot_stage = None
+                    self.transition_to_state(FSMState.TRACKING, now)
+                    return
+            else:
+                self._exit_recovery_frames = 0
 
             # Điều kiện thoát luống an toàn:
-            # Xe bắt buộc chạy thẳng thoát khỏi miệng luống (0.45m - 0.50m) trước khi kích hoạt xoay tại chỗ:
-            exit_target = getattr(self, 'drive_out_distance', 0.50)
-            is_cleared = (dist_exit >= exit_target) or (sides_cleared and dist_exit >= 0.45) or (elapsed_stage >= 8.0)
+            # Xe bắt buộc chạy thẳng thoát khỏi miệng luống đủ 1.5m trước khi kích hoạt xoay tại chỗ:
+            is_cleared = (dist_exit >= exit_target) or (elapsed_stage >= 30.0)
 
             if is_cleared:
                 self.StopRobot()
@@ -981,7 +1020,7 @@ class CnnDriverNode(Node):
                 self.pivot_target_yaw_2 = normalize_angle(g1_yaw + math.pi)
 
                 self.get_logger().info(
-                    f"🎯 [CHỐT MỐC GOAL 1 & GOAL 2] Xe đã thoát hàng {dist_exit:.2f}m!\n"
+                    f"🎯 [CHỐT MỐC GOAL 1 & GOAL 2] Xe đã thoát hàng đủ {dist_exit:.2f}m >= {exit_target:.2f}m!\n"
                     f"   📍 Goal 1: x={self.goal_1_x:.2f}m, y={self.goal_1_y:.2f}m (Yaw={math.degrees(g1_yaw):+.1f}°)\n"
                     f"   🎯 Goal 2 (Bên Phải +180°): x={self.goal_2_x:.2f}m, y={self.goal_2_y:.2f}m (Khoảng cách {spacing:.2f}m)\n"
                     f"   🔄 Bắt đầu PIVOT 1: Xoay 90° sang phải về {math.degrees(self.pivot_target_yaw_1):+.1f}°..."
@@ -997,7 +1036,7 @@ class CnnDriverNode(Node):
             yaw_err = normalize_angle(self.pivot_start_yaw - self.current_yaw)
             twist = Twist()
             twist.linear.x = min(self.linear_speed, getattr(self, 'turn_linear_speed', 0.075))
-            twist.angular.z = float(np.clip(1.2 * yaw_err, -0.25, 0.25))
+            twist.angular.z = float(np.clip(1.2 * yaw_err, -0.12, 0.12))
             self._latest_twist = twist
             self.cmd_vel_pub.publish(twist)
 
@@ -1149,8 +1188,8 @@ class CnnDriverNode(Node):
             conf = getattr(self, '_latest_confidence', 0.0)
             high_conf = getattr(self, 'high_confidence_threshold', 0.40)
 
-            # Đếm số frame liên tiếp thấy hàng vững chắc (3 frame ~ 0.25s)
-            required_see_row_frames = 3
+            # Đếm số frame liên tiếp thấy hàng vững chắc (6 frame ~ 0.3s-0.4s)
+            required_see_row_frames = 6
             if total_u_turn_deg >= 120.0 and conf >= high_conf:
                 self.pivot_2_see_row_frames = getattr(self, 'pivot_2_see_row_frames', 0) + 1
             else:
@@ -1169,6 +1208,8 @@ class CnnDriverNode(Node):
                 self.current_lane_y = getattr(self, 'goal_2_y', (-abs(self.row_spacing) if self.turn_side.upper() == 'RIGHT' else abs(self.row_spacing)))
                 self.inside_row = True
                 self.has_seen_row = True
+                self.initial_alignment_done = True
+                self.row_reference_yaw = float(self.current_yaw)
                 self.eor_detected = False
                 self.low_confidence_counter = 0
                 self.smoothed_angle_deg = 0.0
@@ -1555,45 +1596,148 @@ class CnnDriverNode(Node):
                     self.cmd_vel_pub.publish(twist)
                     return
 
-            # Xử lý góc lái: Khi camera đủ tin cậy HOẶC khi LiDAR phát hiện xe áp sát thành hàng (< 0.32m)
-            # Tuyệt đối KHÔNG triệt tiêu góc lái về 0 khi xe đang ở vị trí sát sườn nguy hiểm!
+            now_sec = now.nanoseconds / 1e9
+            in_row_max = float(getattr(self, 'in_row_max_steer_deg', 5.0))
+            max_yaw_dev = float(getattr(self, 'in_row_max_yaw_dev_deg', 5.0))
             failed = (confidence < self.low_confidence_threshold)
             near_side_wall = (left_side_dist < 0.32 or right_side_dist < 0.32)
-            
-            if not failed or near_side_wall:
-                # Nếu đang áp sát thành hàng hoặc đang xoay căn chỉnh, tăng độ nhạy phản xạ (alpha >= 0.65) để phản xạ tức thì
-                effective_alpha = max(self.ema_alpha, 0.65) if (near_side_wall or self.is_adjusting_heading) else self.ema_alpha
-                self.smoothed_angle_deg = (
-                    effective_alpha * raw_angle
-                    + (1.0 - effective_alpha) * self.smoothed_angle_deg
-                )
-            elif self.enable_global_plan_assist and self.inside_row:
-                # ── HỖ TRỢ SONG SONG TỪ GLOBAL PLAN (FALLBACK KHI CÂY THƯA / LÁ CHE / THÙNG HỞ) ──
-                # Khi camera bị che khuất hoặc thiếu thùng carton (confidence < 0.30),
-                # sử dụng tọa độ EKF/Odometry chiếu lên tim luống hiện tại để giữ xe chạy thẳng:
-                target_y = 0.0 if self.current_lane_idx == 1 else self.current_lane_y
-                target_yaw = 0.0 if self.current_lane_idx == 1 else (math.pi if self.current_yaw >= 0 else -math.pi)
 
-                # Sai số vị trí ngang (cross-track error) và sai số góc hướng
-                lat_err = self.current_y - target_y
-                dir_factor = 1.0 if self.current_lane_idx == 1 else -1.0
-                yaw_err = math.atan2(math.sin(target_yaw - self.current_yaw), math.cos(target_yaw - self.current_yaw))
-
-                # Tính góc bẻ lái hỗ trợ đưa xe về tim luống:
-                # lat_err > 0 (lệch Trái) -> assist_steer_deg > 0 (bẻ lái sang Phải về tim luống)
-                # yaw_err < 0 (chúi đầu sang Trái) -> assist_steer_deg > 0 (bẻ lái sang Phải nắn thẳng)
-                assist_steer_deg = float(np.clip(12.0 * lat_err * dir_factor - math.degrees(yaw_err) * 0.4, -10.0, 10.0))
-                self.smoothed_angle_deg = (
-                    0.25 * assist_steer_deg + 0.75 * self.smoothed_angle_deg
-                )
-                if now_sec - getattr(self, '_last_global_assist_log_time', 0.0) >= 2.0:
-                    self._last_global_assist_log_time = now_sec
-                    self.get_logger().info(
-                        f"🌾 [GLOBAL PLAN ASSIST] Conf thấp ({confidence*100:.1f}%) -> Hỗ trợ giữ tim Luống {self.current_lane_idx} (y={target_y:.2f}m, dy={lat_err:.2f}m, steer={self.smoothed_angle_deg:+.1f}°)"
+            # ── PHÂN ĐỊNH 3 PHA: ĐẦU HÀNG vs TRONG HÀNG ──
+            # PHA 1: ĐẦU HÀNG (INITIAL_ALIGNMENT) — Cho phép góc bẻ lớn để tự nắn thẳng khi người dùng cố tình đặt xéo xe
+            if not getattr(self, 'initial_alignment_done', False):
+                if not failed or near_side_wall:
+                    effective_alpha = max(self.ema_alpha, 0.65) if (near_side_wall or self.is_adjusting_heading) else self.ema_alpha
+                    self.smoothed_angle_deg = (
+                        effective_alpha * raw_angle
+                        + (1.0 - effective_alpha) * self.smoothed_angle_deg
                     )
+                else:
+                    self.smoothed_angle_deg *= 0.90
+
+                # Kiểm tra nắn thẳng xuất phát (<= 1.2° trong 6 frame liên tiếp)
+                if (abs(self.smoothed_angle_deg) <= 1.2) and (confidence >= self.low_confidence_threshold):
+                    self._entry_align_counter = getattr(self, '_entry_align_counter', 0) + 1
+                    if self._entry_align_counter >= 6:
+                        self.initial_alignment_done = True
+                        self.row_reference_yaw = float(self.current_yaw)
+                        self.get_logger().info(
+                            f"🚀 [ĐẦU HÀNG ĐÃ THẲNG] Đã căn chỉnh góc xuất phát thành công! "
+                            f"(Khóa góc tim luống ref={math.degrees(self.row_reference_yaw):+.1f}°). "
+                            f"Khóa chế độ TRONG HÀNG: Giới hạn góc lái <= {in_row_max:.1f}°, lệch thân xe <= {max_yaw_dev:.1f}°."
+                        )
+                else:
+                    self._entry_align_counter = 0
+
+            # PHA 2: TRONG HÀNG (IN_ROW_TRACKING) — LỌC NHIỄU KHE HÀNG & PHẢN XẠ NẮN VỀ TIM LUỐNG
+            elif self.inside_row:
+                ref_yaw = getattr(self, 'row_reference_yaw', None)
+                if ref_yaw is None:
+                    self.row_reference_yaw = float(self.current_yaw)
+                    ref_yaw = self.row_reference_yaw
+
+                # Sai lệch góc thân xe so với tim luống ban đầu:
+                # yaw_dev_deg > 0: thân xe chếch sang Trái (CCW) -> cần bẻ Phải (> 0) để hồi tim
+                # yaw_dev_deg < 0: thân xe chếch sang Phải (CW) -> cần bẻ Trái (< 0) để hồi tim
+                yaw_dev = normalize_angle(float(self.current_yaw) - ref_yaw)
+                yaw_dev_deg = math.degrees(yaw_dev)
+
+                if not failed or near_side_wall:
+                    # ── BỘ LỌC NHIỄU GÓC LÁI (SPIKE REJECTION) ──
+                    # Trong hàng thẳng, góc lái chỉ được vi chỉnh nhỏ (<= in_row_max = 5.0°).
+                    # Nếu đột ngột xuất hiện góc lớn hoặc nhảy bất thường (do nhìn vào khe giữa 2 thùng):
+                    # 1. Bác bỏ góc nhiễu (tuyệt đối không quay theo vào khe).
+                    # 2. Xoay ngược lại để tìm tim luống (counter-steer về ref_yaw).
+                    is_angle_spike = False
+                    if abs(raw_angle) > (in_row_max + 0.5):
+                        is_angle_spike = True
+                    elif abs(raw_angle - self.smoothed_angle_deg) > 3.5:
+                        is_angle_spike = True
+                    elif abs(yaw_dev_deg) > 2.0 and (raw_angle * yaw_dev_deg < -1.5):
+                        # Xe đã chếch một bên mà camera lại bảo bẻ tiếp vào phía thùng: nhiễu khe!
+                        is_angle_spike = True
+
+                    if is_angle_spike:
+                        # ── PHẢN XẠ BẺ LÁI NGƯỢC LẠI TÌM TIM LUỐNG (COUNTER-STEER) ──
+                        # Luôn bẻ ngược chiều góc spike (-2.0 * spike_dir) để né xa khe thùng,
+                        # đồng thời kết hợp độ lệch hướng thân xe (+0.5 * yaw_dev_deg) để kéo xe về tim luống
+                        spike_dir = 1.0 if raw_angle > 0 else -1.0
+                        restoring_steer = float(np.clip(-2.0 * spike_dir + 0.5 * yaw_dev_deg, -in_row_max, in_row_max))
+
+                        self.smoothed_angle_deg = 0.60 * restoring_steer + 0.40 * self.smoothed_angle_deg
+                        self.smoothed_angle_deg = float(np.clip(self.smoothed_angle_deg, -in_row_max, in_row_max))
+
+                        if now_sec - getattr(self, '_last_spike_warn_time', 0.0) >= 1.5:
+                            self._last_spike_warn_time = now_sec
+                            self.get_logger().warn(
+                                f"🛡️ [LỌC NHIỄU KHE HÀNG] CNN trả góc bất thường {raw_angle:+.1f}° (nghi nhìn vào khe thùng)! "
+                                f"Bác bỏ góc nhiễu -> Kích hoạt phản xạ nắn ngược lại ({self.smoothed_angle_deg:+.1f}°) để giữ tim luống (yaw_dev={yaw_dev_deg:+.1f}°)."
+                            )
+                    else:
+                        # Góc hợp lệ trong hàng: cập nhật EMA mượt mà và giới hạn <= in_row_max (5.0°)
+                        effective_alpha = max(self.ema_alpha, 0.65) if near_side_wall else self.ema_alpha
+                        self.smoothed_angle_deg = (
+                            effective_alpha * raw_angle
+                            + (1.0 - effective_alpha) * self.smoothed_angle_deg
+                        )
+                        self.smoothed_angle_deg = float(np.clip(self.smoothed_angle_deg, -in_row_max, in_row_max))
+
+                elif self.enable_global_plan_assist:
+                    # ── HỖ TRỢ SONG SONG TỪ GLOBAL PLAN (FALLBACK KHI CÂY THƯA / LÁ CHE / THÙNG HỞ) ──
+                    target_y = 0.0 if self.current_lane_idx == 1 else self.current_lane_y
+                    base_ref = getattr(self, 'row_reference_yaw', None)
+                    if base_ref is None:
+                        base_ref = 0.0 if self.current_lane_idx == 1 else (math.pi if self.current_yaw >= 0 else -math.pi)
+                    target_yaw = base_ref if self.current_lane_idx == 1 else normalize_angle(base_ref + math.pi)
+
+                    lat_err = self.current_y - target_y
+                    dir_factor = 1.0 if self.current_lane_idx == 1 else -1.0
+                    yaw_err = math.atan2(math.sin(target_yaw - self.current_yaw), math.cos(target_yaw - self.current_yaw))
+
+                    assist_steer_deg = float(np.clip(12.0 * lat_err * dir_factor - math.degrees(yaw_err) * 0.4, -in_row_max, in_row_max))
+                    self.smoothed_angle_deg = (
+                        0.25 * assist_steer_deg + 0.75 * self.smoothed_angle_deg
+                    )
+                    self.smoothed_angle_deg = float(np.clip(self.smoothed_angle_deg, -in_row_max, in_row_max))
+                    if now_sec - getattr(self, '_last_global_assist_log_time', 0.0) >= 2.0:
+                        self._last_global_assist_log_time = now_sec
+                        self.get_logger().info(
+                            f"🌾 [GLOBAL PLAN ASSIST] Conf thấp ({confidence*100:.1f}%) -> Hỗ trợ giữ tim Luống {self.current_lane_idx} (y={target_y:.2f}m, dy={lat_err:.2f}m, steer={self.smoothed_angle_deg:+.1f}°)"
+                        )
+                else:
+                    self.smoothed_angle_deg *= 0.90
+
+                # ── KHÓA CỨNG ĐỘ LỆCH GÓC THÂN XE & CHỐNG XOAY MÃI 1 HƯỚNG ──
+                # Tuyệt đối không cho phép thân xe quay lệch quá max_yaw_dev (5.0°) so với tim luống ban đầu
+                if yaw_dev_deg > max_yaw_dev:
+                    # Thân xe đã lệch sang Trái >= 5 độ: cấm rẽ Trái (< 0), cưỡng bức bẻ Phải (>= +2.5°) nắn về tim
+                    self.smoothed_angle_deg = max(self.smoothed_angle_deg, 2.5)
+                    if now_sec - getattr(self, '_last_yaw_clamp_log_time', 0.0) >= 1.5:
+                        self._last_yaw_clamp_log_time = now_sec
+                        self.get_logger().warn(
+                            f"⚠️ [KHÓA LỆCH HƯỚNG] Thân xe lệch Trái {yaw_dev_deg:+.1f}° >= {max_yaw_dev:.1f}°! "
+                            f"Cưỡng bức bẻ Phải ({self.smoothed_angle_deg:+.1f}°) nắn thẳng về tim luống."
+                        )
+                elif yaw_dev_deg < -max_yaw_dev:
+                    # Thân xe đã lệch sang Phải >= 5 độ: cấm rẽ Phải (> 0), cưỡng bức bẻ Trái (<= -2.5°) nắn về tim
+                    self.smoothed_angle_deg = min(self.smoothed_angle_deg, -2.5)
+                    if now_sec - getattr(self, '_last_yaw_clamp_log_time', 0.0) >= 1.5:
+                        self._last_yaw_clamp_log_time = now_sec
+                        self.get_logger().warn(
+                            f"⚠️ [KHÓA LỆCH HƯỚNG] Thân xe lệch Phải {yaw_dev_deg:+.1f}° <= -{max_yaw_dev:.1f}°! "
+                            f"Cưỡng bức bẻ Trái ({self.smoothed_angle_deg:+.1f}°) nắn thẳng về tim luống."
+                        )
+
             else:
-                # Chỉ triệt tiêu góc lái về 0 khi thực sự ở bãi đất trống ngoài luống
-                self.smoothed_angle_deg *= 0.90
+                # Ngoài luống (ví dụ đang ở bãi quay đầu hoặc chưa vào hàng)
+                failed = (confidence < self.low_confidence_threshold)
+                if not failed:
+                    effective_alpha = self.ema_alpha
+                    self.smoothed_angle_deg = (
+                        effective_alpha * raw_angle
+                        + (1.0 - effective_alpha) * self.smoothed_angle_deg
+                    )
+                else:
+                    self.smoothed_angle_deg *= 0.90
 
             # Cập nhật controller nội bộ để lưu vết sai số
             now_sec = now.nanoseconds / 1e9
@@ -1612,16 +1756,16 @@ class CnnDriverNode(Node):
                 # CHẾ ĐỘ ĐIỀU HƯỚNG MỚI: VỪA CHẠY VỪA ĐÁNH LÁI LIÊN TỤC (CONTINUOUS STEER)
                 # =========================================================================
                 # 1. Tham số:
-                #    - Ngưỡng kích hoạt bẻ lái: steer_trigger_deg = 2.0 độ
+                #    - Ngưỡng kích hoạt bẻ lái: steer_trigger_deg = 2.2 độ
                 #    - Ngưỡng xác nhận thẳng hàng: steer_resume_deg = 1.2 độ trong 3 frame
                 #    - Tốc độ danh định tiến thẳng 4 bánh: self.linear_speed (0.075 m/s)
                 #    - Bánh ngoài tăng tốc mềm lên steer_boost_speed (0.088 m/s)
                 #    - Bánh trong giảm tốc mềm về steer_brake_speed (0.045 m/s)
                 #    - Thời gian chuyển tiếp mềm: steer_ramp_time = 0.25s
-                steer_trigger = float(getattr(self, 'steer_trigger_deg', 2.0))
-                steer_trigger_frames = int(getattr(self, 'steer_trigger_frames', 3))
+                steer_trigger = float(getattr(self, 'steer_trigger_deg', 2.2))
+                steer_trigger_frames = int(getattr(self, 'steer_trigger_frames', 6))
                 steer_resume = float(getattr(self, 'steer_resume_deg', 1.2))
-                required_straight_frames = int(getattr(self, 'steer_aligned_frames', 2))
+                required_straight_frames = int(getattr(self, 'steer_aligned_frames', 6))
                 v_nom = float(self.linear_speed)
                 v_boost = float(getattr(self, 'steer_boost_speed', 0.088))
                 v_brake = float(getattr(self, 'steer_brake_speed', 0.045))
@@ -1729,7 +1873,7 @@ class CnnDriverNode(Node):
                     stage = getattr(self, 'heading_adjust_stage', 'ROTATING')
 
                     if stage == 'ROTATING':
-                        required_aligned_frames = int(getattr(self, 'heading_adjust_aligned_frames', 3))
+                        required_aligned_frames = int(getattr(self, 'heading_adjust_aligned_frames', 6))
                         is_frame_aligned = (confidence >= self.low_confidence_threshold) and (abs(self.smoothed_angle_deg) <= resume_threshold)
 
                         if is_frame_aligned:
@@ -1749,6 +1893,12 @@ class CnnDriverNode(Node):
                                 start_wheel = getattr(self, 'heading_adjust_start_wheel_yaw', cur_wheel)
                                 delta_wheel_deg = math.degrees(math.atan2(math.sin(cur_wheel - start_wheel), math.cos(cur_wheel - start_wheel)))
 
+                                if not getattr(self, 'initial_alignment_done', False):
+                                    self.initial_alignment_done = True
+                                    self.row_reference_yaw = float(self.current_yaw)
+                                    self.get_logger().info(
+                                        f"🚀 [ĐẦU HÀNG ĐÃ THẲNG] Căn chỉnh đầu hàng hoàn tất! Khóa góc tim luống ref={math.degrees(self.row_reference_yaw):+.1f}°."
+                                    )
                                 self.get_logger().info(
                                     f"✅ [ĐIỀU HƯỚNG CNN] ĐÃ THẲNG HÀNG VỮNG CHẮC "
                                     f"(Xác nhận {required_aligned_frames}/{required_aligned_frames} frame liên tiếp |góc CNN|={abs(self.smoothed_angle_deg):.2f}° <= {resume_threshold:.2f}°)! "
@@ -1757,18 +1907,35 @@ class CnnDriverNode(Node):
                                 if self.enable_file_logging and self.telemetry_logger:
                                     self.telemetry_logger.log_event(
                                         "CNN_HEADING_CONFIRMED_ALIGNED",
-                                        f"Thẳng hàng vững chắc ({required_aligned_frames} frames) |góc|={abs(self.smoothed_angle_deg):.2f}°. Hãm tĩnh 0.3s rồi lăn thẳng."
+                                        f"Thẳng hàng vững chắc ({required_aligned_frames} frames) |góc|={abs(self.smoothed_angle_deg):.2f}°."
                                     )
                         else:
                             self._aligned_frame_count = 0
-                            if self.smoothed_angle_deg > 0.5 and self.heading_adjust_dir > 0:
-                                self.heading_adjust_dir = -1.0
-                            elif self.smoothed_angle_deg < -0.5 and self.heading_adjust_dir < 0:
-                                self.heading_adjust_dir = 1.0
+                            # Khi đang xoay căn chỉnh trong hàng:
+                            # Nếu thân xe đã lệch giới hạn so với ref_yaw, cưỡng bức hướng xoay về ref_yaw
+                            if getattr(self, 'initial_alignment_done', False) and getattr(self, 'inside_row', False):
+                                ref_y = getattr(self, 'row_reference_yaw', None)
+                                if ref_y is not None:
+                                    c_dev = math.degrees(normalize_angle(float(self.current_yaw) - ref_y))
+                                    if c_dev > max_yaw_dev:
+                                        self.heading_adjust_dir = -1.0
+                                    elif c_dev < -max_yaw_dev:
+                                        self.heading_adjust_dir = 1.0
+                                    else:
+                                        if self.smoothed_angle_deg > 0.5:
+                                            self.heading_adjust_dir = -1.0
+                                        elif self.smoothed_angle_deg < -0.5:
+                                            self.heading_adjust_dir = 1.0
+                            else:
+                                if self.smoothed_angle_deg > 0.5 and self.heading_adjust_dir > 0:
+                                    self.heading_adjust_dir = -1.0
+                                elif self.smoothed_angle_deg < -0.5 and self.heading_adjust_dir < 0:
+                                    self.heading_adjust_dir = 1.0
 
                 else:
+                    # Dừng xoay tại chỗ (Pivot Stop) áp dụng cho cả đầu hàng và trong luống:
                     can_trigger = (now_sec >= getattr(self, 'heading_adjust_cooldown_until', 0.0))
-                    required_trigger_frames = int(getattr(self, 'turn_in_place_trigger_frames', 3))
+                    required_trigger_frames = int(getattr(self, 'turn_in_place_trigger_frames', 6))
                     if can_trigger and abs(self.smoothed_angle_deg) > stop_threshold:
                         self.turn_in_place_trigger_count = getattr(self, 'turn_in_place_trigger_count', 0) + 1
                         if self.turn_in_place_trigger_count >= required_trigger_frames:
@@ -1781,15 +1948,18 @@ class CnnDriverNode(Node):
                             self.heading_adjust_dir = -1.0 if self.smoothed_angle_deg > 0 else 1.0
                             self._current_heading_adjust_w = 0.0
                             self._aligned_frame_count = 0
+
+                            is_at_entry = not getattr(self, 'initial_alignment_done', False)
+                            tag = "ĐẦU HÀNG - CĂN CHỈNH XÉO GÓC" if is_at_entry else "TRONG HÀNG - VI CHỈNH GÓC TIM LUỐNG"
                             self.get_logger().info(
-                                f"🌾 [ĐIỀU HƯỚNG CNN - PIVOT STOP] CNN trả góc lệch {self.smoothed_angle_deg:+.2f}° > {stop_threshold:.2f}° "
+                                f"🌾 [{tag}] CNN trả góc lệch {self.smoothed_angle_deg:+.2f}° > {stop_threshold:.2f}° "
                                 f"(xác nhận đủ {required_trigger_frames} frame). "
-                                f"Giảm tốc êm dịu trong 0.5s để dừng xe trước khi xoay căn chỉnh..."
+                                f"Dừng tiến để xoay tại chỗ căn chỉnh về tim luống..."
                             )
                             if self.enable_file_logging and self.telemetry_logger:
                                 self.telemetry_logger.log_event(
                                     "CNN_HEADING_STOP_ADJUST",
-                                    f"Lệch {self.smoothed_angle_deg:+.2f}° > {stop_threshold:.2f}° ({required_trigger_frames} frames). Giảm tốc êm dịu 0.5s."
+                                    f"[{tag}] Lệch {self.smoothed_angle_deg:+.2f}° > {stop_threshold:.2f}° ({required_trigger_frames} frames). Giảm tốc êm dịu 0.5s."
                                 )
                     else:
                         self.turn_in_place_trigger_count = 0
@@ -1857,18 +2027,20 @@ class CnnDriverNode(Node):
                         # Vẫn nhìn thấy luống rõ ràng: ƯU TIÊN CAO NHẤT TIẾP TỤC BÁM LUỐNG TIẾN VỀ PHÍA TRƯỚC!
                         pass
                     else:
-                        # CNN đã xác nhận mất luống (qua nhiều frames liên tiếp + LiDAR sườn thoáng) HOẶC vượt giới hạn an toàn tối đa:
-                        if perception_eor and self.distance_traveled >= 0.8:
-                            can_trigger_u_turn = True
-                            trigger_reason = f"Camera xác nhận hết hàng bắp ({self.eor_low_conf_frames} frames conf < {self.low_confidence_threshold*100:.0f}%)"
-                        elif exceeded_max_limit:
-                            can_trigger_u_turn = True
-                            trigger_reason = f"Vượt quá giới hạn quãng đường tối đa an toàn (dist={self.distance_traveled:.2f}m >= {max_limit_dist:.2f}m)"
+                        # Chỉ cho phép kiểm tra hết hàng khi xe đã hoàn tất căn chỉnh đầu hàng và đang ở trong hàng:
+                        if getattr(self, 'initial_alignment_done', False) and self.inside_row:
+                            # Camera (20 frame liên tiếp) & LiDAR sườn đều xác nhận mất dấu hàng HOẶC vượt giới hạn an toàn tối đa:
+                            if perception_eor:
+                                can_trigger_u_turn = True
+                                trigger_reason = f"Camera & LiDAR sườn xác nhận hết hàng bắp ({self.eor_low_conf_frames} frames conf < {self.low_confidence_threshold*100:.0f}%)"
+                            elif exceeded_max_limit:
+                                can_trigger_u_turn = True
+                                trigger_reason = f"Vượt quá giới hạn quãng đường tối đa an toàn (dist={self.distance_traveled:.2f}m >= {max_limit_dist:.2f}m)"
 
                     if can_trigger_u_turn:
                         self.get_logger().info(
                             f"🌾 [SẮP ĐẾN GOAL 1 - CHỚM HẾT HÀNG] {trigger_reason} tại x={self.current_x:.2f}m (dist={self.distance_traveled:.2f}m)! "
-                            f"Bắt đầu chạy thẳng thoát miệng luống 1.0m - 1.5m để xác định mốc Goal 1..."
+                            f"Bắt đầu chạy thẳng thoát miệng luống {self.drive_out_distance:.2f}m để xác định mốc Goal 1..."
                         )
                         if self.enable_file_logging and self.telemetry_logger:
                             self.telemetry_logger.log_event("EOR_APPROACHING_GOAL_1", f"{trigger_reason} tại x={self.current_x:.2f}m, dist={self.distance_traveled:.2f}m")
@@ -1895,10 +2067,10 @@ class CnnDriverNode(Node):
                         # Vẫn thấy luống 2 rõ ràng: Tiếp tục bám hàng chạy tới!
                         pass
                     else:
-                        # CNN xác nhận không còn thấy hàng bên Luống 2 nữa -> Về đích Goal 3!
-                        if perception_eor and self.distance_traveled >= 0.8:
+                        # CNN & LiDAR xác nhận không còn thấy hàng bên Luống 2 nữa -> Về đích Goal 3!
+                        if perception_eor:
                             can_finish = True
-                            finish_reason = f"CNN xác nhận hết hàng Luống 2 (conf < {self.low_confidence_threshold*100:.0f}%, dist={self.distance_traveled:.2f}m)"
+                            finish_reason = f"CNN & LiDAR xác nhận hết hàng Luống 2 (conf < {self.low_confidence_threshold*100:.0f}%, dist={self.distance_traveled:.2f}m)"
                         elif exceeded_max_limit:
                             can_finish = True
                             finish_reason = f"Đạt giới hạn quãng đường tối đa Luống 2 (dist={self.distance_traveled:.2f}m >= {max_limit_dist:.2f}m)"

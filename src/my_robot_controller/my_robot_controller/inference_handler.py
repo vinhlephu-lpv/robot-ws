@@ -33,13 +33,30 @@ class InferenceHandler:
             self.load_model()
 
     def load_model(self):
+        # Tự động nạp thư viện CUDA/cuDNN nếu được cài đặt qua pip (nvidia-* packages)
+        import glob
+        import ctypes
+        for lib_dir in sorted(glob.glob(os.path.expanduser('~/.local/lib/python3*/site-packages/nvidia/*/lib'))):
+            for so_file in sorted(glob.glob(os.path.join(lib_dir, '*.so*'))):
+                try:
+                    ctypes.CDLL(so_file, mode=ctypes.RTLD_GLOBAL)
+                except Exception:
+                    pass
+
         import onnxruntime
 
         available = onnxruntime.get_available_providers()
         providers = []
-        for ep in ['CUDAExecutionProvider', 'TensorrtExecutionProvider', 'OpenVINOExecutionProvider']:
-            if ep in available:
-                providers.append(ep)
+        if 'CUDAExecutionProvider' in available:
+            providers.append('CUDAExecutionProvider')
+        elif 'TensorrtExecutionProvider' in available:
+            try:
+                import tensorrt
+                providers.append('TensorrtExecutionProvider')
+            except ImportError:
+                pass
+        if 'OpenVINOExecutionProvider' in available:
+            providers.append('OpenVINOExecutionProvider')
         providers.append('CPUExecutionProvider')
 
         # Session optimization options
@@ -65,6 +82,12 @@ class InferenceHandler:
         self.session = onnxruntime.InferenceSession(self.model_path, sess_options=so, providers=providers)
         self.input_name = self.session.get_inputs()[0].name
         self.output_names = [self.session.get_outputs()[0].name]
+
+        active_ep = self.session.get_providers()[0]
+        if 'CUDA' in active_ep:
+            print(f"🚀 [InferenceHandler] Đã kích hoạt tăng tốc phần cứng NVIDIA GPU: {active_ep}")
+        else:
+            print(f"ℹ️ [InferenceHandler] Đang chạy với provider: {active_ep}")
 
     def preprocess_image(self, bgr_image: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """Converts BGR image to normalized RGB tensor using pre-allocated buffer."""

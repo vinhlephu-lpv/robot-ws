@@ -57,6 +57,14 @@ def generate_launch_description():
         'rviz', default_value='false',
         description='Mở RViz2 trực tiếp trên Laptop để quan sát mô hình xe và cảm biến (rviz:=true)')
 
+    model_path_arg = DeclareLaunchArgument(
+        'model_path', default_value='models/crop_row_cnn_best_final.onnx',
+        description='Mô hình ONNX (Mặc định FP32 tối ưu cho GPU Laptop: crop_row_cnn_best_final.onnx)')
+
+    fps_arg = DeclareLaunchArgument(
+        'fps', default_value='0.0',
+        description='Tốc độ khung hình (0.0 = AUTO: Tự động phát hiện và đồng bộ FPS tối đa của phần cứng Camera)')
+
     # ── Camera Publisher trên Laptop (Đọc trực tiếp từ cổng USB Laptop) ──
     camera_publisher_node = Node(
         package='my_robot_bringup',
@@ -67,7 +75,7 @@ def generate_launch_description():
             'video_device': LaunchConfiguration('camera_device'),
             'width': 640,
             'height': 480,
-            'fps': 30.0,
+            'fps': LaunchConfiguration('fps'),
             'camera_frame_id': 'camera_link',
         }],
         remappings=[
@@ -84,17 +92,20 @@ def generate_launch_description():
         name='cnn_inference_server',
         output='screen',
         parameters=[{
+            'model_path': LaunchConfiguration('model_path'),
             'input_height': 384,
             'input_width': 384,
             'roi_ratio': 0.80,
             'mask_threshold': 0.35,
             'max_steering_angle_deg': 14.0,
+            'in_row_max_steer_deg': 5.0,
+            'in_row_max_yaw_dev_deg': 5.0,
             'show_window': LaunchConfiguration('view'),
             'tracking_steer_mode': PythonExpression(["'CONTINUOUS_STEER' if '", LaunchConfiguration('steer_mode'), "' == 'continuous' else 'PIVOT_STOP'"]),
-            'steer_trigger_deg': 2.0,
-            'steer_trigger_frames': 3,
+            'steer_trigger_deg': 2.2,
+            'steer_trigger_frames': 6,
             'steer_resume_deg': 1.2,
-            'steer_aligned_frames': 2,
+            'steer_aligned_frames': 6,
             'steer_boost_speed': 0.088,
             'steer_brake_speed': 0.045,
             'linear_speed': 0.075,
@@ -145,6 +156,8 @@ def generate_launch_description():
         view_arg,
         steer_mode_arg,
         rviz_arg,
+        model_path_arg,
+        fps_arg,
         camera_publisher_node,
         cnn_server_node,
         cnn_driver_node,
