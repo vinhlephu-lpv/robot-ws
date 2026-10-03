@@ -23,8 +23,9 @@ __pycache__/
 logs/
 
 # Video recordings & raw dataset images
-recordings/
 dataset/
 *.mp4
+!recordings/
+!recordings/*.mp4
 inference_results/
 /*.png
