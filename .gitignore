@@ -23,7 +23,9 @@ __pycache__/
 logs/
 
 # Video recordings & raw dataset images
-dataset/
+dataset/videos/
+dataset/imgs/*
+!dataset/imgs/dataset_2/
 *.mp4
 !recordings/
 !recordings/*.mp4
