@@ -27,7 +27,9 @@ skip_patterns = (
     'Waiting for robot_description',
     'WiFi Camera Bridge khởi động',
     'Still waiting for data on topic imu/data_raw',
-    'Resolving model path for'
+    'Resolving model path for',
+    'Expected boundary',
+    'mpjpeg @'
 )
 
 

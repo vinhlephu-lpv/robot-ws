@@ -24,24 +24,31 @@ setup_cyclonedds() {
         is_pi=true
     fi
 
-    # Ưu tiên 1: Cáp mạng dây Ethernet trực tiếp (Laptop 10.42.0.1 <-> Pi 10.42.0.236)
+    # Ưu tiên 1: Cáp mạng dây Ethernet trực tiếp (192.168.10.x hoặc 10.42.0.x)
     if [ "$is_pi" = true ]; then
-        if ip -4 addr show dev eth0 2>/dev/null | grep -q "10.42.0."; then
-            my_ip="10.42.0.236"
+        if ip -4 addr show dev eth0 2>/dev/null | grep -q "192.168.10."; then
+            my_ip="192.168.10.2"
+            peer_ip="192.168.10.1"
+        elif ip -4 addr show dev eth0 2>/dev/null | grep -q "10.42.0."; then
+            my_ip=$(ip -4 addr show dev eth0 2>/dev/null | grep -oP 'inet \K[\d.]+' | head -1)
             peer_ip="10.42.0.1"
         fi
     else
-        if ip -4 addr show 2>/dev/null | grep -q "10.42.0.1"; then
+        # Trên Laptop: ưu tiên cáp mạng 192.168.10.1 nếu ping được Pi 192.168.10.2
+        if ping -c 1 -W 1 192.168.10.2 >/dev/null 2>&1; then
+            my_ip="192.168.10.1"
+            peer_ip="192.168.10.2"
+        elif ping -c 1 -W 1 10.42.0.236 >/dev/null 2>&1; then
             my_ip="10.42.0.1"
             peer_ip="10.42.0.236"
         fi
     fi
 
-    # Ưu tiên 2 (Dự phòng khi rút cáp mạng): Mạng Wi-Fi Trường (10.10.x.x) hoặc Hotspot (172.20.10.x)
+    # Ưu tiên 2 (Khi rút cáp mạng): Dùng Wi-Fi thực tế (10.10.x.x) hoặc Hotspot (172.20.10.x)
     if [ -z "$my_ip" ]; then
         if [ "$is_pi" = true ]; then
             my_ip=$(ip -4 addr show dev wlan0 2>/dev/null | grep -oP 'inet \K[\d.]+' | head -1)
-            peer_ip="10.10.177.141"
+            peer_ip="10.10.178.196"
         else
             local iface
             iface=$(ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="dev") print $(i+1)}' | head -1)
@@ -50,26 +57,33 @@ setup_cyclonedds() {
         fi
     fi
 
+    [ -z "$my_ip" ] && my_ip="127.0.0.1"
+
     cat > "$HOME/.cyclonedds.xml" << EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <CycloneDDS xmlns="https://cdds.io/config">
   <Domain>
     <General>
       <Interfaces>
-        <NetworkInterface address="${my_ip:-127.0.0.1}" priority="20" presence_required="false" />
+        <NetworkInterface address="${my_ip}" priority="20" presence_required="false" />
       </Interfaces>
       <AllowMulticast>true</AllowMulticast>
       <MaxMessageSize>65500B</MaxMessageSize>
     </General>
     <Discovery>
       <Peers>
-        <Peer address="${peer_ip:-127.0.0.1}"/>
+        <Peer address="${peer_ip}"/>
+        <Peer address="192.168.10.1"/>
+        <Peer address="192.168.10.2"/>
+        <Peer address="192.168.10.255"/>
+        <Peer address="10.10.178.200"/>
+        <Peer address="10.10.178.196"/>
+        <Peer address="10.10.191.255"/>
         <Peer address="10.42.0.1"/>
         <Peer address="10.42.0.236"/>
         <Peer address="10.42.0.255"/>
-        <Peer address="10.10.178.200"/>
-        <Peer address="10.10.177.141"/>
         <Peer address="172.20.10.1"/>
+        <Peer address="172.20.10.2"/>
         <Peer address="255.255.255.255"/>
       </Peers>
       <ParticipantIndex>auto</ParticipantIndex>
@@ -133,6 +147,10 @@ reload_func() {
 alias reload="reload_func"
 alias capnhat="reload_func"
 alias update-cmd="reload_func"
+alias ws="cd \"$WS_DIR\""
+alias cdws="cd \"$WS_DIR\""
+alias robot-ws="cd \"$WS_DIR\""
+alias robot_ws="cd \"$WS_DIR\""
 
 # Hàm build thông minh (tự động nhận diện distro Jazzy / Humble & tự động nạp phím tắt)
 build_func() {
@@ -230,13 +248,16 @@ push_all_func() {
     echo "📦 Đang gom toàn bộ thay đổi (git add)..."
     git add .
     echo "📝 Đang tạo commit: \"$msg\"..."
-    git commit -m "$msg" 2>/dev/null || true
+    git commit -m "$msg" || true
     echo "🚀 [1/2] Đang đẩy lên Repo 1 (robot-ws)..."
     git push origin main
     echo "🚀 [2/2] Đang đẩy lên Repo 2 (robot-ws2)..."
     git push origin2 main
     echo "✅ [THÀNH CÔNG] Toàn bộ code đã được cập nhật lên CẢ 2 REPO GitHub!"
 }
+push-all() { push_all_func "$@"; }
+day-code() { push_all_func "$@"; }
+git-push-all() { push_all_func "$@"; }
 alias push-all="push_all_func"
 alias day-code="push_all_func"
 alias git-push-all="push_all_func"
@@ -665,13 +686,30 @@ alias cnn-iphone="cnn-iphone"
 # - Laptop: Cắm camera vào Laptop, mở terminal chạy: laptop-cnn (hoặc pc-cnn)
 laptop_cnn_func() {
     load_ws
+    local cam_arg=""
+    if [ -n "$1" ] && [[ "$1" != *=* ]]; then
+        local target="$1"
+        shift
+        if [[ "$target" == "iphone" || "$target" == "droidcam" ]]; then
+            cam_arg="camera_device:=http://127.0.0.1:4747/video"
+        elif [[ "$target" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            cam_arg="camera_device:=http://${target}:4747/video"
+        elif [[ "$target" == http* ]]; then
+            cam_arg="camera_device:=$target"
+        fi
+    fi
     echo "================================================================================"
     echo "💻 [LAPTOP AI WORKER] Khởi chạy Camera & AI CNN trên Laptop"
-    echo "   📷 Đọc Camera RealSense D435 / Webcam cắm trực tiếp trên Laptop"
+    echo "   📷 Đọc Camera iPhone DroidCam / RealSense D435 / Webcam"
     echo "   🧠 Chạy mạng AI ONNX INT8 (30-60 FPS) với cửa sổ HUD trực quan"
     echo "   📡 Bắn góc lái (/crop_row/detection) xuống Raspberry Pi qua Wi-Fi"
     echo "================================================================================"
-    ros2 launch my_robot_bringup laptop_cnn.launch.py view:=true "$@"
+    if which iproxy >/dev/null 2>&1; then
+        if ! pgrep -x iproxy >/dev/null 2>&1; then
+            iproxy 4747 4747 >/dev/null 2>&1 &
+        fi
+    fi
+    ros2 launch my_robot_bringup laptop_cnn.launch.py view:=true $cam_arg "$@"
 }
 alias laptop-cnn="laptop_cnn_func"
 alias cnn-laptop="laptop_cnn_func"
@@ -695,14 +733,31 @@ alias pi-robot="pi_cnn_func"
 # ── BỘ LỆNH ĐÁNH LÁI LIÊN TỤC (CONTINUOUS DYNAMIC STEER - KHÔNG DỪNG XE) ───────
 laptop_cnn_continuous_func() {
     load_ws
+    local cam_arg=""
+    if [ -n "$1" ] && [[ "$1" != *=* ]]; then
+        local target="$1"
+        shift
+        if [[ "$target" == "iphone" || "$target" == "droidcam" ]]; then
+            cam_arg="camera_device:=http://127.0.0.1:4747/video"
+        elif [[ "$target" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            cam_arg="camera_device:=http://${target}:4747/video"
+        elif [[ "$target" == http* ]]; then
+            cam_arg="camera_device:=$target"
+        fi
+    fi
     echo "================================================================================"
     echo "💻 [LAPTOP AI WORKER - CONTINUOUS STEER] Camera & AI CNN Đánh Lái Liên Tục"
-    echo "   📷 Đọc Camera RealSense D435 / Webcam cắm trên Laptop (14-15+ FPS)"
+    echo "   📷 Đọc Camera iPhone DroidCam / RealSense D435 / Webcam"
     echo "   🧠 Chế độ: CONTINUOUS STEER — 2 bánh dừng mềm, 2 bánh tăng tốc mềm"
     echo "   🖥️ Cửa sổ HUD 3 ảnh: Ảnh gốc | CNN Mask | Dashboard xe thật"
     echo "   📡 Bắn góc lái (/crop_row/detection) xuống Raspberry Pi qua Wi-Fi"
     echo "================================================================================"
-    ros2 launch my_robot_bringup laptop_cnn.launch.py view:=true steer_mode:=continuous "$@"
+    if which iproxy >/dev/null 2>&1; then
+        if ! pgrep -x iproxy >/dev/null 2>&1; then
+            iproxy 4747 4747 >/dev/null 2>&1 &
+        fi
+    fi
+    ros2 launch my_robot_bringup laptop_cnn.launch.py view:=true steer_mode:=continuous $cam_arg "$@"
 }
 alias laptop-cnn-continuous="laptop_cnn_continuous_func"
 alias pc-cnn-continuous="laptop_cnn_continuous_func"
@@ -863,6 +918,43 @@ let_video_func() {
 alias let-video="let_video_func"
 alias quay-dataset="let_video_func"
 alias rec-video="let_video_func"
+
+# Lệnh quay chuẩn 720p @ 30 FPS cho Intel RealSense D435
+let_video_720p_func() {
+    load_ws
+    fuser -k /dev/video* 2>/dev/null || true
+    python3 "$WS_DIR/scripts/let_video.py" --width 1280 --height 720 --fps 30 "$@"
+}
+alias quay-720p="let_video_720p_func"
+alias rec-720p="let_video_720p_func"
+alias let-720p="let_video_720p_func"
+
+# Lệnh quay màn hình Laptop bằng chip phần cứng NVIDIA NVENC (0% sụt FPS CNN, 60 FPS Full HD)
+quay_man_hinh_func() {
+    local out_dir="$HOME/Videos/Recordings"
+    mkdir -p "$out_dir"
+    local timestamp=$(date +'%Y%m%d_%H%M%S')
+    local outfile="$out_dir/screen_${timestamp}.mp4"
+    local disp="${DISPLAY:-:1}"
+    [[ "$disp" != *.* ]] && disp="${disp}.0"
+    echo "================================================================================"
+    echo "🎥 [QUAY MÀN HÌNH NVIDIA NVENC] Đang ghi hình 1080p @ 60 FPS bằng phần cứng GPU!"
+    echo "⚡ Encoder: NVIDIA NVENC H.264 (Không tốn CPU, KHÔNG sụt FPS của CNN AI)"
+    echo "📁 Video lưu tại: $outfile"
+    echo "👉 Nhấn phím 'q' hoặc 'Ctrl + C' trong terminal này để DỪNG VÀ LƯU VIDEO."
+    echo "================================================================================"
+    ffmpeg -y -f x11grab -video_size 1920x1080 -framerate 60 -i "$disp" \
+        -c:v h264_nvenc -preset p4 -cq 23 -pix_fmt yuv420p "$outfile"
+    if [ -f "$outfile" ]; then
+        echo "================================================================================"
+        echo "✅ ĐÃ LƯU VIDEO THÀNH CÔNG: $outfile"
+        echo "👉 Xem video: vlc \"$outfile\""
+        echo "================================================================================"
+    fi
+}
+alias quay-man-hinh="quay_man_hinh_func"
+alias rec-screen="quay_man_hinh_func"
+alias quay-screen="quay_man_hinh_func"
 
 
 # =====================================================
@@ -1217,19 +1309,20 @@ clean-video() {
 alias clear-video="clean-video"
 alias del-video="clean-video"
 
-# Lệnh xem video nhanh bằng Firefox
 play-video() {
     local f="${1:-}"
     if [ -z "$f" ]; then
-        f=$(ls -t "$WS_DIR/dataset/videos/"*.mp4 "$WS_DIR/dataset/"*.mp4 2>/dev/null | head -n 1)
+        f=$(ls -t "$WS_DIR/recordings/"*.mp4 "$WS_DIR/dataset/videos/"*.mp4 "$WS_DIR/dataset/"*.mp4 2>/dev/null | head -n 1)
     fi
     if [ -n "$f" ] && [ -f "$f" ]; then
         echo "🎬 Đang mở video: $f"
-        firefox "$f" &>/dev/null &
+        vlc "$f" &>/dev/null &
     else
-        echo "❌ Không tìm thấy file video nào trong $WS_DIR/dataset/videos/"
+        echo "❌ Không tìm thấy file video nào trong $WS_DIR/recordings/"
     fi
 }
+alias xem="play-video"
+alias xem-video="play-video"
 # =====================================================
 # THEO DÕI BỘ LỌC CẢM BIẾN & SENSOR FUSION (IMU, ENCODER, EKF)
 # =====================================================

@@ -20,10 +20,13 @@ import re
 import time
 import threading
 import socket
+import subprocess
+import shutil
 from urllib.parse import urlparse
 
 # Set OpenCV FFMPEG network timeout (1.5s) to avoid hanging on dead/unreachable network streams
 os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "timeout;1500000|stimeout;1500000"
+os.environ["OPENCV_FFMPEG_LOGLEVEL"] = "-8"
 
 import numpy as np
 
@@ -465,49 +468,110 @@ class CameraPublisher(Node):
                             pass
         return None
 
+    def _ensure_iproxy(self):
+        """Tự động kích hoạt iproxy nếu có iPhone cắm qua cáp USB để chuyển tiếp cổng 4747."""
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(0.2)
+                if s.connect_ex(('127.0.0.1', 4747)) == 0:
+                    return True
+
+            if not shutil.which('iproxy'):
+                return False
+
+            lsusb_out = subprocess.check_output(['lsusb'], text=True, stderr=subprocess.DEVNULL)
+            if any(kw in lsusb_out for kw in ['Apple', 'iPhone', '05ac:']):
+                if not hasattr(self, '_iproxy_proc') or self._iproxy_proc is None or self._iproxy_proc.poll() is not None:
+                    self.get_logger().info("🔌 [iPhone USB] Phát hiện iPhone cắm cáp USB, đang kích hoạt iproxy 4747...")
+                    self._iproxy_proc = subprocess.Popen(
+                        ['iproxy', '4747', '4747'],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL
+                    )
+                    time.sleep(0.5)
+                return True
+        except Exception as e:
+            self.get_logger().debug(f"iproxy check error: {e}")
+        return False
+
     def _open_camera(self):
         """
-        Mở camera: tự động tìm kiếm theo thứ tự ưu tiên nghiêm ngặt:
-          1. Intel RealSense D435
-          2. Camera iPhone (DroidCam qua USB / Wi-Fi Hotspot)
+        Mở camera: tự động tìm kiếm theo thứ tự ưu tiên:
+          1. Camera iPhone (DroidCam qua USB cáp 127.0.0.1:4747 hoặc Wi-Fi)
+          2. Intel RealSense D435 (kênh RGB màu)
           3. USB Webcam (/dev/video*)
         """
-        target = str(self.device).strip() if self.device else 'realsense'
+        target = str(self.device).strip() if self.device else 'auto'
         is_explicit_http = target.startswith(('http://', 'https://', 'rtsp://'))
         is_explicit_v4l = target.startswith('/dev/video') and os.path.exists(target) and not self._is_realsense_device(target)
 
-        # ── 1. ƯU TIÊN 1: INTEL REALSENSE D435 ──
-        if target in ('realsense', 'auto', 'd435', 'd435i', '') or (not is_explicit_http and not is_explicit_v4l):
+        has_realsense = False
+        by_id = '/dev/v4l/by-id'
+        if os.path.exists(by_id):
+            has_realsense = any('RealSense' in fn or 'D435' in fn for fn in os.listdir(by_id))
+
+        wants_realsense = any(kw in target.lower() for kw in ['realsense', 'd435'])
+        wants_iphone = any(kw in target.lower() for kw in ['iphone', 'droidcam']) or is_explicit_http
+
+        # ── 1. NẾU CÓ REALSENSE HOẶC YÊU CẦU REALSENSE: MỞ REALSENSE TRƯỚC ──
+        if (wants_realsense or (has_realsense and not wants_iphone)) and not is_explicit_http and not is_explicit_v4l:
             cap = self._try_open_realsense()
             if cap is not None:
                 return cap
 
-        if target in ('realsense', 'd435', 'd435i'):
-            self.get_logger().info(
-                "⚠️ Không tìm thấy Intel RealSense D435, chuyển sang [ƯU TIÊN 2] iPhone DroidCam...",
-                throttle_duration_sec=10.0)
+        # ── 2. CAMERA IPHONE DROIDCAM (CÁP USB HOẶC WI-FI) ──
+        if wants_iphone or (not has_realsense and target in ('auto', '')):
+            self._ensure_iproxy()
+            urls_to_try = []
+            if is_explicit_http:
+                urls_to_try.append(target)
+                if target.endswith('/video'):
+                    urls_to_try.append(target.replace('/video', '/mjpegfeed'))
+                elif target.endswith('/mjpegfeed'):
+                    urls_to_try.append(target.replace('/mjpegfeed', '/video'))
 
-        # ── 2. ƯU TIÊN 2: CAMERA IPHONE DROIDCAM ──
-        urls_to_try = []
-        if is_explicit_http:
-            urls_to_try.append(target)
-            if target.endswith('/video'):
-                urls_to_try.append(target.replace('/video', '/mjpegfeed'))
-            elif target.endswith('/mjpegfeed'):
-                urls_to_try.append(target.replace('/mjpegfeed', '/video'))
+            # Cáp USB iPhone (qua iproxy 4747 - siêu nét, 0 độ trễ)
+            for u in [
+                'http://127.0.0.1:4747/video',
+                'http://127.0.0.1:4747/mjpegfeed',
+                'http://localhost:4747/video',
+                'http://localhost:4747/mjpegfeed',
+                'http://172.20.10.1:4747/video',
+                'http://172.20.10.1:4747/mjpegfeed'
+            ]:
+                if u not in urls_to_try:
+                    urls_to_try.append(u)
 
-        default_iphone = 'http://172.20.10.1:4747/video'
-        if default_iphone not in urls_to_try:
-            urls_to_try.append(default_iphone)
-            urls_to_try.append('http://172.20.10.1:4747/mjpegfeed')
+            # Thử tự động bắt IP gateway nếu nối Hotspot Wi-Fi từ iPhone
+            try:
+                gw = subprocess.check_output(
+                    "ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i==\"via\") print $(i+1)}'",
+                    shell=True, text=True).strip()
+                if gw and gw not in ('127.0.0.1', '10.42.0.1', '192.168.10.1'):
+                    gw_url = f'http://{gw}:4747/video'
+                    if gw_url not in urls_to_try:
+                        urls_to_try.append(gw_url)
+            except Exception:
+                pass
 
-        cap = self._try_open_urls(urls_to_try)
-        if cap is not None:
-            return cap
+            cap = self._try_open_urls(urls_to_try)
+            if cap is not None:
+                return cap
 
-        # ── 3. ƯU TIÊN 3: USB WEBCAM VẬT LÝ ──
+            if wants_iphone:
+                self.get_logger().info(
+                    "⚠️ Không kết nối được iPhone DroidCam, đang thử các camera khác...",
+                    throttle_duration_sec=10.0)
+
+        # ── 3. NẾU CHƯA MỞ ĐƯỢC REALSENSE, THỬ LẠI REALSENSE ──
+        if not is_explicit_http and not is_explicit_v4l:
+            cap = self._try_open_realsense()
+            if cap is not None:
+                return cap
+
+        # ── 4. USB WEBCAM VẬT LÝ ──
         self.get_logger().info(
-            "⚠️ Không tìm thấy iPhone DroidCam, chuyển sang [ƯU TIÊN 3] USB Webcam (/dev/video*)...",
+            "⚠️ Không tìm thấy iPhone DroidCam / RealSense, chuyển sang USB Webcam (/dev/video*)...",
             throttle_duration_sec=10.0)
         cap = self._try_open_usb_devices()
         if cap is not None:
@@ -615,6 +679,11 @@ class CameraPublisher(Node):
 
     def destroy_node(self):
         self.is_running = False
+        if hasattr(self, '_iproxy_proc') and self._iproxy_proc:
+            try:
+                self._iproxy_proc.terminate()
+            except Exception:
+                pass
         if self.cap and self.cap.isOpened():
             self.cap.release()
         super().destroy_node()

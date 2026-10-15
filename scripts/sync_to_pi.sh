@@ -108,7 +108,7 @@ ssh -o StrictHostKeyChecking=no "${PI_USER}@${PI_IP}" "sudo date -u -s '$PC_TIME
 echo "✅ Đã đồng bộ giờ hệ thống!"
 
 # 4. Thực hiện colcon build trên Pi
-ssh -o StrictHostKeyChecking=no "${PI_USER}@${PI_IP}" "bash -c 'source /opt/ros/jazzy/setup.bash 2>/dev/null || source /opt/ros/humble/setup.bash 2>/dev/null; cd /home/${PI_USER}/robot_ws && (colcon build --symlink-install --packages-select my_robot_controller my_robot_bringup my_robot_navigation my_sensor_test || (rm -rf build/ && colcon build --symlink-install --packages-select my_robot_controller my_robot_bringup my_robot_navigation my_sensor_test))'"
+ssh -o StrictHostKeyChecking=no "${PI_USER}@${PI_IP}" "bash -c 'source /opt/ros/jazzy/setup.bash 2>/dev/null || source /opt/ros/humble/setup.bash 2>/dev/null; cd /home/${PI_USER}/robot_ws && (colcon build --symlink-install --packages-select my_robot_controller my_robot_bringup my_robot_navigation my_sensor_test || (rm -rf build/my_robot_controller build/my_robot_bringup build/my_robot_navigation build/my_sensor_test && colcon build --symlink-install --packages-select my_robot_controller my_robot_bringup my_robot_navigation my_sensor_test))'"
 
 echo ""
 echo "🎉 ============================================================"
