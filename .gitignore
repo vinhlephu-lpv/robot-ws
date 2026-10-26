@@ -26,8 +26,17 @@ logs/
 dataset/videos/
 dataset/imgs/*
 !dataset/imgs/dataset_2/
+dataset/CNN*
+dataset/YoLo*
+dataset/dataset_*
+CNN\ dataset*
+YoLo\ Dataset*
+model_archive/
+video-frames-skill/
 *.mp4
-!recordings/
-!recordings/*.mp4
+recordings/*
+!recordings/luong_1.mp4
+!recordings/luong_2.mp4
+!recordings/test_1.mp4
 inference_results/
 /*.png

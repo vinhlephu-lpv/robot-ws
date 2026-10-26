@@ -34,7 +34,7 @@ class EndOfRowDetector:
     Combines multi-modal perception (Camera CNN confidence + LiDAR sector clearance)
     to detect end of corn row dynamically without false triggers inside stalk gaps.
     """
-    def __init__(self, min_row_distance=2.0, low_confidence_threshold=0.30, consecutive_frames=15):
+    def __init__(self, min_row_distance=1.0, low_confidence_threshold=0.30, consecutive_frames=10):
         self.min_row_distance = min_row_distance
         self.low_confidence_threshold = low_confidence_threshold
         self.consecutive_frames = consecutive_frames
@@ -50,26 +50,29 @@ class EndOfRowDetector:
             self.lidar_clearance_counter = 0
             return False
 
-        # 1. Vision check: Camera mất dấu luống bắp liên tục N frame (mặc định 15 frame cho laptop 12-15 FPS)
+        # 1. Vision check: Bộ đếm tích lũy mềm (Leaky Counter) chống 1 frame nhiễu xóa sạch tiến trình đếm hết hàng
         if confidence < self.low_confidence_threshold:
             self.low_confidence_counter += 1
         else:
-            self.low_confidence_counter = 0
+            self.low_confidence_counter = max(0, self.low_confidence_counter - 2)
         
         camera_eor = (self.low_confidence_counter >= self.consecutive_frames)
+        camera_definite_eor = (self.low_confidence_counter >= (self.consecutive_frames + 4))
         
-        # 2. LiDAR check: Kích hoạt khi phía trước trống (> 1.2m), hai bên sườn trống (> 0.60m)
+        # 2. LiDAR check: Kích hoạt khi phía trước trống (> 1.0m), hai bên sườn trống (> 0.38m)
         # VÀ Camera cũng mất dấu luống (confidence < low_confidence_threshold).
-        if front_min_dist > 1.20 and left_side_dist > 0.60 and right_side_dist > 0.60 and (confidence < self.low_confidence_threshold):
+        if front_min_dist > 1.00 and left_side_dist > 0.38 and right_side_dist > 0.38 and (confidence < self.low_confidence_threshold):
             self.lidar_clearance_counter += 1
         else:
-            self.lidar_clearance_counter = 0
+            self.lidar_clearance_counter = max(0, self.lidar_clearance_counter - 1)
 
         lidar_eor = (self.lidar_clearance_counter >= self.consecutive_frames)
         
-        # 3. Yêu cầu an toàn thực địa: Chỉ cho phép nhận biết hết hàng khi ĐỒNG THỜI
-        # LiDAR 2 bên sườn xác nhận khoảng trống (> 0.60m), chống kích hoạt non do thưa cây/bóng râm giữa luống:
-        sides_cleared = (left_side_dist > 0.60 and right_side_dist > 0.60)
+        # 3. Hai bên sườn thoáng (> 0.38m) HOẶC ít nhất 1 bên thoáng (> 0.42m) và Camera đã xác nhận hết hàng rõ rệt:
+        # (Vì camera đặt ở mũi xe nhìn thấy hết hàng trước khi hông xe lọt hẳn qua thùng cuối cùng)
+        sides_cleared = (left_side_dist > 0.38 and right_side_dist > 0.38) or (
+            camera_definite_eor and max(left_side_dist, right_side_dist) > 0.42
+        )
         
         if (camera_eor or lidar_eor) and sides_cleared:
             return True
@@ -118,36 +121,23 @@ class PerceptionManager:
         
         if self.lidar is not None:
             front_min_dist = self.lidar.get_min_range_in_sector(-25.0, 25.0)
-            left_side_dist = self.lidar.get_min_range_in_sector(20.0, 85.0)
-            right_side_dist = self.lidar.get_min_range_in_sector(-85.0, -20.0)
+            left_side_dist = self.lidar.get_min_range_in_sector(35.0, 85.0)
+            right_side_dist = self.lidar.get_min_range_in_sector(-85.0, -35.0)
             rear_left_dist = self.lidar.get_min_range_in_sector(70.0, 135.0)
             rear_right_dist = self.lidar.get_min_range_in_sector(-135.0, -70.0)
             obstacles = self.lidar.get_obstacles_global(rx, ry, ryaw)
             
-            # Khi Camera/CNN nhìn thấy hàng (confidence >= 0.30):
-            # Xe đang bám tim hàng do CNN dẫn đường. Cây/thùng ở đầu hàng hoặc dọc 2 bên luống
-            # KHÔNG được coi là vật cản làm đứng xe! Chỉ coi là vật cản nếu sát mũi xe (< 0.16m).
-            if confidence >= 0.30:
-                obstacle_detected = (front_min_dist < 0.16)
-            else:
-                obstacle_detected = self.lidar.check_obstacle_in_front(rx, ry, ryaw, inside_row=inside_row)
+            # Chỉ coi là vật cản nếu sát cản trước (< 0.16m) để không nhầm thùng carton hoặc biển mũi tên YOLO ở khoảng cách 0.4m - 1.0m là vật cản.
+            obstacle_detected = (front_min_dist < 0.16)
 
-        # 3. Điều hướng: Tin tưởng 100% Camera/CNN khi nhìn thấy hàng (confidence >= 0.30)
-        # Cho phép xe bám vào hàng từ xa hoặc khi tiếp cận xéo góc mà không bị LiDAR đánh lái ngược.
+        # 3. Điều hướng:
+        # - Khi Camera/CNN nhìn thấy hàng (confidence >= 0.30): Giữ nguyên 100% góc lái CNN.
+        # - Khi không thấy hàng (confidence < 0.30): Tuyệt đối KHÔNG để LiDAR tự bẻ lái lệch trái/phải
+        #   khi chỉ còn 1 thùng ở cuối hàng; chỉ giữ phản xạ tránh va quẹt sát sườn khẩn cấp (< 14cm).
         if confidence >= 0.30:
-            # Camera đã thấy hàng rõ ràng -> Giữ nguyên 100% góc lái CNN để dẫn xe thẳng vào tim hàng
             pass
         elif self.lidar is not None:
-            # Khi Camera tạm thời mất dấu (confidence < 0.30), dùng LiDAR 2 bên thành hàng làm trợ lái dự phòng
-            if (0.15 < left_side_dist < 0.85) and (0.15 < right_side_dist < 0.85):
-                corridor_width = left_side_dist + right_side_dist
-                if 0.70 <= corridor_width <= 1.50:
-                    delta_side = right_side_dist - left_side_dist
-                    lidar_centering_bias = float(np.clip((delta_side / 0.20) * (max_angle_deg * 0.7), -max_angle_deg * 0.7, max_angle_deg * 0.7))
-                    heading_error = lidar_centering_bias
-
-            # Thoát hiểm khẩn cấp khi xe sắp va quẹt sát sườn (< 15cm) và camera không thấy hàng
-            danger_threshold = 0.15
+            danger_threshold = 0.14
             if left_side_dist < danger_threshold:
                 penetration = danger_threshold - left_side_dist
                 repulsion_deg = float(np.clip((penetration / 0.05) * max_angle_deg, 2.0, max_angle_deg))

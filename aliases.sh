@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
 
-# Tự động lấy thư mục gốc của Workspace (chạy đúng trên cả PC và Raspberry Pi)
+# Tự động lấy thư mục gốc của Workspace (ưu tiên đường dẫn file aliases.sh đang nạp, hỗ trợ độc lập ~/robot-vinh trên Pi)
 if [ -n "${BASH_SOURCE[0]}" ] && [ -f "${BASH_SOURCE[0]}" ]; then
-    WS_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+    WS_DIR="$( cd -- "$( dirname -- "$(readlink -f "${BASH_SOURCE[0]}")" )" &> /dev/null && pwd )"
 fi
 if [ -z "$WS_DIR" ] || [ ! -d "$WS_DIR" ]; then
-    if [ -d "$HOME/Màn hình nền/robot_ws" ]; then
+    if [ -d "$HOME/robot-vinh" ]; then
+        WS_DIR="$(readlink -f "$HOME/robot-vinh")"
+    elif [ -d "$HOME/Desktop/robot-ws" ]; then
+        WS_DIR="$(readlink -f "$HOME/Desktop/robot-ws")"
+    elif [ -d "$HOME/Màn hình nền/robot_ws" ]; then
         WS_DIR="$HOME/Màn hình nền/robot_ws"
     elif [ -d "$HOME/robot-ws" ]; then
         WS_DIR="$(readlink -f "$HOME/robot-ws")"
@@ -14,6 +18,48 @@ if [ -z "$WS_DIR" ] || [ ! -d "$WS_DIR" ]; then
     fi
 fi
 export WS_DIR
+
+# Hàm cô lập môi trường ROS 2: Loại bỏ hoàn toàn đường dẫn của các workspace khác (VD: ~/robot_ws của bạn cùng nhóm trên Pi)
+# giúp dự án robot-vinh chạy độc lập 100%, không bao giờ xung đột package hay đè cấu hình!
+_clean_colon_path() {
+    local var_val="$1"
+    local keep_ws="$2/install"
+    local result=""
+    local IFS=':'
+    for p in $var_val; do
+        [ -z "$p" ] && continue
+        # Bỏ qua mọi đường dẫn trỏ tới thư mục install/ hoặc build/ của workspace khác trong /home/
+        if [[ "$p" == /home/*/install* || "$p" == /home/*/build* ]]; then
+            if [[ "$p" != "$keep_ws"* ]]; then
+                continue
+            fi
+        fi
+        result="${result:+$result:}$p"
+    done
+    echo "$result"
+}
+
+_isolate_ws_env() {
+    local real_ws
+    real_ws="$(readlink -f "$WS_DIR" 2>/dev/null || echo "$WS_DIR")"
+    export AMENT_PREFIX_PATH="$(_clean_colon_path "${AMENT_PREFIX_PATH:-}" "$real_ws")"
+    export CMAKE_PREFIX_PATH="$(_clean_colon_path "${CMAKE_PREFIX_PATH:-}" "$real_ws")"
+    export COLCON_PREFIX_PATH="$(_clean_colon_path "${COLCON_PREFIX_PATH:-}" "$real_ws")"
+    export PYTHONPATH="$(_clean_colon_path "${PYTHONPATH:-}" "$real_ws")"
+    export LD_LIBRARY_PATH="$(_clean_colon_path "${LD_LIBRARY_PATH:-}" "$real_ws")"
+    export PATH="$(_clean_colon_path "${PATH:-}" "$real_ws")"
+}
+
+# Tự động nạp đường dẫn thư viện CUDA/cuDNN (trên Laptop có cài nvidia-* qua pip)
+for _nvlib in "$HOME"/.local/lib/python3*/site-packages/nvidia/*/lib; do
+    if [ -d "$_nvlib" ]; then
+        case ":$LD_LIBRARY_PATH:" in
+            *":$_nvlib:"*) ;;
+            *) LD_LIBRARY_PATH="${LD_LIBRARY_PATH:+$LD_LIBRARY_PATH:}$_nvlib" ;;
+        esac
+    fi
+done
+export LD_LIBRARY_PATH
 
 # Hàm tự động cấu hình CycloneDDS ưu tiên cáp mạng Ethernet trực tiếp 10.42.0.x
 setup_cyclonedds() {
@@ -95,8 +141,9 @@ EOF
     export CYCLONEDDS_URI="file://$HOME/.cyclonedds.xml"
 }
 
-# Hàm nạp môi trường ROS 2 và Workspace
+# Hàm nạp môi trường ROS 2 và Workspace độc lập
 load_ws() {
+    _isolate_ws_env
     if [ -f "/opt/ros/jazzy/setup.bash" ]; then
         source /opt/ros/jazzy/setup.bash
     elif [ -f "/opt/ros/humble/setup.bash" ]; then
@@ -105,8 +152,8 @@ load_ws() {
 
     # Tự động khắc phục nếu build/my_robot_controller bị mất hook symlink
     if [ -d "$WS_DIR/src/my_robot_controller" ] && [ ! -d "$WS_DIR/build/my_robot_controller" ]; then
-        echo "🔧 Phát hiện thiếu thư mục build, đang tự động build nhanh my_robot_controller..."
-        (cd "$WS_DIR" && colcon build --symlink-install --packages-select my_robot_controller >/dev/null 2>&1) || true
+        echo "🔧 Phát hiện thiếu thư mục build, đang tự động build nhanh tại $WS_DIR..."
+        (cd "$WS_DIR" && colcon build --symlink-install --packages-select my_robot_controller my_robot_bringup >/dev/null 2>&1) || true
     fi
 
     if [ -f "$WS_DIR/install/setup.bash" ]; then
@@ -140,21 +187,23 @@ load_ws() {
 
 # 1. Biên dịch & Cập nhật Workspace
 reload_func() {
-    [ -f "$HOME/.bashrc" ] && source "$HOME/.bashrc" 2>/dev/null || true
     [ -f "$WS_DIR/aliases.sh" ] && source "$WS_DIR/aliases.sh"
-    echo "✅ Đã cập nhật nạp lại toàn bộ phím tắt mới nhất!"
+    echo "✅ Đã cập nhật nạp lại toàn bộ phím tắt mới nhất từ: $WS_DIR"
 }
 alias reload="reload_func"
 alias capnhat="reload_func"
 alias update-cmd="reload_func"
-alias ws="cd \"$WS_DIR\""
-alias cdws="cd \"$WS_DIR\""
-alias robot-ws="cd \"$WS_DIR\""
-alias robot_ws="cd \"$WS_DIR\""
+alias ws="cd \"$WS_DIR\" && load_ws"
+alias cdws="cd \"$WS_DIR\" && load_ws"
+alias robot-ws="cd \"$WS_DIR\" && load_ws"
+alias robot_ws="cd \"$WS_DIR\" && load_ws"
+alias robot-vinh="cd \"$WS_DIR\" && load_ws && echo '🚀 Đã kích hoạt Workspace độc lập: $WS_DIR'"
+alias vinh="cd \"$WS_DIR\" && load_ws && echo '🚀 Đã kích hoạt Workspace độc lập: $WS_DIR'"
 
-# Hàm build thông minh (tự động nhận diện distro Jazzy / Humble & tự động nạp phím tắt)
+# Hàm build thông minh (cô lập môi trường tránh đụng độ dự án khác, tự nhận diện Jazzy / Humble)
 build_func() {
     cd "$WS_DIR"
+    _isolate_ws_env
     if [ -f "/opt/ros/jazzy/setup.bash" ]; then
         source /opt/ros/jazzy/setup.bash
     elif [ -f "/opt/ros/humble/setup.bash" ]; then
@@ -175,7 +224,7 @@ build_func() {
         if [ -f "$WS_DIR/aliases.sh" ]; then
             source "$WS_DIR/aliases.sh"
         fi
-        echo "✅ [BUILD THÀNH CÔNG] Đã tự động cập nhật & nạp toàn bộ lệnh tắt mới nhất (rviz, quay-rviz, real-robot, wasd,...)!"
+        echo "✅ [BUILD THÀNH CÔNG tại $WS_DIR] Đã tự động cập nhật & nạp toàn bộ lệnh tắt mới nhất!"
     else
         echo "❌ [BUILD THẤT BẠI] Vui lòng kiểm tra lại lỗi code ở trên."
         return $ret
@@ -186,6 +235,7 @@ alias rb-build="build_func"
 
 build_all_func() {
     cd "$WS_DIR"
+    _isolate_ws_env
     if [ -f "/opt/ros/jazzy/setup.bash" ]; then
         source /opt/ros/jazzy/setup.bash
     elif [ -f "/opt/ros/humble/setup.bash" ]; then
@@ -200,7 +250,7 @@ build_all_func() {
         if [ -f "$WS_DIR/aliases.sh" ]; then
             source "$WS_DIR/aliases.sh"
         fi
-        echo "✅ [BUILD-ALL THÀNH CÔNG] Đã tự động cập nhật & nạp toàn bộ lệnh tắt mới nhất!"
+        echo "✅ [BUILD-ALL THÀNH CÔNG tại $WS_DIR] Đã tự động cập nhật & nạp toàn bộ lệnh tắt mới nhất!"
     else
         echo "❌ [BUILD-ALL THẤT BẠI] Vui lòng kiểm tra lại lỗi code ở trên."
         return $ret
@@ -211,26 +261,26 @@ alias build-all="build_all_func"
 # Lệnh xóa sạch build/install cũ và biên dịch lại (Sửa triệt để lỗi Exec format error)
 rebuild_func() {
     cd "$WS_DIR"
-    echo "🧹 Đang xóa sạch thư mục build, install, log cũ (chống lỗi Exec format error do lệch chip x86/ARM)..."
+    echo "🧹 Đang xóa sạch thư mục build, install, log cũ tại $WS_DIR..."
     rm -rf "$WS_DIR/build" "$WS_DIR/install" "$WS_DIR/log"
-    echo "🔨 Đang biên dịch sạch lại toàn bộ Workspace trên máy này..."
+    echo "🔨 Đang biên dịch sạch lại toàn bộ Workspace ($WS_DIR)..."
     build_all_func "$@"
 }
 alias rebuild="rebuild_func"
 alias clean-build="rebuild_func"
 alias lam-sach="rebuild_func"
 
-# Lệnh 1-Click đồng bộ nhanh từ GitHub về máy
+# Lệnh 1-Click đồng bộ nhanh từ GitHub về máy (Pi hoặc PC) và tự động build độc lập
 git_sync_func() {
     cd "$WS_DIR"
-    echo "📥 Đang kéo mã nguồn mới nhất từ GitHub..."
+    echo "📥 Đang kéo mã nguồn mới nhất từ GitHub về $WS_DIR..."
     local branch
     branch=$(git branch --show-current 2>/dev/null || echo "main")
     git config pull.rebase false 2>/dev/null || true
     git fetch origin 2>/dev/null || true
-    git pull origin "$branch" --no-rebase 2>/dev/null || git pull origin "$branch" 2>/dev/null || git pull || true
+    git reset --hard "origin/$branch" 2>/dev/null || git pull origin "$branch" --no-rebase 2>/dev/null || git pull || true
     rm -rf "$WS_DIR/build/my_robot_controller/models" 2>/dev/null || true
-    echo "🔨 Đang biên dịch lại Workspace & cập nhật phím tắt..."
+    echo "🔨 Đang biên dịch lại Workspace ($WS_DIR) & cập nhật phím tắt..."
     build_func "$@"
 }
 alias git-sync="git_sync_func"
@@ -768,8 +818,8 @@ pi_cnn_continuous_func() {
     load_ws
     echo "================================================================================"
     echo "🌾 [PI ROBOT SLAVE - CONTINUOUS STEER] Đánh Lái Liên Tục Trong Luống"
-    echo "   🏎️ 4 bánh chạy đều 0.075 m/s | Bẻ lái: bánh trong 0.045 m/s, bánh ngoài 0.088 m/s (ω ≈ 0.074 rad/s)"
-    echo "   🛑 Không dừng xoay tại chỗ | Bẻ lái: đủ 3 frame | Hồi thẳng: 2 frame"
+    echo "   🏎️ 4 bánh chạy đều 0.075 m/s | Bẻ lái: bánh trong 0.015 m/s, bánh ngoài 0.115 m/s (ω ≈ 0.172 rad/s)"
+    echo "   🛑 Không dừng xoay tại chỗ | Bẻ lái: > 2.0° (đủ 3 frame) | Hồi thẳng: < 1.2° (2 frame)"
     echo "   📡 Nhận góc lái (/crop_row/detection) từ Laptop qua Wi-Fi"
     echo "================================================================================"
     real_cnn_continuous_func enable_camera:=false enable_costmap:=false "$@"
@@ -785,8 +835,8 @@ real_cnn_continuous_func() {
 
     echo "================================================================================" | tee "$term_log"
     echo "🌾 [REAL ROBOT - CONTINUOUS STEER] Bắt đầu tự hành ĐÁNH LÁI LIÊN TỤC TRONG LUỐNG" | tee -a "$term_log"
-    echo "   🏎️ Tốc độ danh định: 0.075 m/s | Đánh lái: bánh trong 0.045 m/s, bánh ngoài 0.088 m/s (ω ≈ 0.074 rad/s)" | tee -a "$term_log"
-    echo "   ⚡ Ngưỡng bẻ lái: 2.2° (đủ 3 frame) | Hồi thẳng: < 1.2° trong 2 frame | Ramp chuyển tiếp: 0.25s" | tee -a "$term_log"
+    echo "   🏎️ Tốc độ danh định: 0.075 m/s | Đánh lái: bánh trong 0.015 m/s, bánh ngoài 0.115 m/s (ω ≈ 0.172 rad/s)" | tee -a "$term_log"
+    echo "   ⚡ Ngưỡng bẻ lái: 2.0° (đủ 3 frame) | Hồi thẳng: < 1.2° trong 2 frame | Ramp chuyển tiếp: 0.15s" | tee -a "$term_log"
     echo "   🛑 Không dừng xoay tại chỗ trong hàng bắp | U-Turn & né cản giữ nguyên 100%" | tee -a "$term_log"
     echo "================================================================================" | tee -a "$term_log"
 
@@ -908,16 +958,26 @@ alias quay-rviz="rviz-record"
 alias quay="rviz-record"
 alias quay-video="rviz-record"
 
-# Lệnh QUAY VIDEO DATASET TRỰC TIẾP TỪ CAMERA ƯU TIÊN (D435 / iPhone / Webcam, Không tách frame)
+# Lệnh QUAY VIDEO DATASET TRỰC TIẾP TỪ CAMERA ƯU TIÊN (D435 / iPhone / Webcam, Mặc định 1080p @ 30 FPS)
 let_video_func() {
     load_ws
     # Giải phóng camera nếu bị tiến trình khác chiếm
     fuser -k /dev/video* 2>/dev/null || true
-    python3 "$WS_DIR/scripts/let_video.py" "$@"
+    python3 "$WS_DIR/scripts/let_video.py" --width 1920 --height 1080 --fps 30 "$@"
 }
 alias let-video="let_video_func"
 alias quay-dataset="let_video_func"
 alias rec-video="let_video_func"
+
+# Lệnh quay chuẩn 1080p @ 30 FPS cho Intel RealSense D435 / Camera
+let_video_1080p_func() {
+    load_ws
+    fuser -k /dev/video* 2>/dev/null || true
+    python3 "$WS_DIR/scripts/let_video.py" --width 1920 --height 1080 --fps 30 "$@"
+}
+alias quay-1080p="let_video_1080p_func"
+alias rec-1080p="let_video_1080p_func"
+alias let-1080p="let_video_1080p_func"
 
 # Lệnh quay chuẩn 720p @ 30 FPS cho Intel RealSense D435
 let_video_720p_func() {
@@ -938,13 +998,13 @@ quay_man_hinh_func() {
     local disp="${DISPLAY:-:1}"
     [[ "$disp" != *.* ]] && disp="${disp}.0"
     echo "================================================================================"
-    echo "🎥 [QUAY MÀN HÌNH NVIDIA NVENC] Đang ghi hình 1080p @ 60 FPS bằng phần cứng GPU!"
-    echo "⚡ Encoder: NVIDIA NVENC H.264 (Không tốn CPU, KHÔNG sụt FPS của CNN AI)"
+    echo "🎥 [QUAY MÀN HÌNH NVIDIA NVENC] Đang ghi hình 1080p @ 30 FPS bằng phần cứng GPU!"
+    echo "⚡ Encoder: NVIDIA NVENC H.264 (Chống tranh chấp X11/GPU, KHÔNG gây đơ/sụt FPS của CNN AI)"
     echo "📁 Video lưu tại: $outfile"
     echo "👉 Nhấn phím 'q' hoặc 'Ctrl + C' trong terminal này để DỪNG VÀ LƯU VIDEO."
     echo "================================================================================"
-    ffmpeg -y -f x11grab -video_size 1920x1080 -framerate 60 -i "$disp" \
-        -c:v h264_nvenc -preset p4 -cq 23 -pix_fmt yuv420p "$outfile"
+    ffmpeg -y -thread_queue_size 512 -f x11grab -video_size 1920x1080 -framerate 30 -i "$disp" \
+        -c:v h264_nvenc -preset p3 -cq 24 -pix_fmt yuv420p "$outfile"
     if [ -f "$outfile" ]; then
         echo "================================================================================"
         echo "✅ ĐÃ LƯU VIDEO THÀNH CÔNG: $outfile"
@@ -1264,10 +1324,11 @@ get-video() {
         return 1
     fi
     mkdir -p "$WS_DIR/dataset"
-    echo "📥 Đang kéo video thô từ Pi ($pi_ip) về $WS_DIR/dataset/ ..."
+    echo "📥 Đang kéo video thô từ Pi ($pi_ip:~/robot-vinh/recordings/) về $WS_DIR/dataset/ ..."
+    rsync -avP --include='*.mp4' "${PI_USER}@$pi_ip:~/robot-vinh/recordings/" "$WS_DIR/dataset/" 2>/dev/null || \
     rsync -avP --include='*.mp4' "${PI_USER}@$pi_ip:~/robot-ws/recordings/" "$WS_DIR/dataset/" 2>/dev/null || \
     rsync -avP --include='*.mp4' "${PI_USER}@$pi_ip:~/robot_ws/recordings/" "$WS_DIR/dataset/" 2>/dev/null || \
-    scp "${PI_USER}@$pi_ip:~/robot-ws/recordings/*.mp4" "$WS_DIR/dataset/" 2>/dev/null || \
+    scp "${PI_USER}@$pi_ip:~/robot-vinh/recordings/*.mp4" "$WS_DIR/dataset/" 2>/dev/null || \
     scp "${PI_USER}@$pi_ip:~/robot_ws/recordings/*.mp4" "$WS_DIR/dataset/"
     echo "✅ File video đã được lưu tại: $WS_DIR/dataset/"
 }
@@ -1285,10 +1346,11 @@ get-log() {
         return 1
     fi
     mkdir -p "$WS_DIR/logs"
-    echo "📥 Đang kéo toàn bộ Log & CSV từ Pi ($pi_ip) về $WS_DIR/logs/ ..."
+    echo "📥 Đang kéo toàn bộ Log & CSV từ Pi ($pi_ip:~/robot-vinh/logs/) về $WS_DIR/logs/ ..."
+    rsync -avP "${PI_USER}@$pi_ip:~/robot-vinh/logs/" "$WS_DIR/logs/" 2>/dev/null || \
     rsync -avP "${PI_USER}@$pi_ip:~/robot-ws/logs/" "$WS_DIR/logs/" 2>/dev/null || \
     rsync -avP "${PI_USER}@$pi_ip:~/robot_ws/logs/" "$WS_DIR/logs/" 2>/dev/null || \
-    scp "${PI_USER}@$pi_ip:~/robot-ws/logs/*.*" "$WS_DIR/logs/" 2>/dev/null || \
+    scp "${PI_USER}@$pi_ip:~/robot-vinh/logs/*.*" "$WS_DIR/logs/" 2>/dev/null || \
     scp "${PI_USER}@$pi_ip:~/robot_ws/logs/*.*" "$WS_DIR/logs/"
     echo "✅ Đã đồng bộ toàn bộ log về Laptop tại: $WS_DIR/logs/"
     echo "👉 Bạn có thể gõ ngay 'xem-lai' hoặc 'plot-lai' để phân tích số liệu trên Laptop!"
@@ -1303,7 +1365,7 @@ alias rename-dataset="python3 \"$WS_DIR/scripts/rename_dataset.py\""
 # Lệnh xóa toàn bộ video đã quay (chạy được trên cả Pi và Laptop)
 clean-video() {
     echo "🗑️ Đang dọn dẹp các video trong thư mục recordings và dataset..."
-    rm -f ~/robot-ws/recordings/*.mp4 ~/robot_ws/recordings/*.mp4 "$WS_DIR/recordings/"*.mp4 2>/dev/null || true
+    rm -f ~/robot-vinh/recordings/*.mp4 ~/robot-ws/recordings/*.mp4 ~/robot_ws/recordings/*.mp4 "$WS_DIR/recordings/"*.mp4 2>/dev/null || true
     echo "✅ Đã dọn dẹp video hoàn tất!"
 }
 alias clear-video="clean-video"

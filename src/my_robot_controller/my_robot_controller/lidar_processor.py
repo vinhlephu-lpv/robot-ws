@@ -85,7 +85,7 @@ class LidarProcessor:
 
         min_dist = float('inf')
         for idx, r in enumerate(ranges):
-            if math.isnan(r) or math.isinf(r) or r < 0.08:
+            if math.isnan(r) or math.isinf(r) or r < 0.16:
                 continue
             angle = angle_min + idx * angle_increment
             if min_rad <= angle <= max_rad:

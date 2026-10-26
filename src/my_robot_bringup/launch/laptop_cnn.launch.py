@@ -58,8 +58,12 @@ def generate_launch_description():
         description='Mở RViz2 trực tiếp trên Laptop để quan sát mô hình xe và cảm biến (rviz:=true)')
 
     model_path_arg = DeclareLaunchArgument(
-        'model_path', default_value='models/crop_row_cnn_best_final.onnx',
-        description='Mô hình ONNX (Mặc định FP32 tối ưu cho GPU Laptop: crop_row_cnn_best_final.onnx)')
+        'model_path', default_value='models/crop_row_cnn_v2.onnx',
+        description='Mô hình CNN ONNX phân đoạn luống (Mặc định v2: crop_row_cnn_v2.onnx)')
+
+    turn_marker_model_arg = DeclareLaunchArgument(
+        'turn_marker_model', default_value='models/yolo_arrow.onnx',
+        description='Mô hình YOLO ONNX phát hiện mũi tên quay đầu (Mặc định: models/yolo_arrow.onnx)')
 
     fps_arg = DeclareLaunchArgument(
         'fps', default_value='0.0',
@@ -81,6 +85,7 @@ def generate_launch_description():
         remappings=[
             ('/camera/color/image_raw', '/camera/local/image_raw'),
             ('/camera/image_raw', '/camera/local/image_raw_alt'),
+            ('/camera/depth/image_raw', '/camera/local/depth_raw'),
         ],
         condition=IfCondition(LaunchConfiguration('enable_camera'))
     )
@@ -93,26 +98,32 @@ def generate_launch_description():
         output='screen',
         parameters=[{
             'model_path': LaunchConfiguration('model_path'),
+            'turn_marker_model': LaunchConfiguration('turn_marker_model'),
             'input_height': 384,
             'input_width': 384,
             'roi_ratio': 0.80,
             'mask_threshold': 0.35,
             'max_steering_angle_deg': 14.0,
-            'in_row_max_steer_deg': 5.0,
-            'in_row_max_yaw_dev_deg': 5.0,
+            'in_row_max_steer_deg': 6.5,
+            'in_row_max_yaw_dev_deg': 7.0,
             'show_window': LaunchConfiguration('view'),
             'tracking_steer_mode': PythonExpression(["'CONTINUOUS_STEER' if '", LaunchConfiguration('steer_mode'), "' == 'continuous' else 'PIVOT_STOP'"]),
-            'steer_trigger_deg': 2.2,
-            'steer_trigger_frames': 6,
+            'steer_trigger_deg': 2.0,
+            'steer_trigger_frames': 3,
             'steer_resume_deg': 1.2,
-            'steer_aligned_frames': 6,
-            'steer_boost_speed': 0.088,
-            'steer_brake_speed': 0.045,
-            'linear_speed': 0.075,
+            'steer_aligned_frames': 2,
+            'steer_boost_speed': 0.155,
+            'steer_brake_speed': 0.055,
+            'turn_in_place_threshold_deg': 3.5,
+            'turn_in_place_trigger_frames': 3,
+            'turn_in_place_resume_deg': 1.5,
+            'heading_adjust_aligned_frames': 2,
+            'linear_speed': 0.105,
             'wheel_base': 0.58,
         }],
         remappings=[
             ('/camera/color/image_raw', '/camera/local/image_raw'),
+            ('/camera/depth/image_raw', '/camera/local/depth_raw'),
         ],
         condition=IfCondition(PythonExpression(["'", LaunchConfiguration('mode'), "' == 'server'"]))
     )
@@ -157,6 +168,7 @@ def generate_launch_description():
         steer_mode_arg,
         rviz_arg,
         model_path_arg,
+        turn_marker_model_arg,
         fps_arg,
         camera_publisher_node,
         cnn_server_node,

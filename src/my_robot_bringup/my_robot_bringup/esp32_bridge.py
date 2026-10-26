@@ -45,11 +45,12 @@ class ESP32Bridge(Node):
         self.declare_parameter('publish_tf', False)
         self.declare_parameter('odom_frame', 'odom')
         self.declare_parameter('base_frame', 'base_footprint')
-        self.declare_parameter('min_moving_rpm', 24.0)  # Sàn RPM tối thiểu khi lăn bánh để thắng ma sát tải nặng
-        self.declare_parameter('rpm_scale', 1.25)       # Hệ số bù lực kéo tải nặng (+25%)
+        self.declare_parameter('min_moving_rpm', 18.0)  # Sàn RPM tối thiểu khi lăn bánh (> 4 RPM stall zone của ESP32, ~65 PWM)
+        self.declare_parameter('min_turn_rpm', 42.0)    # Sàn RPM xoay tại chỗ thắng ma sát trượt ngang 4 lốp cao su (~105 PWM)
+        self.declare_parameter('rpm_scale', 1.65)       # Hệ số bù mô-men kéo tải nặng cho công thức feedforward của ESP32
         self.declare_parameter('encoder_sign', -1.0)    # -1.0: Đảo dấu xung encoder chuẩn xác với chiều tiến thực tế
-        self.declare_parameter('min_forward_speed', 0.035) # m/s — Sàn tốc độ tiến (0.0 cho phép dừng hẳn 1 bên khi đánh lái)
-
+        self.declare_parameter('min_forward_speed', 0.0) # m/s — 0.0 cho phép hãm bánh trong khi đánh lái vi sai
+        
         self.mode = self.get_parameter('connection_mode').value
         self.port = self.get_parameter('serial_port').value
         self.baud = self.get_parameter('baudrate').value
@@ -61,6 +62,7 @@ class ESP32Bridge(Node):
         self.encoder_cpr = float(self.encoder_ppr * self.quadrature * self.gear_ratio)
         self.odom_topic = self.get_parameter('odom_topic').value
         self.min_moving_rpm = float(self.get_parameter('min_moving_rpm').value)
+        self.min_turn_rpm = float(self.get_parameter('min_turn_rpm').value)
         self.rpm_scale = float(self.get_parameter('rpm_scale').value)
         self.encoder_sign = float(self.get_parameter('encoder_sign').value)
         self.min_forward_speed = float(self.get_parameter('min_forward_speed').value)
@@ -93,6 +95,9 @@ class ESP32Bridge(Node):
         self.vth = 0.0
         self._cmd_v = 0.0
         self._cmd_w = 0.0
+        self._turn_boost_rpm = 0.0
+        self._drive_boost_l = 0.0
+        self._drive_boost_r = 0.0
         self.last_time = self.get_clock().now()
 
         # ── Publishers & Subscribers ──────────────────────────────────
@@ -113,7 +118,7 @@ class ESP32Bridge(Node):
         self.target_rpm_right = 0.0
         self.current_rpm_left = 0.0
         self.current_rpm_right = 0.0
-        self.max_rpm_accel = 18.0  # RPM/s — Đủ lực kéo tức thì thắng ma sát cỏ nhưng êm dịu chống trượt bánh
+        self.max_rpm_accel = 95.0  # RPM/s — Lên lực nhanh và thoát vùng < 4 RPM của ESP32 ngay lập tức
         self._serial_rx_buffer = ''
 
         # ── Loop Timer (20 Hz for Odom processing & continuous ESP32 streaming) ──
@@ -172,6 +177,31 @@ class ESP32Bridge(Node):
             self.vx = msg.linear.x
             self.vth = msg.angular.z
 
+    def _map_wheel_speed_to_rpm(self, v_wheel: float, v_meas: float, boost_state: float, dt: float) -> tuple:
+        """
+        Chuyển đổi vận tốc bánh (m/s) sang lệnh RPM gửi xuống ESP32:
+        - Đảm bảo luôn nằm trên ngưỡng STALL_RPM_THRESHOLD (4.0 RPM) của firmware ESP32
+          để tránh bộ chống kẹt (isStalled) cắt sụt PWM -50 gây kêu hộp số lạch cạch!
+        - Có bù tải vòng kín (Closed-loop Load Boost) khi lăn trên cỏ dày.
+        """
+        if abs(v_wheel) < 0.004:
+            return 0.0, 0.0
+        sign = 1.0 if v_wheel > 0 else -1.0
+        raw_rpm = (abs(v_wheel) * 60.0) / self.wheel_circ
+        scaled_rpm = raw_rpm * self.rpm_scale
+        base_rpm = max(self.min_moving_rpm, scaled_rpm)
+
+        # Bù tải tự động nếu bánh thực tế quay chậm hơn 70% vận tốc yêu cầu:
+        if abs(v_meas) < 0.70 * abs(v_wheel):
+            boost_state = min(22.0, boost_state + 24.0 * dt)
+        elif abs(v_meas) > 1.15 * abs(v_wheel):
+            boost_state = max(-4.0, boost_state - 18.0 * dt)
+        else:
+            boost_state = max(0.0, boost_state - 8.0 * dt)
+
+        final_rpm = max(14.0, min(90.0, base_rpm + boost_state))
+        return sign * final_rpm, boost_state
+
     def update_loop(self):
         now = self.get_clock().now()
         dt = (now - self.last_time).nanoseconds / 1e9
@@ -179,50 +209,84 @@ class ESP32Bridge(Node):
 
         if dt <= 0:
             return
+        dt_clamped = min(dt, 0.20)
 
-        # ── TÍNH TOÁN RPM TRỢ LỰC KÉO TẢI NẶNG (KICKSTART + CLOSED-LOOP TRIM) ──
+        # ── TÍNH TOÁN RPM TRỢ LỰC KÉO TẢI NẶNG & CHỐNG KÊU HỘP SỐ ──
         v = self._cmd_v
         w = self._cmd_w
 
         if abs(v) < 0.005 and abs(w) < 0.005:
+            # Ngắt về 0.0 ngay lập tức để ESP32 gọi stopMotor(false) xả PWM mượt ở 40Hz phần cứng,
+            # TUYỆT ĐỐI KHÔNG giảm RPM từ từ qua vùng 0.5 - 4.0 RPM gây kích hoạt isStalled làm kêu hộp số!
             self.target_rpm_left = 0.0
             self.target_rpm_right = 0.0
+            self.current_rpm_left = 0.0
+            self.current_rpm_right = 0.0
+            self._turn_boost_rpm = 0.0
+            self._drive_boost_l = 0.0
+            self._drive_boost_r = 0.0
+        elif abs(v) < 0.015 and abs(w) >= 0.05:
+            # ── CHẾ ĐỘ XOAY TẠI CHỖ (SKID-STEER IN-PLACE TURN) ──
+            # 4 bánh cao su xoay trượt ngang trên cỏ cần mô-men khởi động dứt khoát ngay từ nhịp đầu:
+            self._drive_boost_l = 0.0
+            self._drive_boost_r = 0.0
+            w_norm = min(1.35, max(0.75, abs(w) / 0.75))
+            base_turn_rpm = self.min_turn_rpm * w_norm
+
+            # Bù mô-men vòng kín nếu xe bị cỏ ghì chưa quay đủ tốc độ góc:
+            actual_w = max(abs(self.vth), (abs(self._last_vr - self._last_vl) / max(0.2, self.wheel_base)))
+            if actual_w < min(0.22, 0.55 * abs(w)):
+                self._turn_boost_rpm = min(38.0, self._turn_boost_rpm + 45.0 * dt_clamped)
+            elif actual_w > 1.15 * abs(w):
+                self._turn_boost_rpm = max(0.0, self._turn_boost_rpm - 25.0 * dt_clamped)
+
+            turn_rpm = min(82.0, base_turn_rpm + self._turn_boost_rpm)
+            if w > 0.0:  # Quay Trái (CCW): Bánh Trái lùi (-), Bánh Phải tiến (+)
+                self.target_rpm_left = -turn_rpm
+                self.target_rpm_right = turn_rpm
+            else:        # Quay Phải (CW): Bánh Trái tiến (+), Bánh Phải lùi (-)
+                self.target_rpm_left = turn_rpm
+                self.target_rpm_right = -turn_rpm
+
+            # Áp mô-men xoay ngay lập tức để không bị khựng đầu nhịp xoay:
+            self.current_rpm_left = self.target_rpm_left
+            self.current_rpm_right = self.target_rpm_right
         else:
-            # Differential drive kinematics chuẩn mực
+            # ── CHẾ ĐỘ TIẾN THẲNG & ĐÁNH LÁI LIÊN TỤC (CONTINUOUS STEER) ──
+            self._turn_boost_rpm = 0.0
             v_left = v - (w * self.wheel_base / 2.0)
             v_right = v + (w * self.wheel_base / 2.0)
 
-            # Smooth Forward-Bias Kinematics:
-            # Khi xe đang có lệnh tiến (v > 0.03 m/s), cả 2 bánh luôn quay tiến để duy trì lực kéo ổn định,
-            # tránh giật lùi bánh trong làm mất lực hoặc khựng xe trên nền đất/cỏ.
-            if v > 0.03:
-                min_fwd = self.min_forward_speed
-                min_v = min(v_left, v_right)
-                if min_v < min_fwd:
-                    shift = min_fwd - min_v
-                    v_left += shift
-                    v_right += shift
+            # Khi xe đang có lệnh tiến (v > 0.02 m/s), giữ cả 2 bánh luôn tiến (>= 0.045 m/s)
+            # để đánh lái vi sai mượt mà, không bao giờ rơi vào vùng chết < 4.0 RPM gây khựng hộp số:
+            if v > 0.02:
+                min_fwd = max(0.045, self.min_forward_speed)
+                if v_left < min_fwd:
+                    v_left = min_fwd
+                if v_right < min_fwd:
+                    v_right = min_fwd
 
-            # Đổi m/s -> RPM chính xác: 0.10 m/s -> ~9.55 RPM (ESP32 đã có sàn 55 PWM lo mô-men xoắn)
-            rpm_l = (v_left * 60.0) / self.wheel_circ
-            rpm_r = (v_right * 60.0) / self.wheel_circ
+            rpm_l, self._drive_boost_l = self._map_wheel_speed_to_rpm(
+                v_left, self._last_vl, self._drive_boost_l, dt_clamped
+            )
+            rpm_r, self._drive_boost_r = self._map_wheel_speed_to_rpm(
+                v_right, self._last_vr, self._drive_boost_r, dt_clamped
+            )
 
             self.target_rpm_left = rpm_l
             self.target_rpm_right = rpm_r
 
-        # Slew-Rate Limiter (Bộ làm mềm gia tốc/hãm phanh chống trượt bánh và văng xe trên cỏ/đất)
-        max_delta = self.max_rpm_accel * dt
-        diff_l = self.target_rpm_left - self.current_rpm_left
-        diff_r = self.target_rpm_right - self.current_rpm_right
+            # Nếu bánh đang đứng yên (0 RPM), nhảy thẳng lên sàn min_moving_rpm không đi qua vùng 0..4 RPM:
+            if abs(self.current_rpm_left) < 12.0 and abs(self.target_rpm_left) >= 12.0:
+                self.current_rpm_left = math.copysign(self.min_moving_rpm, self.target_rpm_left)
+            if abs(self.current_rpm_right) < 12.0 and abs(self.target_rpm_right) >= 12.0:
+                self.current_rpm_right = math.copysign(self.min_moving_rpm, self.target_rpm_right)
 
-        self.current_rpm_left += float(max(-max_delta, min(max_delta, diff_l)))
-        self.current_rpm_right += float(max(-max_delta, min(max_delta, diff_r)))
-
-        # Nếu cả target và current đều rất nhỏ (< 0.2 RPM), đưa về 0 để ngắt dứt điểm
-        if abs(self.target_rpm_left) < 0.01 and abs(self.current_rpm_left) < 0.2:
-            self.current_rpm_left = 0.0
-        if abs(self.target_rpm_right) < 0.01 and abs(self.current_rpm_right) < 0.2:
-            self.current_rpm_right = 0.0
+            max_delta = self.max_rpm_accel * dt_clamped
+            diff_l = self.target_rpm_left - self.current_rpm_left
+            diff_r = self.target_rpm_right - self.current_rpm_right
+            self.current_rpm_left += float(max(-max_delta, min(max_delta, diff_l)))
+            self.current_rpm_right += float(max(-max_delta, min(max_delta, diff_r)))
 
         # Phát liên tục 20 Hz duy trì lệnh nuôi Watchdog ESP32 mượt mà
         if self.mode == 'serial' and self.ser and self.ser.is_open:

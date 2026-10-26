@@ -105,14 +105,17 @@ def query_max_fps_v4l2(dev_path, width: int = 640, height: int = 480) -> float:
 class RealSenseCapture:
     """
     Bộ bọc (Wrapper) cho Intel RealSense D435 qua pyrealsense2 pipeline.
-    Cung cấp giao diện tương thích 100% với cv2.VideoCapture (isOpened, read, release, get).
+    Cung cấp giao diện tương thích 100% với cv2.VideoCapture (isOpened, read, release, get)
+    và hỗ trợ xuất đồng thời ma trận độ sâu (Aligned Depth).
     """
-    def __init__(self, pipeline, width: int = 640, height: int = 480, fps: float = 30.0):
+    def __init__(self, pipeline, width: int = 640, height: int = 480, fps: float = 30.0, align=None):
         self.pipeline = pipeline
         self.width = width
         self.height = height
         self.fps = fps
+        self.align = align
         self._opened = True
+        self.latest_depth = None
 
     def isOpened(self) -> bool:
         return self._opened
@@ -121,14 +124,30 @@ class RealSenseCapture:
         if not self._opened:
             return False, None
         try:
-            frames = self.pipeline.wait_for_frames(timeout_ms=1000)
-            color_frame = frames.get_color_frame()
+            frames = self.pipeline.wait_for_frames(timeout_ms=300)
+            if self.align is not None:
+                aligned = self.align.process(frames)
+                color_frame = aligned.get_color_frame()
+                depth_frame = aligned.get_depth_frame()
+            else:
+                color_frame = frames.get_color_frame()
+                depth_frame = frames.get_depth_frame()
+
             if not color_frame:
                 return False, None
+
             frame = np.asanyarray(color_frame.get_data())
+            if depth_frame:
+                self.latest_depth = np.asanyarray(depth_frame.get_data())
+            else:
+                self.latest_depth = None
+
             return True, frame
         except Exception:
             return False, None
+
+    def get_depth(self):
+        return self.latest_depth
 
     def release(self):
         self._opened = False
@@ -183,6 +202,9 @@ class CameraPublisher(Node):
         # Fallback topic cho compatibility
         self.image_alt_pub = self.create_publisher(
             Image, '/camera/image_raw', cam_qos)
+        # Topic độ sâu Aligned Depth từ RealSense D435
+        self.depth_pub = self.create_publisher(
+            Image, '/camera/depth/image_raw', cam_qos)
 
         # ── State ─────────────────────────────────────────────────────
         self.is_running = True
@@ -260,27 +282,21 @@ class CameraPublisher(Node):
                 rs_w = 640 if self.width <= 640 else 1280
                 rs_h = 480 if self.height <= 480 else 720
 
-                # Tự động dò tìm FPS tối đa mà RealSense hỗ trợ
-                max_rs_fps = 30
-                try:
-                    for sensor in dev.query_sensors():
-                        for profile in sensor.get_stream_profiles():
-                            if profile.stream_type() == rs.stream.color:
-                                vid_prof = profile.as_video_stream_profile()
-                                if vid_prof.width() == rs_w and vid_prof.height() == rs_h:
-                                    if vid_prof.fps() > max_rs_fps:
-                                        max_rs_fps = vid_prof.fps()
-                except Exception:
-                    max_rs_fps = 60 if self.auto_fps or self.fps >= 60 else int(self.fps)
-
-                target_fps = int(self.fps) if not self.auto_fps and self.fps > 0 else max_rs_fps
+                # Ưu tiên 30 FPS ổn định cho Đồng bộ RGB + Aligned Depth (tránh nghẽn băng thông DDS/USB3 gây treo hình)
+                target_fps = int(self.fps) if (not self.auto_fps and self.fps > 0) else 30
 
                 started = False
                 rs_fps = target_fps
-                for try_fps in sorted(list({target_fps, max_rs_fps, 60, 30}), reverse=True):
+                fps_candidates = [target_fps, 30, 60] if target_fps != 30 else [30, 60]
+                for try_fps in fps_candidates:
                     try:
                         cfg = rs.config()
                         cfg.enable_stream(rs.stream.color, rs_w, rs_h, rs.format.bgr8, try_fps)
+                        try:
+                            cfg.enable_stream(rs.stream.depth, rs_w, rs_h, rs.format.z16, try_fps)
+                        except Exception:
+                            pass
+                        align = rs.align(rs.stream.color)
                         pipeline.start(cfg)
                         rs_fps = try_fps
                         started = True
@@ -290,6 +306,7 @@ class CameraPublisher(Node):
 
                 if not started:
                     pipeline.start()
+                    align = rs.align(rs.stream.color)
                     rs_fps = 30
 
                 # Kiểm tra frame thực tế
@@ -299,8 +316,8 @@ class CameraPublisher(Node):
                     self.fps = float(rs_fps)
                     self.get_logger().info(
                         f"📷 [ƯU TIÊN 1] Intel RealSense D435 đã kết nối thành công qua pyrealsense2 SDK "
-                        f"({rs_w}x{rs_h} @ {rs_fps} FPS [Đồng bộ tối đa phần cứng], BGR8)!")
-                    return RealSenseCapture(pipeline, rs_w, rs_h, rs_fps)
+                        f"({rs_w}x{rs_h} @ {rs_fps} FPS [Đồng bộ Color RGB + Aligned Depth])!")
+                    return RealSenseCapture(pipeline, rs_w, rs_h, rs_fps, align=align)
                 pipeline.stop()
         except Exception:
             pass
@@ -655,6 +672,20 @@ class CameraPublisher(Node):
                     self.image_pub.publish(msg)
                     if self.image_alt_pub.get_subscription_count() > 0:
                         self.image_alt_pub.publish(msg)
+                    if hasattr(self.cap, 'get_depth') and self.depth_pub.get_subscription_count() > 0:
+                        depth_mat = self.cap.get_depth()
+                        if depth_mat is not None:
+                            dh, dw = depth_mat.shape[:2]
+                            d_msg = Image()
+                            d_msg.header.stamp = msg.header.stamp
+                            d_msg.header.frame_id = self.frame_id
+                            d_msg.height = dh
+                            d_msg.width = dw
+                            d_msg.encoding = '16UC1' if depth_mat.dtype == np.uint16 else '32FC1'
+                            d_msg.is_bigendian = False
+                            d_msg.step = dw * (2 if depth_mat.dtype == np.uint16 else 4)
+                            d_msg.data = depth_mat.tobytes()
+                            self.depth_pub.publish(d_msg)
                 except Exception:
                     break
 

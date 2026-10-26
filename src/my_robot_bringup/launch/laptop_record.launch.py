@@ -41,12 +41,12 @@ def generate_launch_description():
         description='Cổng camera USB (/dev/video0, auto)')
 
     width_arg = DeclareLaunchArgument(
-        'width', default_value='640',
-        description='Chiều rộng khung hình')
+        'width', default_value='1920',
+        description='Chiều rộng khung hình (mặc định: 1920 Full HD)')
 
     height_arg = DeclareLaunchArgument(
-        'height', default_value='480',
-        description='Chiều cao khung hình')
+        'height', default_value='1080',
+        description='Chiều cao khung hình (mặc định: 1080 Full HD)')
 
     fps_arg = DeclareLaunchArgument(
         'fps', default_value='30.0',

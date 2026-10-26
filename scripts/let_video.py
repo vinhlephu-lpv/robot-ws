@@ -240,31 +240,33 @@ def _open_url(url):
 
 
 def _open_v4l2(dev, width, height, fps):
-    """Mở cổng V4L2 bằng OpenCV MJPG tối ưu."""
-    try:
-        cap = cv2.VideoCapture(dev, cv2.CAP_V4L2)
-        if not cap.isOpened():
-            cap = cv2.VideoCapture(dev)
-        if not cap.isOpened():
-            return None
-
+    """Mở cổng V4L2 bằng OpenCV (hỗ trợ MJPG và YUYV) tối ưu 1080p @ 30 FPS."""
+    for fourcc_tag in ['MJPG', 'YUYV', None]:
         try:
-            cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
+            cap = cv2.VideoCapture(dev, cv2.CAP_V4L2)
+            if not cap.isOpened():
+                cap = cv2.VideoCapture(dev)
+            if not cap.isOpened():
+                continue
+
+            if fourcc_tag:
+                try:
+                    cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*fourcc_tag))
+                except Exception:
+                    pass
+            if width > 0 and height > 0:
+                cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+            if fps > 0:
+                cap.set(cv2.CAP_PROP_FPS, fps)
+            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+
+            ret, frame = cap.read()
+            if ret and frame is not None and frame.size > 0:
+                return cap
+            cap.release()
         except Exception:
             pass
-        if width > 0 and height > 0:
-            cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
-            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
-        if fps > 0:
-            cap.set(cv2.CAP_PROP_FPS, fps)
-        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-
-        ret, frame = cap.read()
-        if ret and frame is not None and frame.size > 0:
-            return cap
-        cap.release()
-    except Exception:
-        pass
     return None
 
 

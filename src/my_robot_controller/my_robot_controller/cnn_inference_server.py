@@ -17,6 +17,7 @@ import os
 import sys
 import time
 import math
+import threading
 import cv2
 import numpy as np
 
@@ -27,6 +28,14 @@ from sensor_msgs.msg import Image, CompressedImage
 from std_msgs.msg import Float32MultiArray
 
 from .inference_handler import InferenceHandler
+
+try:
+    from .arrow_detector import ArrowMarkerDetector
+except ImportError:
+    try:
+        from my_robot_controller.arrow_detector import ArrowMarkerDetector
+    except ImportError:
+        ArrowMarkerDetector = None
 
 try:
     from .controllers import TrackingControllerSMC
@@ -57,10 +66,10 @@ def draw_hud_3panel(bgr_orig, mask_prob, lane_center, conf, heading_err, lane_of
     """
     Renders 3-panel vehicle HUD:
     [1: Camera Gốc] | [2: Mặt Nạ CNN (ROI 80%)] | [3: Dashboard Điều Khiển Xe Thật]
-    Kích thước tối ưu: 1260x360 (420x360 mỗi panel), siêu nhẹ, siêu mượt, vừa vặn mọi màn hình Laptop.
+    Kích thước tối ưu: 1290x360 (430x360 mỗi panel), đặt sát góc dưới-trái màn hình.
     """
     h_orig, w_orig = bgr_orig.shape[:2]
-    vis_h, vis_w = 360, 420
+    vis_h, vis_w = 360, 430
 
     # Panel 1: Original resized to match HUD aspect
     p1 = cv2.resize(bgr_orig, (vis_w, vis_h))
@@ -77,7 +86,7 @@ def draw_hud_3panel(bgr_orig, mask_prob, lane_center, conf, heading_err, lane_of
     contours, _ = cv2.findContours(bin_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     cv2.drawContours(p2, contours, -1, (255, 255, 255), 1)
 
-    # Vạch giới hạn ROI 80% trên Panel 2
+    # Vạch giới hạn ROI 80% trên Panel 2 (cắt bỏ 20% trên cùng để không dính trần nhà/người)
     y_roi = int(round(vis_h * (1.0 - roi_ratio)))
     p2[0:y_roi, :] = (p2[0:y_roi, :].astype(np.uint16) * 4 // 10).astype(np.uint8)
     for x in range(0, vis_w, 16):
@@ -136,11 +145,186 @@ def draw_hud_3panel(bgr_orig, mask_prob, lane_center, conf, heading_err, lane_of
     cam_fps_label = f" @ {cam_fps:.0f} FPS" if cam_fps > 0 else ""
     cv2.putText(p1, f"[1] CAMERA GOC ({w_orig}x{h_orig}{cam_fps_label})", (10, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.48, (0, 255, 255), 1, cv2.LINE_AA)
     cv2.putText(p2, f"[2] CNN MASK 384x384 (ROI: {int(roi_ratio*100)}%)", (10, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.48, (0, 255, 255), 1, cv2.LINE_AA)
-    cv2.putText(p3, "[3] DIEU KHIEN XE THAT (REALTIME)", (10, dash_h + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.48, (0, 255, 255), 1, cv2.LINE_AA)
+    cv2.putText(p3, "[3] AI CNN DU DOAN & DIEU KHIEN", (10, dash_h + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.48, (0, 255, 255), 1, cv2.LINE_AA)
 
-    # Combine 3 panels horizontally (Tổng 1260 x 360)
+    # Combine 3 panels horizontally (Tổng 1290 x 360)
     combined = np.hstack((p1, p2, p3))
     return combined
+
+
+def draw_yolo_prediction_panel(bgr_orig, arrow_res, inference_ms=0.0, depth_img=None):
+    """
+    Renders dedicated AI prediction window for YOLO Arrow Marker (Top-Right corner: 560x420).
+    """
+    h_orig, w_orig = bgr_orig.shape[:2]
+    vis_w, vis_h = 560, 420
+    canvas = cv2.resize(bgr_orig, (vis_w, vis_h))
+    sx, sy = vis_w / float(w_orig), vis_h / float(h_orig)
+
+    arrow_detected = arrow_res.get('detected', False) if arrow_res else False
+    arrow_triggered_yellow = arrow_res.get('triggered_yellow', False) if arrow_res else False
+    arrow_triggered_black = arrow_res.get('triggered_black', False) if arrow_res else False
+    arrow_dist = arrow_res.get('distance_m', -1.0) if arrow_res else -1.0
+    arrow_conf = arrow_res.get('confidence', 0.0) if arrow_res else 0.0
+    arrow_box = arrow_res.get('box', None) if arrow_res else None
+    inner_roi = arrow_res.get('inner_roi', None) if arrow_res else None
+    cnt = arrow_res.get('consecutive_count', 0) if arrow_res else 0
+    cls_id = arrow_res.get('class_id', -1) if arrow_res else -1
+    cls_name = arrow_res.get('class_name', 'none') if arrow_res else 'none'
+
+    is_yellow = (cls_id == 0 or 'yellow' in str(cls_name).lower())
+    is_black = (cls_id == 1 or 'black' in str(cls_name).lower())
+
+    # 1. Vẽ Bounding Box nếu phát hiện
+    if arrow_detected and arrow_box is not None:
+        bx1, by1, bx2, by2 = arrow_box
+        vx1, vy1 = int(np.clip(bx1 * sx, 0, vis_w - 1)), int(np.clip(by1 * sy, 0, vis_h - 1))
+        vx2, vy2 = int(np.clip(bx2 * sx, 0, vis_w - 1)), int(np.clip(by2 * sy, 0, vis_h - 1))
+
+        if is_yellow:
+            box_color = (0, 255, 0) if arrow_triggered_yellow else (0, 215, 255)
+            tag_name = "MOC VANG (CUOI HANG 1)"
+        else:
+            box_color = (0, 255, 0) if arrow_triggered_black else (255, 180, 50)
+            tag_name = "MOC DEN (DAU LUONG 2)"
+
+        # Khung viền ngoài Bounding Box
+        cv2.rectangle(canvas, (vx1, vy1), (vx2, vy2), box_color, 2)
+
+        # Khung viền trong 60% (cắt 20% mỗi biên để đo Depth chuẩn không dính carton)
+        if inner_roi is not None:
+            ix1, iy1, ix2, iy2 = inner_roi
+            ivx1, ivy1 = int(np.clip(ix1 * sx, 0, vis_w - 1)), int(np.clip(iy1 * sy, 0, vis_h - 1))
+            ivx2, ivy2 = int(np.clip(ix2 * sx, 0, vis_w - 1)), int(np.clip(iy2 * sy, 0, vis_h - 1))
+            cv2.rectangle(canvas, (ivx1, ivy1), (ivx2, ivy2), (255, 255, 255), 1)
+            cx, cy = (ivx1 + ivx2) // 2, (ivy1 + ivy2) // 2
+            cv2.drawMarker(canvas, (cx, cy), box_color, cv2.MARKER_CROSS, 14, 1)
+
+        # Label tag trên đầu box
+        dist_str = f"{arrow_dist:.2f}m" if arrow_dist > 0 else "NO DEPTH"
+        label_text = f"{tag_name} {arrow_conf*100:.0f}% | {dist_str}"
+        (tw, th), _ = cv2.getTextSize(label_text, cv2.FONT_HERSHEY_SIMPLEX, 0.42, 1)
+        tag_y1 = max(0, vy1 - th - 10)
+        cv2.rectangle(canvas, (vx1, tag_y1), (vx1 + tw + 10, vy1), box_color, -1)
+        cv2.putText(canvas, label_text, (vx1 + 5, vy1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (0, 0, 0), 1, cv2.LINE_AA)
+
+    # 2. Header Bar trên cùng
+    cv2.rectangle(canvas, (0, 0), (vis_w, 32), (22, 22, 28), -1)
+    cv2.putText(canvas, "YOLOv8 ARROW MARKER - AI PREDICTION", (10, 21), cv2.FONT_HERSHEY_SIMPLEX, 0.43, (0, 255, 255), 1, cv2.LINE_AA)
+    if inference_ms > 0:
+        cv2.putText(canvas, f"{inference_ms:.1f}ms", (vis_w - 75, 21), cv2.FONT_HERSHEY_SIMPLEX, 0.40, (200, 200, 200), 1, cv2.LINE_AA)
+
+    # 3. Checklist Bar 2 Điều Kiện
+    target_role = "VÀNG [CUỐI HÀNG]" if is_yellow else ("ĐEN [ĐẦU LUỐNG 2]" if is_black else "ĐANG QUÉT...")
+    c1_txt = "OK" if arrow_detected else "SCANNING"
+    c1_col = (0, 255, 0) if arrow_detected else (150, 150, 150)
+    c2_ok = (arrow_detected and arrow_dist > 0.05 and arrow_dist <= 1.0)
+    c2_txt = f"OK ({arrow_dist:.2f}m)" if c2_ok else (f"{arrow_dist:.2f}m" if arrow_dist > 0 else "---")
+    c2_col = (0, 255, 0) if c2_ok else (150, 150, 150)
+
+    cv2.rectangle(canvas, (0, 32), (vis_w, 60), (32, 32, 40), -1)
+    cv2.putText(canvas, f"Mốc: {target_role}", (10, 51), cv2.FONT_HERSHEY_SIMPLEX, 0.36, (0, 215, 255), 1, cv2.LINE_AA)
+    cv2.putText(canvas, f"YOLO: [{c1_txt}]", (195, 51), cv2.FONT_HERSHEY_SIMPLEX, 0.36, c1_col, 1, cv2.LINE_AA)
+    cv2.putText(canvas, f"Depth<=1m: [{c2_txt}]", (315, 51), cv2.FONT_HERSHEY_SIMPLEX, 0.36, c2_col, 1, cv2.LINE_AA)
+    cv2.putText(canvas, f"Hold: {cnt}/3", (475, 51), cv2.FONT_HERSHEY_SIMPLEX, 0.36, (0, 215, 255), 1, cv2.LINE_AA)
+
+    # 4. Bottom Banner
+    if arrow_triggered_yellow:
+        cv2.rectangle(canvas, (0, vis_h - 36), (vis_w, vis_h), (0, 180, 0), -1)
+        cv2.putText(canvas, "MỐC VÀNG <= 1.0m -> KÍCH HOẠT XOAY 90° LẦN 1!", (10, vis_h - 12), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (255, 255, 255), 2, cv2.LINE_AA)
+    elif arrow_triggered_black:
+        cv2.rectangle(canvas, (0, vis_h - 36), (vis_w, vis_h), (0, 160, 220), -1)
+        cv2.putText(canvas, "MỐC ĐEN <= 1.0m -> KÍCH HOẠT XOAY 90° LẦN 2!", (10, vis_h - 12), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (255, 255, 255), 2, cv2.LINE_AA)
+    elif arrow_detected:
+        banner_col = (0, 110, 210) if is_yellow else (180, 100, 0)
+        target_stage = "xoay 90° Lần 1" if is_yellow else "xoay 90° Lần 2"
+        target_marker = "Mốc Vàng" if is_yellow else "Mốc Đen"
+        cv2.rectangle(canvas, (0, vis_h - 36), (vis_w, vis_h), banner_col, -1)
+        cv2.putText(canvas, f"Đang tiến tới {target_marker}: {arrow_dist:.2f}m (Chờ <= 1.00m để {target_stage})", (10, vis_h - 12), cv2.FONT_HERSHEY_SIMPLEX, 0.37, (255, 255, 255), 1, cv2.LINE_AA)
+    else:
+        cv2.rectangle(canvas, (0, vis_h - 28), (vis_w, vis_h), (28, 28, 34), -1)
+        cv2.putText(canvas, "Đang quét tìm Mũi Tên Vàng (Cuối hàng) / Đen (Đầu luống 2)...", (10, vis_h - 9), cv2.FONT_HERSHEY_SIMPLEX, 0.36, (180, 180, 180), 1, cv2.LINE_AA)
+
+    return canvas
+
+
+def draw_depth_cam_panel(depth_img, arrow_res, orig_shape=(480, 640)):
+    """
+    Renders dedicated RealSense D435 Aligned Depth Camera window (Bottom-Right corner below YOLO: 560x420).
+    """
+    vis_w, vis_h = 560, 420
+    if depth_img is None or depth_img.size == 0:
+        canvas = np.zeros((vis_h, vis_w, 3), dtype=np.uint8)
+        canvas[:] = (24, 24, 30)
+        cv2.putText(canvas, "REALSENSE D435 - DEPTH CAMERA", (12, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 255), 1, cv2.LINE_AA)
+        cv2.putText(canvas, "Dang cho luong du lieu Depth (/camera/depth/image_raw)...", (45, vis_h // 2), cv2.FONT_HERSHEY_SIMPLEX, 0.44, (170, 170, 170), 1, cv2.LINE_AA)
+        return canvas
+
+    dh, dw = depth_img.shape[:2]
+    if depth_img.dtype == np.uint16:
+        depth_m = depth_img.astype(np.float32) * 0.001
+    else:
+        depth_m = depth_img.astype(np.float32)
+
+    # Chuẩn hóa vùng độ sâu hiển thị 0.20m -> 3.50m sang bảng màu nhiệt TURBO/JET
+    max_disp_m = 3.50
+    valid_mask = (depth_m > 0.05) & np.isfinite(depth_m)
+    norm_depth = np.clip(depth_m / max_disp_m, 0.0, 1.0)
+    # Đảo ngược để vật ở gần (màu nóng đỏ/vàng) nổi bật, vật ở xa màu xanh đậm
+    inv_u8 = ((1.0 - norm_depth) * 255.0).astype(np.uint8)
+    inv_u8[~valid_mask] = 0
+
+    cmap = getattr(cv2, 'COLORMAP_TURBO', cv2.COLORMAP_JET)
+    color_depth = cv2.applyColorMap(inv_u8, cmap)
+    color_depth[~valid_mask] = (18, 18, 24)
+
+    canvas = cv2.resize(color_depth, (vis_w, vis_h), interpolation=cv2.INTER_NEAREST)
+    sx, sy = vis_w / float(dw), vis_h / float(dh)
+
+    # Đo khoảng cách tại tâm ảnh Depth để hiển thị trực quan
+    ch_y1, ch_y2 = int(dh * 0.45), int(dh * 0.55)
+    ch_x1, ch_x2 = int(dw * 0.45), int(dw * 0.55)
+    center_patch = depth_m[ch_y1:ch_y2, ch_x1:ch_x2]
+    valid_center = center_patch[(center_patch > 0.10) & (center_patch < 8.0)]
+    center_dist = float(np.median(valid_center)) if valid_center.size > 0 else -1.0
+
+    # Vẽ tâm ngắm giữa khung Depth
+    cx_vis, cy_vis = vis_w // 2, vis_h // 2
+    cv2.drawMarker(canvas, (cx_vis, cy_vis), (220, 220, 220), cv2.MARKER_CROSS, 16, 1)
+
+    # Nếu YOLO đang bắt được Mũi Tên, vẽ vùng lấy mẫu Depth (Inner 60% ROI) lên bản đồ nhiệt
+    arrow_detected = arrow_res.get('detected', False) if arrow_res else False
+    arrow_dist = arrow_res.get('distance_m', -1.0) if arrow_res else -1.0
+    arrow_box = arrow_res.get('box', None) if arrow_res else None
+    inner_roi = arrow_res.get('inner_roi', None) if arrow_res else None
+
+    if arrow_detected and arrow_box is not None:
+        bx1, by1, bx2, by2 = arrow_box
+        vx1, vy1 = int(np.clip(bx1 * sx, 0, vis_w - 1)), int(np.clip(by1 * sy, 0, vis_h - 1))
+        vx2, vy2 = int(np.clip(bx2 * sx, 0, vis_w - 1)), int(np.clip(by2 * sy, 0, vis_h - 1))
+        cv2.rectangle(canvas, (vx1, vy1), (vx2, vy2), (0, 255, 255), 2)
+        if inner_roi is not None:
+            ix1, iy1, ix2, iy2 = inner_roi
+            ivx1, ivy1 = int(np.clip(ix1 * sx, 0, vis_w - 1)), int(np.clip(iy1 * sy, 0, vis_h - 1))
+            ivx2, ivy2 = int(np.clip(ix2 * sx, 0, vis_w - 1)), int(np.clip(iy2 * sy, 0, vis_h - 1))
+            cv2.rectangle(canvas, (ivx1, ivy1), (ivx2, ivy2), (255, 255, 255), 2)
+        if arrow_dist > 0:
+            cv2.putText(canvas, f"ROI Depth: {arrow_dist:.2f}m", (vx1, max(48, vy1 - 6)),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.44, (255, 255, 255), 1, cv2.LINE_AA)
+
+    # Header & Footer trên cửa sổ Depth
+    cv2.rectangle(canvas, (0, 0), (vis_w, 32), (22, 22, 28), -1)
+    cv2.putText(canvas, "REALSENSE D435 - ALIGNED DEPTH CAM (0.2m - 3.5m)", (10, 21), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (0, 255, 255), 1, cv2.LINE_AA)
+
+    cv2.rectangle(canvas, (0, vis_h - 28), (vis_w, vis_h), (28, 28, 34), -1)
+    c_str = f"{center_dist:.2f}m" if center_dist > 0 else "---"
+    m_str = f"{arrow_dist:.2f}m" if (arrow_detected and arrow_dist > 0) else "---"
+    cv2.putText(canvas, f"Tam anh: {c_str} | Cu ly Moc YOLO: {m_str} | Mau Do/Vang = Gan, Xanh = Xa", (10, vis_h - 9),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.36, (220, 220, 220), 1, cv2.LINE_AA)
+
+    return canvas
+
+
 
 
 class CnnInferenceServer(Node):
@@ -148,29 +332,33 @@ class CnnInferenceServer(Node):
         super().__init__('cnn_inference_server')
 
         # ── Parameters ────────────────────────────────────────────────
-        self.declare_parameter('model_path', 'models/crop_row_cnn_best_final_int8.onnx')
+        self.declare_parameter('model_path', 'models/crop_row_cnn_v2.onnx')
         self.declare_parameter('input_height', 384)
         self.declare_parameter('input_width', 384)
-        self.declare_parameter('mask_threshold', 0.30)
+        self.declare_parameter('mask_threshold', 0.35)
         self.declare_parameter('roi_ratio', 0.80)
         self.declare_parameter('max_steering_angle_deg', 14.0)
-        self.declare_parameter('in_row_max_steer_deg', 5.0)
-        self.declare_parameter('in_row_max_yaw_dev_deg', 5.0)
+        self.declare_parameter('in_row_max_steer_deg', 6.5)
+        self.declare_parameter('in_row_max_yaw_dev_deg', 7.0)
         self.declare_parameter('num_threads', 0)
         self.declare_parameter('show_window', False)
         self.declare_parameter('tracking_steer_mode', 'PIVOT_STOP')
-        self.declare_parameter('steer_trigger_deg', 2.2)
-        self.declare_parameter('steer_trigger_frames', 6)
+        self.declare_parameter('steer_trigger_deg', 2.0)
+        self.declare_parameter('steer_trigger_frames', 3)
         self.declare_parameter('steer_resume_deg', 1.2)
-        self.declare_parameter('steer_aligned_frames', 6)
-        self.declare_parameter('steer_boost_speed', 0.088)
-        self.declare_parameter('steer_brake_speed', 0.045)
-        self.declare_parameter('turn_in_place_threshold_deg', 2.2)
-        self.declare_parameter('turn_in_place_trigger_frames', 6)
-        self.declare_parameter('turn_in_place_resume_deg', 1.2)
-        self.declare_parameter('heading_adjust_aligned_frames', 6)
-        self.declare_parameter('linear_speed', 0.075)
+        self.declare_parameter('steer_aligned_frames', 2)
+        self.declare_parameter('steer_boost_speed', 0.155)
+        self.declare_parameter('steer_brake_speed', 0.055)
+        self.declare_parameter('turn_in_place_threshold_deg', 3.5)
+        self.declare_parameter('turn_in_place_trigger_frames', 3)
+        self.declare_parameter('turn_in_place_resume_deg', 1.5)
+        self.declare_parameter('heading_adjust_aligned_frames', 2)
+        self.declare_parameter('linear_speed', 0.105)
         self.declare_parameter('wheel_base', 0.58)
+        self.declare_parameter('turn_marker_model', 'models/yolo_arrow.onnx')
+        self.declare_parameter('turn_marker_dist_m', 1.0)
+        self.declare_parameter('turn_marker_conf', 0.45)
+        self.declare_parameter('turn_marker_frames', 3)
 
         p = self.get_parameter
         self.model_path = p('model_path').value
@@ -197,7 +385,7 @@ class CnnInferenceServer(Node):
 
         # Tự động tìm model ONNX nếu đường dẫn tương đối
         if not os.path.exists(self.model_path):
-            candidate_names = [os.path.basename(self.model_path), 'crop_row_cnn_best_final_int8.onnx', 'crop_row_cnn_best_final.onnx']
+            candidate_names = [os.path.basename(self.model_path), 'crop_row_cnn_v2.onnx', 'crop_row_cnn_best.onnx', 'crop_row_cnn_best_final_int8.onnx', 'crop_row_cnn_best_final.onnx']
             try:
                 from ament_index_python.packages import get_package_share_directory
                 share_dir = get_package_share_directory('my_robot_controller')
@@ -227,12 +415,32 @@ class CnnInferenceServer(Node):
             roi_ratio=self.roi_ratio
         )
 
+        # Khởi tạo Bộ Nhận Diện Vật Mốc Quay Đầu YOLO + RealSense Depth D435
+        if ArrowMarkerDetector is not None:
+            marker_model = p('turn_marker_model').value if self.has_parameter('turn_marker_model') else None
+            self.arrow_detector = ArrowMarkerDetector(
+                model_path=marker_model if marker_model else None,
+                conf_thresh=float(p('turn_marker_conf').value),
+                trigger_dist_m=float(p('turn_marker_dist_m').value),
+                consecutive_frames=int(p('turn_marker_frames').value),
+                logger=self.get_logger()
+            )
+        else:
+            self.arrow_detector = None
+        self.latest_depth_img = None
+        self._simulate_marker_trigger = False
+        self._last_trigger_log_time = 0.0
+        self._yolo_lock = threading.Lock()
+        self._yolo_busy = False
+        self._last_yolo_time = 0.0
+        self._latest_arrow_res = None
+
         self.bridge = CvBridge() if CvBridge is not None else None
 
         # Thông số mô phỏng điều khiển & động học xe thật (differential drive)
         self.linear_speed = float(p('linear_speed').value)
-        self.turn_angular_speed = 0.38
-        self.low_conf_thresh = 0.35
+        self.turn_angular_speed = 0.85
+        self.low_conf_thresh = 0.30
         self.wheel_base = float(p('wheel_base').value)
         self.wheel_d = 0.20
         self.wheel_circ = math.pi * self.wheel_d
@@ -265,9 +473,15 @@ class CnnInferenceServer(Node):
         else:
             self.controller = None
 
-        # Cấu hình cửa sổ hiển thị HUD (1 cửa sổ duy nhất, không tạo tab dư thừa)
+        # Cấu hình 3 cửa sổ hiển thị HUD tối ưu cho quay màn hình 1920x1080 (chừa góc Trên-Trái cho Terminal):
+        # - Cửa sổ 1 (Góc Dưới-Trái, sát mép dưới): CNN 3 ảnh (1290x360) tại (x=0, y=680)
+        # - Cửa sổ 2 (Góc Trên-Phải): YOLO AI dự đoán (560x420) tại (x=1360, y=28)
+        # - Cửa sổ 3 (Góc Dưới-Phải, ngay dưới YOLO): RealSense Depth Cam (560x420) tại (x=1360, y=495)
         self.window_name = "AI CNN Crop Row - Laptop HUD"
+        self.yolo_window_name = "YOLO Arrow Marker - AI Prediction"
+        self.depth_window_name = "RealSense D435 - Depth Camera"
         self._window_created = False
+        self._window_pos_frames = 0
         self._last_gui_time = 0.0
 
         # ── Publishers ────────────────────────────────────────────────
@@ -292,15 +506,20 @@ class CnnInferenceServer(Node):
             CompressedImage, '/camera/compressed', self.compressed_image_callback, qos_compressed
         )
 
-        # 2. Nhận ảnh raw (Tương thích với cả RELIABLE và BEST_EFFORT từ camera_publisher)
+        # 2. Nhận ảnh raw (depth=1 để luôn lấy frame mới nhất, tránh dồn hàng đợi gây đơ hình)
         qos_raw = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,
             history=HistoryPolicy.KEEP_LAST,
-            depth=2,
+            depth=1,
             durability=DurabilityPolicy.VOLATILE
         )
         self.raw_sub = self.create_subscription(
             Image, '/camera/color/image_raw', self.raw_image_callback, qos_raw
+        )
+
+        # 3. Nhận ma trận độ sâu Aligned Depth từ RealSense D435
+        self.depth_sub = self.create_subscription(
+            Image, '/camera/depth/image_raw', self.depth_image_callback, qos_raw
         )
 
         # ── Metrics ───────────────────────────────────────────────────
@@ -311,6 +530,21 @@ class CnnInferenceServer(Node):
         self._latest_latency_ms = 0.0
 
         self.get_logger().info("🚀 [CNN Server Laptop] Sẵn sàng xử lý AI! Đang lắng nghe luồng ảnh từ Camera...")
+
+    def depth_image_callback(self, msg: Image):
+        """Lưu ma trận độ sâu mới nhất từ RealSense D435."""
+        try:
+            if self.bridge is not None:
+                self.latest_depth_img = self.bridge.imgmsg_to_cv2(msg, desired_encoding='passthrough')
+            else:
+                if msg.encoding in ('16UC1', 'mono16'):
+                    self.latest_depth_img = np.frombuffer(msg.data, dtype=np.uint16).reshape(msg.height, msg.width)
+                elif msg.encoding in ('32FC1',):
+                    self.latest_depth_img = np.frombuffer(msg.data, dtype=np.float32).reshape(msg.height, msg.width)
+                else:
+                    self.latest_depth_img = np.frombuffer(msg.data, dtype=np.uint16).reshape(msg.height, msg.width)
+        except Exception:
+            pass
 
     def compressed_image_callback(self, msg: CompressedImage):
         """Giải nén JPEG và chạy inference."""
@@ -345,12 +579,103 @@ class CnnInferenceServer(Node):
         except Exception as e:
             self.get_logger().warn(f"Lỗi đọc raw: {e}", throttle_duration_sec=2.0)
 
+    def _run_yolo_async(self, bgr_copy: np.ndarray, depth_copy, sim_box):
+        try:
+            res = self.arrow_detector.detect(bgr_copy, depth_copy, simulate_box=sim_box)
+            if self._simulate_marker_trigger:
+                res['distance_m'] = 0.95
+                res['triggered'] = True
+                res['detected'] = True
+            with self._yolo_lock:
+                self._latest_arrow_res = res
+        except Exception:
+            pass
+        finally:
+            self._yolo_busy = False
+
     def _process_and_publish(self, bgr_img: np.ndarray, t_start: float):
+        # 1. Kích hoạt mạng AI YOLO chạy song song trong Background Thread (giới hạn ~14Hz để tránh tranh chấp CUDA lock với CNN & NVENC)
+        sim_box = [int(bgr_img.shape[1] * 0.38), int(bgr_img.shape[0] * 0.25),
+                   int(bgr_img.shape[1] * 0.62), int(bgr_img.shape[0] * 0.65)] if self._simulate_marker_trigger else None
+        if self.arrow_detector is not None and (getattr(self.arrow_detector, 'is_model_loaded', False) or self._simulate_marker_trigger):
+            if self._latest_arrow_res is None:
+                self._last_yolo_time = t_start
+                self._run_yolo_async(bgr_img, self.latest_depth_img, sim_box)
+            elif not self._yolo_busy and (t_start - self._last_yolo_time) >= 0.07:
+                self._yolo_busy = True
+                self._last_yolo_time = t_start
+                img_copy = bgr_img.copy()
+                depth_copy = self.latest_depth_img.copy() if self.latest_depth_img is not None else None
+                threading.Thread(
+                    target=self._run_yolo_async,
+                    args=(img_copy, depth_copy, sim_box),
+                    daemon=True
+                ).start()
+
+        # 2. Chạy mạng nơ-ron CNN bám luống bắp / thùng carton
         heading_error, lane_offset, lane_center, confidence = self.inference.process_image(
             bgr_img, self.max_steering_angle_deg
         )
+
+        with self._yolo_lock:
+            arrow_res = self._latest_arrow_res
+
+        turn_trigger = 1.0 if (arrow_res and arrow_res.get('triggered', False)) else 0.0
+        turn_trigger_yellow = 1.0 if (arrow_res and arrow_res.get('triggered_yellow', False)) else 0.0
+        turn_trigger_black = 1.0 if (arrow_res and arrow_res.get('triggered_black', False)) else 0.0
+        marker_dist = float(arrow_res.get('distance_m', -1.0)) if arrow_res else -1.0
+        marker_conf = float(arrow_res.get('confidence', 0.0)) if arrow_res else 0.0
+        marker_class = float(arrow_res.get('class_id', -1.0)) if arrow_res else -1.0
+
+        # Tính góc hướng về tâm Biển Mũi Tên YOLO (nếu phát hiện):
+        arrow_steer_deg = 0.0
+        arrow_offset = 0.0
+        arrow_detected = bool(arrow_res and arrow_res.get('detected', False) and arrow_res.get('box') is not None)
+        if arrow_detected:
+            bx1, by1, bx2, by2 = arrow_res['box']
+            w_img = max(1.0, float(bgr_img.shape[1]))
+            arrow_cx = 0.5 * (float(bx1) + float(bx2))
+            arrow_offset = (arrow_cx - 0.5 * w_img) / (0.5 * w_img)
+            raw_arrow_steer = float(np.clip(arrow_offset * 5.5, -4.5, 4.5))
+            arrow_steer_deg = 0.0 if abs(raw_arrow_steer) < 1.8 else raw_arrow_steer
+
+        # ── PHỐI HỢP CNN & YOLO KHI Ở CUỐI HÀNG / KHÔNG CÓ HÀNG ──
+        # 1. Nếu không có luống cây (confidence < low_conf_thresh):
+        #    - Nếu YOLO thấy Bảng Mũi Tên Vàng phía trước: Nghe lời YOLO, hướng thẳng vào tâm Bảng Vàng!
+        #    - Nếu chưa thấy bảng: Khóa góc lái = 0.0° (chạy thẳng tuyệt đối, cấm rẽ trái/phải bậy bạ).
+        # 2. Nếu xe đã tới sát Bảng Vàng (0.10m < marker_dist <= 2.20m) mà ở cuối hàng chỉ còn 1 thùng lẻ (confidence < 0.65):
+        #    - Ưu tiên nghe lời YOLO chạy thẳng tới Bảng Vàng (<= 1.0m) để kích hoạt xoay 90° Lần 1!
+        w_mask = float(self.input_width)
+        yolo_guiding_yellow = (
+            arrow_detected and marker_class == 0.0 and marker_conf >= 0.38
+            and (confidence < self.low_conf_thresh or (0.05 < marker_dist <= 2.20 and confidence < 0.65))
+        )
+        if yolo_guiding_yellow:
+            heading_error = arrow_steer_deg
+            lane_offset = arrow_offset
+            lane_center = float(np.clip(w_mask * 0.5 * (1.0 + arrow_offset), 0.0, w_mask - 1.0))
+        elif confidence < self.low_conf_thresh:
+            heading_error = 0.0
+            lane_offset = 0.0
+            lane_center = float(w_mask * 0.5)
+
         latency_ms = (time.time() - t_start) * 1000.0
         self._latest_latency_ms = latency_ms
+
+        # Thông báo Terminal khi đạt 2 điều kiện và kích hoạt U-Turn
+        now_sec = time.time()
+        if (turn_trigger_yellow >= 1.0 or turn_trigger_black >= 1.0) and (now_sec - self._last_trigger_log_time > 1.2):
+            if turn_trigger_yellow >= 1.0:
+                self.get_logger().info(
+                    f"🎯 [YOLO MỐC VÀNG - TRIGGER 1] Đạt mốc cuối hàng: cự ly={marker_dist:.2f}m <= 1.0m (Conf: {marker_conf*100:.1f}%)! "
+                    f"Gửi lệnh KÍCH HOẠT XOAY 90° LẦN 1 về Pi!"
+                )
+            else:
+                self.get_logger().info(
+                    f"🎯 [YOLO MỐC ĐEN - TRIGGER 2] Đạt mốc đầu Luống 2: cự ly={marker_dist:.2f}m <= 1.0m (Conf: {marker_conf*100:.1f}%)! "
+                    f"Gửi lệnh KÍCH HOẠT XOAY 90° LẦN 2 về Pi!"
+                )
+            self._last_trigger_log_time = now_sec
 
         # Bắn kết quả về Pi
         out_msg = Float32MultiArray()
@@ -359,29 +684,46 @@ class CnnInferenceServer(Node):
         # [2]: lane_center (pixel X)
         # [3]: confidence (0.0 đến 1.0)
         # [4]: latency_ms (thời gian tính toán)
+        # [5]: turn_trigger (1.0 = kích hoạt quay đầu bất kỳ)
+        # [6]: marker_dist (khoảng cách tới vật mốc mét, -1.0 nếu chưa thấy)
+        # [7]: marker_conf (độ tin cậy YOLO của vật mốc)
+        # [8]: marker_class (0.0 = yellow_arrow, 1.0 = black_arrow, -1.0 = Không có)
+        # [9]: turn_trigger_yellow (1.0 = đạt mốc vàng cuối hàng -> Xoay 90° lần 1)
+        # [10]: turn_trigger_black (1.0 = đạt mốc đen đầu luống mới -> Xoay 90° lần 2)
+        # [11]: arrow_steer_deg (góc hướng về tâm mũi tên YOLO từ -4.5° đến +4.5°)
         out_msg.data = [
             float(heading_error),
             float(lane_offset),
             float(lane_center),
             float(confidence),
-            float(latency_ms)
+            float(latency_ms),
+            float(turn_trigger),
+            float(marker_dist),
+            float(marker_conf),
+            float(marker_class),
+            float(turn_trigger_yellow),
+            float(turn_trigger_black),
+            float(arrow_steer_deg)
         ]
         self.detection_pub.publish(out_msg)
         self._frame_count += 1
 
-        # Hiển thị cửa sổ HUD trực quan 3 khung hình OpenCV trên Laptop
+
+        # Hiển thị 3 cửa sổ HUD trực quan trên Laptop (tối ưu bố cục quay màn hình 1920x1080)
         if self.show_window:
             now_gui = time.time()
-            if now_gui - self._last_gui_time < 0.016:  # Cho phép render tối đa 60 FPS siêu mượt
+            if now_gui - self._last_gui_time < 0.030:  # Giới hạn ~30 FPS mượt mà, tránh khóa X11 khi chạy quay-man-hinh
                 return
             self._last_gui_time = now_gui
 
             # Kiểm tra xem người dùng có bấm nút [X] đóng cửa sổ không
             if self._window_created:
                 try:
-                    prop = cv2.getWindowProperty(self.window_name, cv2.WND_PROP_VISIBLE)
-                    if prop < 1:
-                        self.get_logger().info("🛑 Người dùng đã bấm [X] đóng cửa sổ HUD. Tiếp tục chạy ngầm tối đa FPS.")
+                    p1 = cv2.getWindowProperty(self.window_name, cv2.WND_PROP_VISIBLE)
+                    p2 = cv2.getWindowProperty(self.yolo_window_name, cv2.WND_PROP_VISIBLE)
+                    p3 = cv2.getWindowProperty(self.depth_window_name, cv2.WND_PROP_VISIBLE)
+                    if p1 < 1 and p2 < 1 and p3 < 1:
+                        self.get_logger().info("🛑 Người dùng đã bấm [X] đóng các cửa sổ HUD. Tiếp tục chạy ngầm tối đa FPS.")
                         self.show_window = False
                         cv2.destroyAllWindows()
                         self._window_created = False
@@ -391,13 +733,30 @@ class CnnInferenceServer(Node):
                     cv2.destroyAllWindows()
                     self._window_created = False
 
-            # Khởi tạo cửa sổ 1 LẦN DUY NHẤT
+            # Khởi tạo 3 cửa sổ 1 LẦN DUY NHẤT và ghim tọa độ chuẩn trên màn hình 1920x1080:
+            # - Cửa sổ 1 (Dưới-Trái): CNN 3 ảnh (Cam Gốc | CNN Mask | AI Dự Đoán CNN) 1290x360 @ (0, 680)
+            # - Cửa sổ 2 (Trên-Phải): YOLO Mũi Tên 560x420 @ (1360, 28)
+            # - Cửa sổ 3 (Dưới-Phải, ngay dưới YOLO): RealSense Depth Cam 560x420 @ (1360, 495)
             if self.show_window and not self._window_created:
                 try:
                     cv2.namedWindow(self.window_name, cv2.WINDOW_NORMAL)
-                    cv2.resizeWindow(self.window_name, 1260, 360)
+                    cv2.resizeWindow(self.window_name, 1290, 360)
+                    cv2.moveWindow(self.window_name, 0, 680)
+
+                    cv2.namedWindow(self.yolo_window_name, cv2.WINDOW_NORMAL)
+                    cv2.resizeWindow(self.yolo_window_name, 560, 420)
+                    cv2.moveWindow(self.yolo_window_name, 1360, 28)
+
+                    cv2.namedWindow(self.depth_window_name, cv2.WINDOW_NORMAL)
+                    cv2.resizeWindow(self.depth_window_name, 560, 420)
+                    cv2.moveWindow(self.depth_window_name, 1360, 495)
+
                     self._window_created = True
-                    self.get_logger().info("🌾 [CNN Server] Kích hoạt cửa sổ HUD 3 khung hình OpenCV trực quan.")
+                    self._window_pos_frames = 0
+                    self.get_logger().info(
+                        "🌾 [CNN Server] Kích hoạt 3 cửa sổ HUD: "
+                        "[1: CNN 3 ảnh @ Dưới-Trái] | [2: YOLO @ Trên-Phải] | [3: Depth Cam @ Dưới YOLO]."
+                    )
                 except Exception as e:
                     self.get_logger().warn(f"Không thể mở cửa sổ GUI: {e}")
                     self.show_window = False
@@ -417,29 +776,65 @@ class CnnInferenceServer(Node):
 
                 is_spike = False
                 if self.initial_alignment_done:
-                    # Trong hàng: kiểm tra góc bất thường / spike do nhìn trúng khe giữa 2 thùng
-                    if abs(heading_error) > (self.in_row_max_steer_deg + 0.5) or abs(heading_error - self._hud_smooth_angle) > 3.5:
+                    # 1. Bộ lọc trung vị trượt 3-frame (3-Frame Sliding Median Filter) khử nhiễu đơn lẻ
+                    raw_hist = getattr(self, '_hud_raw_hist', None)
+                    if raw_hist is None:
+                        raw_hist = []
+                        self._hud_raw_hist = raw_hist
+                    raw_hist.append(float(heading_error))
+                    if len(raw_hist) > 3:
+                        raw_hist.pop(0)
+                    filtered_err = float(np.median(raw_hist))
+
+                    # 2. Chỉ coi là spike khe thùng khi góc nhảy vọt > 6.5° và ngược dấu với xu hướng trước đó
+                    is_reversal_jump = (
+                        abs(heading_error - self._hud_smooth_angle) > 6.5
+                        and (heading_error * self._hud_smooth_angle < -1.0)
+                    )
+                    if is_reversal_jump:
                         is_spike = True
-                        spike_dir = 1.0 if heading_error > 0 else -1.0
-                        restoring_steer = -2.0 * spike_dir
-                        self._hud_smooth_angle = 0.60 * restoring_steer + 0.40 * self._hud_smooth_angle
+                        # Giữ nguyên hướng mượt hiện tại, giảm nhẹ biên độ về 0 thay vì đảo ngược dấu sai
+                        self._hud_smooth_angle = 0.85 * self._hud_smooth_angle
                     else:
-                        clamped = float(np.clip(heading_error, -self.in_row_max_steer_deg, self.in_row_max_steer_deg))
-                        self._hud_smooth_angle = 0.35 * clamped + 0.65 * self._hud_smooth_angle
+                        clamped = float(np.clip(filtered_err, -self.in_row_max_steer_deg, self.in_row_max_steer_deg))
+                        self._hud_smooth_angle = 0.45 * clamped + 0.55 * self._hud_smooth_angle
                     active_heading_error = self._hud_smooth_angle
                 else:
                     active_heading_error = heading_error
                     self._hud_smooth_angle = heading_error
 
-                # 1. Tính toán trạng thái FSM và Động học xe mô phỏng (100% khớp cnn_driver & test-img)
+                # 1. Tính toán trạng thái FSM và Động học xe mô phỏng (100% khớp cnn_driver)
                 if self.tracking_steer_mode == 'CONTINUOUS_STEER':
-                    if confidence < self.low_conf_thresh:
-                        state_name = "LOST / EOR (MAT DAU / HET HANG)"
-                        state_color = (0, 0, 255)  # Đỏ
+                    if turn_trigger_yellow >= 1.0:
+                        state_name = f"MOC VANG <= 1.0m ({marker_dist:.2f}m) -> XOAY 90° LAN 1 (IMU LOCK)"
+                        state_color = (0, 255, 0)
                         v_lin = 0.0
+                        w_ang = -self.turn_angular_speed
+                        v_left = self.steer_boost_speed
+                        v_right = -self.steer_boost_speed
+                    elif turn_trigger_black >= 1.0:
+                        state_name = f"MOC DEN <= 1.0m ({marker_dist:.2f}m) -> XOAY 90° LAN 2 VAO LUONG 2"
+                        state_color = (0, 255, 0)
+                        v_lin = 0.0
+                        w_ang = -self.turn_angular_speed
+                        v_left = self.steer_boost_speed
+                        v_right = -self.steer_boost_speed
+                    elif yolo_guiding_yellow:
+                        state_name = f"NGHE YOLO -> TIEN THANG TOI MOC VANG ({marker_dist:.2f}m, lai={heading_error:+.1f}°)"
+                        state_color = (0, 215, 255)
+                        v_lin = self.linear_speed
+                        w_ang = float(np.clip(-0.045 * heading_error, -0.25, 0.25))
+                        v_left = v_lin - (w_ang * self.wheel_base / 2.0)
+                        v_right = v_lin + (w_ang * self.wheel_base / 2.0)
+                        self.steer_active_side = None
+                        self.steer_trigger_counter = 0
+                    elif confidence < self.low_conf_thresh:
+                        state_name = "KHONG CO HANG -> CHAY THANG TIM MOC VANG YOLO (0.0°)"
+                        state_color = (0, 180, 255)
+                        v_lin = self.linear_speed
                         w_ang = 0.0
-                        v_left = 0.0
-                        v_right = 0.0
+                        v_left = self.linear_speed
+                        v_right = self.linear_speed
                         self.steer_active_side = None
                         self.steer_trigger_counter = 0
                     else:
@@ -523,10 +918,30 @@ class CnnInferenceServer(Node):
                     duty_r = vel_to_duty(v_right, self.max_linear_speed, self.min_duty_cycle)
 
                 else:
-                    if confidence < self.low_conf_thresh:
-                        state_name = "LOST / EOR (MAT DAU / HET HANG)"
-                        state_color = (0, 0, 255)  # Đỏ
+                    if turn_trigger_yellow >= 1.0:
+                        state_name = f"MOC VANG <= 1.0m ({marker_dist:.2f}m) -> XOAY 90° LAN 1 (IMU LOCK)"
+                        state_color = (0, 255, 0)
                         v_lin = 0.0
+                        w_ang = -self.turn_angular_speed
+                        self.turn_in_place_active = False
+                    elif turn_trigger_black >= 1.0:
+                        state_name = f"MOC DEN <= 1.0m ({marker_dist:.2f}m) -> XOAY 90° LAN 2 VAO LUONG 2"
+                        state_color = (0, 255, 0)
+                        v_lin = 0.0
+                        w_ang = -self.turn_angular_speed
+                        self.turn_in_place_active = False
+                    elif yolo_guiding_yellow:
+                        state_name = f"NGHE YOLO -> TIEN THANG TOI MOC VANG ({marker_dist:.2f}m, lai={heading_error:+.1f}°)"
+                        state_color = (0, 215, 255)
+                        v_lin = self.linear_speed
+                        w_ang = float(np.clip(-0.045 * heading_error, -0.25, 0.25))
+                        self.turn_in_place_active = False
+                        self.turn_in_place_trigger_counter = 0
+                        self.turn_in_place_aligned_counter = 0
+                    elif confidence < self.low_conf_thresh:
+                        state_name = "KHONG CO HANG -> CHAY THANG TIM MOC VANG YOLO (0.0°)"
+                        state_color = (0, 180, 255)
+                        v_lin = self.linear_speed
                         w_ang = 0.0
                         self.turn_in_place_active = False
                         self.turn_in_place_trigger_counter = 0
@@ -602,7 +1017,7 @@ class CnnInferenceServer(Node):
                 if mask_prob is None:
                     mask_prob = np.zeros((self.input_height, self.input_width), dtype=np.float32)
 
-                # 5. Vẽ HUD 3 Panel (Camera gốc | CNN Mask | Dashboard xe thật)
+                # 5. Vẽ Cửa sổ 1 (Dưới-Trái): HUD 3 Panel CNN (Camera gốc | CNN Mask | AI CNN Dự đoán)
                 hud_canvas = draw_hud_3panel(
                     bgr_orig=bgr_img,
                     mask_prob=mask_prob,
@@ -626,22 +1041,61 @@ class CnnInferenceServer(Node):
                     cam_fps=float(self._latest_fps)
                 )
 
+                # 6. Vẽ Cửa sổ 2 (Trên-Phải): YOLO Dự Đoán Mũi Tên
+                yolo_canvas = draw_yolo_prediction_panel(
+                    bgr_orig=bgr_img,
+                    arrow_res=arrow_res,
+                    inference_ms=latency_ms,
+                    depth_img=self.latest_depth_img
+                )
+
+                # 7. Vẽ Cửa sổ 3 (Dưới-Phải, ngay dưới YOLO): RealSense Depth Camera
+                depth_canvas = draw_depth_cam_panel(
+                    depth_img=self.latest_depth_img,
+                    arrow_res=arrow_res,
+                    orig_shape=bgr_img.shape[:2]
+                )
+
                 cv2.imshow(self.window_name, hud_canvas)
+                cv2.imshow(self.yolo_window_name, yolo_canvas)
+                cv2.imshow(self.depth_window_name, depth_canvas)
+
+                # Ghim lại vị trí trong 5 frame đầu sau khi cửa sổ map lên X11/GNOME để đảm bảo đúng tọa độ 100%
+                if self._window_pos_frames < 5:
+                    self._window_pos_frames += 1
+                    try:
+                        cv2.moveWindow(self.window_name, 0, 680)
+                        cv2.moveWindow(self.yolo_window_name, 1360, 28)
+                        cv2.moveWindow(self.depth_window_name, 1360, 495)
+                    except Exception:
+                        pass
+
                 key = cv2.waitKey(1) & 0xFF
-                if key in (ord('q'), ord('Q'), 27):  # 'q' hoặc ESC -> Đóng vĩnh viễn cửa sổ
-                    self.get_logger().info("🛑 Người dùng nhấn phím 'q' / ESC. Đóng cửa sổ HUD và chuyển sang chạy ngầm.")
+                if key in (ord('q'), ord('Q'), 27):  # 'q' hoặc ESC -> Đóng vĩnh viễn cả 3 cửa sổ
+                    self.get_logger().info("🛑 Người dùng nhấn phím 'q' / ESC. Đóng cả 3 cửa sổ HUD và chuyển sang chạy ngầm.")
                     self.show_window = False
                     cv2.destroyAllWindows()
                     self._window_created = False
+                elif key in (ord('t'), ord('T')):
+                    self._simulate_marker_trigger = not self._simulate_marker_trigger
+                    sim_status = "BẬT (Giả lập thấy Mũi tên 0.95m -> KÍCH HOẠT QUAY ĐẦU)" if self._simulate_marker_trigger else "TẮT"
+                    self.get_logger().info(f"🔘 Phím [T] được nhấn: Giả lập Trigger: {sim_status}")
 
     def _log_fps(self):
         fps = self._frame_count
         self._frame_count = 0
         self._latest_fps = float(fps)
         if fps > 0:
-            gpu_fps = 1000.0 / max(1.0, self._latest_latency_ms)
+            prov = str(getattr(self.inference, 'active_provider', 'CPU'))
+            if 'CUDA' in prov or 'Tensorrt' in prov:
+                hw_tag = "AI GPU [RTX 3050 CUDA]"
+            elif 'OpenVINO' in prov:
+                hw_tag = f"AI Tăng Tốc [{prov}]"
+            else:
+                hw_tag = "AI CPU [Dự Phòng]"
+            est_fps = 1000.0 / max(1.0, self._latest_latency_ms)
             self.get_logger().info(
-                f"⚡ [Laptop CNN Worker] Camera đầu vào: {fps} FPS | AI GPU: {self._latest_latency_ms:.1f} ms (~{gpu_fps:.0f} FPS khả năng)"
+                f"⚡ [Laptop CNN Worker] Camera thực nhận: {fps} FPS | {hw_tag}: {self._latest_latency_ms:.1f} ms (~{est_fps:.0f} FPS khả năng)"
             )
 
 
